@@ -28,8 +28,7 @@ require `xz`; this workspace also requires Git.
 Install Nix with the official recommended multi-user installer:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install \
-  | sh -s -- --daemon
+sh <(curl -L https://nixos.org/nix/install) --daemon
 ```
 
 Use the official [Nix download instructions](https://nixos.org/download/) for
@@ -49,16 +48,15 @@ experimental-features = nix-command flakes
 accept-flake-config = true
 ```
 
-Install the exact devenv CLI version required by this checkout:
+Install devenv from nixpkgs unstable:
 
 ```sh
-nix profile add --accept-flake-config "github:cachix/devenv/v2.1.2"
+nix-env --install --attr devenv -f https://github.com/NixOS/nixpkgs/tarball/nixpkgs-unstable
 devenv version
 ```
 
-The version command must report `2.1.2`. Ensure that `~/.nix-profile/bin` is
-on `PATH` if the newly installed `devenv` command is not found in a fresh
-terminal.
+Ensure that `~/.nix-profile/bin` is on `PATH` if the newly installed `devenv`
+command is not found in a fresh terminal.
 
 Finally, clone this workspace over HTTPS if it is not already checked out:
 

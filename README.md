@@ -65,15 +65,48 @@ git clone https://github.com/CogniPilot/cognipilot_workspace.git
 cd cognipilot_workspace
 ```
 
-The devenv and Cachix binary caches substantially reduce the first install.
-On a multi-user Nix installation, a system administrator may add these lines
-to the system Nix configuration before installing devenv, then restart the Nix
-daemon:
+### Configure the binary caches
+
+Do this before the first `devenv shell` or `ws launch`. The devenv and Cachix
+binary caches substantially reduce the first install. Without them, Nix may
+compile `devenv-tasks`, Rust, LLVM, and hundreds of supporting derivations from
+source while the terminal still says `Configuring shell`.
+
+For the recommended multi-user Nix installation, edit the system configuration:
+
+```sh
+sudoedit /etc/nix/nix.conf
+```
+
+Add these lines without removing the existing settings:
 
 ```text
 extra-substituters = https://devenv.cachix.org https://cachix.cachix.org
 extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= cachix.cachix.org-1:eWNHQldwUO7G2VkjpnjDbWwy4KQ/HNxht7H4SSoMckM=
 ```
+
+Restart the daemon so the system configuration takes effect. Wait for active
+Nix builds to finish first because restarting the daemon interrupts them:
+
+```sh
+sudo systemctl restart nix-daemon
+```
+
+Use the equivalent service-manager command on Linux systems without systemd.
+For a single-user Nix installation, put the same settings in
+`~/.config/nix/nix.conf`; there is no system daemon to restart.
+
+Verify the effective configuration before entering the workspace:
+
+```sh
+nix config show substituters
+nix config show trusted-public-keys
+```
+
+The first command must include `https://devenv.cachix.org` and
+`https://cachix.cachix.org`, and the second must include both corresponding
+public keys. If they are absent, do not start the initial workspace build;
+correct the configuration and restart the daemon first.
 
 Trusting a binary cache allows its correctly signed builds into the local Nix
 store, so this remains an explicit administrator decision. Without these

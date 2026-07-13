@@ -1,4 +1,4 @@
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 let
   inherit (lib) mkOption types;
@@ -64,7 +64,9 @@ let
     set -euo pipefail
     ${command}
   '';
-  nix = "nix --accept-flake-config";
+  # Tasks run in component-specific shells whose PATH is intentionally small.
+  # Use the pinned executable rather than relying on a host profile entry.
+  nix = "${pkgs.nix}/bin/nix --accept-flake-config";
   flake = path: ''$(workspace-flake-ref --mode local "$DEVENV_ROOT/${path}")'';
   releaseFlake = path: ''$(workspace-flake-ref --mode release "$DEVENV_ROOT/${path}")'';
   synapseRust = "$DEVENV_ROOT/src/synapse_fbs/target/xtask/packages/rust";

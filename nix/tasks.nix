@@ -26,6 +26,14 @@ let
         description = "${mode} build: ${component.displayName}";
         cwd = "${root}/${component.path}";
         exec = component.${mode}.build;
+        # Devenv otherwise executes every task in the dependency DAG on every
+        # invocation. Track this component and its direct dependency sources;
+        # ignored build outputs are excluded by devenv's git-aware walker.
+        # Including dependencies ensures an ABI/generated-artifact change also
+        # invalidates the consuming component.
+        execIfModified =
+          [ "${root}/${component.path}" ]
+          ++ map (dependency: "${root}/${components.${dependency}.path}") component.dependencies;
         after =
           lib.optionals (mode == "local") (
             map (dependency: "local:build:${dependency}") component.dependencies

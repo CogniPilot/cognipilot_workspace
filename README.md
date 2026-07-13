@@ -309,6 +309,11 @@ unchanged. Release mode runs its checked-in `nix run .#ci` flow.
 
 ## Commands
 
+`ws` uses color for interactive status, profile, synchronization, and West
+output. Colors are disabled automatically when output is redirected or piped.
+Set `NO_COLOR=1` to disable them explicitly, or `CLICOLOR_FORCE=1` to preserve
+colors through another command.
+
 ```text
 ws sync COMPONENT|all
 ws update COMPONENT|all

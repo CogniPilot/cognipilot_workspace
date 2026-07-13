@@ -10,9 +10,62 @@ protocol_file="$state/git-protocol"
 
 mkdir -p "$state"
 
+# Color only interactive output. NO_COLOR is the standard opt-out, while
+# CLICOLOR_FORCE makes snapshots/tests able to exercise the colored path.
+if [[ -z "${NO_COLOR+x}" ]] &&
+   { [[ -t 1 && "${TERM:-dumb}" != "dumb" ]] ||
+     [[ "${CLICOLOR_FORCE:-0}" != "0" ]]; }; then
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_DIM=$'\033[2m'
+  C_RED=$'\033[31m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_BLUE=$'\033[34m'
+  C_MAGENTA=$'\033[35m'
+  C_CYAN=$'\033[36m'
+else
+  C_RESET=''
+  C_BOLD=''
+  C_DIM=''
+  C_RED=''
+  C_GREEN=''
+  C_YELLOW=''
+  C_BLUE=''
+  C_MAGENTA=''
+  C_CYAN=''
+fi
+
+component_is_active() {
+  local name="$1"
+  local profile
+  while IFS= read -r profile; do
+    if jq -e --arg profile "$profile" --arg name "$name" \
+      '.profiles[$profile] | index($name) != null' "$manifest" >/dev/null; then
+      return 0
+    fi
+  done < <(current_profiles)
+  return 1
+}
+
+print_worktree_status() {
+  local path="$1"
+  local line code color
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    code="${line:0:2}"
+    case "$code" in
+      '??'|'A '|' A') color="$C_GREEN" ;;
+      *D*|*U*) color="$C_RED" ;;
+      *) color="$C_YELLOW" ;;
+    esac
+    printf '  %b%s%b\n' "$color" "$line" "$C_RESET"
+  done < <(git -C "$path" status --short)
+}
+
 require_manifest() {
   if [[ -z "$manifest" || ! -r "$manifest" ]]; then
-    printf 'repository manifest is unavailable; enter `devenv shell` first\n' >&2
+    printf 'repository manifest is unavailable; enter devenv shell first\n' >&2
     exit 1
   fi
 }
@@ -179,12 +232,15 @@ sync_one() {
   https_url="$(github_urls "$name" | sed -n '1p')"
 
   if git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
-    printf '%-24s present (%s)\n' "$name" "$(git -C "$path" branch --show-current || true)"
+    printf '%b✓%b %-24s %bpresent%b (%s)\n' \
+      "$C_GREEN" "$C_RESET" "$name" "$C_DIM" "$C_RESET" \
+      "$(git -C "$path" branch --show-current || true)"
     return 0
   fi
   if [[ -e "$path" ]]; then
     if [[ "$allow_deployed" == "true" && -d "$path" ]]; then
-      printf '%-24s deployed/non-Git tree present\n' "$name"
+      printf '%b●%b %-24s %bdeployed/non-Git tree present%b\n' \
+        "$C_YELLOW" "$C_RESET" "$name" "$C_YELLOW" "$C_RESET"
       return 0
     fi
     if [[ -d "$path" && -z "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
@@ -199,7 +255,9 @@ sync_one() {
   mkdir -p "$parent"
   temporary="$(mktemp -d "$parent/.${name}.clone.XXXXXX")"
   rmdir "$temporary"
-  printf '%-24s cloning %s (%s)\n' "$name" "$https_url" "$branch"
+  printf '%b→%b %-24s cloning %b%s%b (%b%s%b)\n' \
+    "$C_CYAN" "$C_RESET" "$name" "$C_DIM" "$https_url" "$C_RESET" \
+    "$C_MAGENTA" "$branch" "$C_RESET"
   if GIT_TERMINAL_PROMPT=0 git clone \
       --filter=blob:none --single-branch --branch "$branch" \
       "$https_url" "$temporary"; then
@@ -236,10 +294,11 @@ check_update_one() {
   branch="$(component_value "$name" '.repo.branch')"
   if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
     if [[ "$(component_value "$name" '(.repo.allowDeployed // false)')" == "true" && -d "$path" ]]; then
-      printf '%-24s deployed/non-Git tree; not updated\n' "$name"
+      printf '%b●%b %-24s %bdeployed/non-Git tree; not updated%b\n' \
+        "$C_YELLOW" "$C_RESET" "$name" "$C_YELLOW" "$C_RESET"
       return 0
     fi
-    printf '%s is missing; run `ws sync %s` first\n' "$name" "$name" >&2
+    printf '%s is missing; run ws sync %s first\n' "$name" "$name" >&2
     return 1
   fi
   if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
@@ -262,7 +321,8 @@ fetch_update_one() {
   if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
     return 0
   fi
-  printf '%-24s fetching %s\n' "$name" "$branch"
+  printf '%b↓%b %-24s fetching %b%s%b\n' \
+    "$C_CYAN" "$C_RESET" "$name" "$C_MAGENTA" "$branch" "$C_RESET"
   git -C "$path" fetch --prune origin \
     "refs/heads/$branch:refs/remotes/origin/$branch"
 }
@@ -375,7 +435,7 @@ freeze_workspace() {
          --format='%(refname)' refs/remotes/origin/ | grep -q .; then
       printf '%s commit %s is not in a local origin tracking ref\n' \
         "$name" "$revision" >&2
-      printf 'push it first, or use `ws freeze --allow-unpushed`\n' >&2
+      printf 'push it first, or use ws freeze --allow-unpushed\n' >&2
       rm -f "$temporary" "$next"
       return 1
     fi
@@ -399,7 +459,8 @@ freeze_workspace() {
   mkdir -p "$(dirname "$output")"
   jq -S . "$temporary" > "$output"
   rm -f "$temporary"
-  printf 'workspace snapshot written: %s\n' "$output"
+  printf '%b✓%b workspace snapshot written: %b%s%b\n' \
+    "$C_GREEN" "$C_RESET" "$C_CYAN" "$output" "$C_RESET"
 }
 
 restore_workspace() {
@@ -469,7 +530,8 @@ restore_workspace() {
     path="${restore_paths[$name]}"
     revision="${restore_revisions[$name]}"
     git -C "$path" switch --detach "$revision"
-    printf '%-24s %s\n' "$name" "$revision"
+    printf '%b✓%b %-24s %b%s%b\n' \
+      "$C_GREEN" "$C_RESET" "$name" "$C_DIM" "$revision" "$C_RESET"
   done
 }
 
@@ -542,7 +604,9 @@ case "$command" in
     case "$1" in
       local|release)
         printf '%s\n' "$1" > "$mode_file"
-        printf 'workspace dependency mode: %s\n' "$1"
+        if [[ "$1" == "local" ]]; then mode_color="$C_GREEN"; else mode_color="$C_YELLOW"; fi
+        printf '%b✓%b workspace dependency mode: %b%s%b\n' \
+          "$C_GREEN" "$C_RESET" "$mode_color" "$1" "$C_RESET"
         ;;
       *) printf 'mode must be local or release\n' >&2; exit 2 ;;
     esac
@@ -554,15 +618,22 @@ case "$command" in
     fi
     if [[ $# -eq 1 && "$1" == "list" ]]; then
       require_manifest
-      jq -r '
-        .profileDefinitions as $definitions
-        | .profiles
-        | to_entries[]
-        | .key as $name
-        | "\($name)\n  includes: "
-          + (($definitions[$name].includes // []) | if length == 0 then "-" else join(", ") end)
-          + "\n  components: " + (.value | join(", "))
-      ' "$manifest"
+      while IFS= read -r profile_name; do
+        includes="$(jq -r --arg profile "$profile_name" \
+          '.profileDefinitions[$profile].includes | if length == 0 then "-" else join(", ") end' \
+          "$manifest")"
+        profile_components="$(jq -r --arg profile "$profile_name" \
+          '.profiles[$profile] | join(", ")' "$manifest")"
+        if current_profiles | grep -Fxq "$profile_name"; then
+          printf '%b● %s%b %b(active)%b\n' \
+            "$C_BOLD$C_CYAN" "$profile_name" "$C_RESET" "$C_GREEN" "$C_RESET"
+        else
+          printf '%b○ %s%b\n' "$C_DIM" "$profile_name" "$C_RESET"
+        fi
+        printf '  %bincludes:%b   %b%s%b\n' \
+          "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$includes" "$C_RESET"
+        printf '  %bcomponents:%b %s\n' "$C_BLUE" "$C_RESET" "$profile_components"
+      done < <(jq -r '.profiles | keys[]' "$manifest")
       exit 0
     fi
     profile_temporary="$(mktemp "$state/workspace-profile.XXXXXX")"
@@ -575,8 +646,9 @@ case "$command" in
       fi
     done
     mv "$profile_temporary" "$profile_file"
-    printf 'workspace profiles: %s\n' "$(profile_label)"
-    printf 'repository checkouts were not changed\n'
+    printf '%b✓%b workspace profiles: %b%s%b\n' \
+      "$C_GREEN" "$C_RESET" "$C_CYAN" "$(profile_label)" "$C_RESET"
+    printf '%brepository checkouts were not changed%b\n' "$C_DIM" "$C_RESET"
     ;;
   build|test)
     mode="$(current_mode)"
@@ -617,11 +689,13 @@ case "$command" in
     [[ $# -eq 1 ]] || { printf 'usage: ws shell COMPONENT\n' >&2; exit 2; }
     path="$(component_path "$1")"
     if [[ ! -d "$path" ]]; then
-      printf '%s is not installed; run `ws sync %s`\n' "$1" "$1" >&2
+      printf '%s is not installed; run ws sync %s\n' "$1" "$1" >&2
       exit 1
     fi
     if [[ "$1" == "FastDyn" ]]; then
       cd "$root"
+      # Expansion belongs in the nested shell.
+      # shellcheck disable=SC2016
       exec devenv --profile fastdyn shell bash -c \
         'cd "$1"; exec "${SHELL:-bash}"' _ "$path"
     fi
@@ -636,7 +710,7 @@ case "$command" in
     shift || true
     if [[ ! -f "$root/src/cerebri_cubs2/west.yml" &&
           ! -f "$root/src/cerebri_rdd2/west.yml" ]]; then
-      printf 'west manifests are unavailable; run `ws sync cerebri_cubs2` or `ws sync cerebri_rdd2`\n' >&2
+      printf 'west manifests are unavailable; run ws sync cerebri_cubs2 or ws sync cerebri_rdd2\n' >&2
       exit 1
     fi
     COGNIPILOT_WORKSPACE_PROFILES="$(profiles_csv)"
@@ -663,15 +737,20 @@ case "$command" in
       path="$(component_path "$name")"
       git -C "$path" rev-parse --git-dir >/dev/null 2>&1 || continue
       set_push_protocol "$name" "$path"
-      printf '%-24s fetch=%s push=%s\n' "$name" \
-        "$(git -C "$path" remote get-url origin)" \
-        "$(git -C "$path" remote get-url --push origin)"
+      printf '%b✓%b %-24s %bfetch=%b%s %bpush=%b%s\n' \
+        "$C_GREEN" "$C_RESET" "$name" \
+        "$C_BLUE" "$C_RESET" "$(git -C "$path" remote get-url origin)" \
+        "$C_MAGENTA" "$C_RESET" "$(git -C "$path" remote get-url --push origin)"
     done < <(jq -r '.components | keys[]' "$manifest")
     ;;
   status)
     require_manifest
-    printf 'mode: %s\n' "$(current_mode)"
-    printf 'profiles: %s\n' "$(profile_label)"
+    mode="$(current_mode)"
+    if [[ "$mode" == "local" ]]; then mode_color="$C_GREEN"; else mode_color="$C_YELLOW"; fi
+    printf '%bmode:%b     %b%s%b\n' \
+      "$C_BOLD$C_BLUE" "$C_RESET" "$mode_color" "$mode" "$C_RESET"
+    printf '%bprofiles:%b %b%s%b\n' \
+      "$C_BOLD$C_BLUE" "$C_RESET" "$C_CYAN" "$(profile_label)" "$C_RESET"
     if [[ -f "$root/src/cerebri_cubs2/west.yml" ||
           -f "$root/src/cerebri_rdd2/west.yml" ]]; then
       COGNIPILOT_WORKSPACE_PROFILES="$(profiles_csv)" workspace-west status
@@ -683,27 +762,77 @@ case "$command" in
       memberships="$(jq -r --arg name "$name" \
         '[.profiles | to_entries[] | select(.value | index($name)) | .key] | join(",")' \
         "$manifest")"
+      name_style="$C_BOLD$C_CYAN"
+      if component_is_active "$name"; then active=true; else active=false; fi
       if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
         if [[ -d "$path" && "$(component_value "$name" '(.repo.allowDeployed // false)')" == "true" ]]; then
-          printf '\n[%s] deployed/non-Git tree\n' "$name"
+          printf '\n%b[%s]%b %b● deployed/non-Git tree%b\n' \
+            "$name_style" "$name" "$C_RESET" "$C_YELLOW" "$C_RESET"
+        elif [[ "$active" == "true" ]]; then
+          printf '\n%b[%s]%b %b✗ missing%b\n' \
+            "$name_style" "$name" "$C_RESET" "$C_RED" "$C_RESET"
+          printf '  %bprofiles:%b %b%s%b %b(active)%b\n' \
+            "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
+            "$C_GREEN" "$C_RESET"
+          printf '  %brun: ws sync %s%b\n' "$C_YELLOW" "$name" "$C_RESET"
         else
-          printf '\n[%s] missing (profiles: %s) — ws sync %s\n' \
-            "$name" "$memberships" "$name"
+          printf '\n%b[%s]%b %b○ not checked out%b\n' \
+            "$name_style" "$name" "$C_RESET" "$C_DIM" "$C_RESET"
+          printf '  %bprofiles:%b %b%s%b %b(inactive)%b\n' \
+            "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
+            "$C_DIM" "$C_RESET"
         fi
         continue
       fi
       branch="$(git -C "$path" branch --show-current)"
       revision="$(git -C "$path" rev-parse --short=12 HEAD)"
-      printf '\n[%s] %s @ %s (profiles: %s)\n' \
-        "$name" "${branch:-detached}" "$revision" "$memberships"
+      expected_branch="$(component_value "$name" '.repo.branch')"
+      if [[ -z "$branch" ]]; then
+        branch_label="detached"
+        branch_color="$C_YELLOW"
+      elif [[ "$branch" == "$expected_branch" ]]; then
+        branch_label="$branch"
+        branch_color="$C_GREEN"
+      else
+        branch_label="$branch"
+        branch_color="$C_YELLOW"
+      fi
+      if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
+        state_label='● dirty'
+        state_color="$C_YELLOW"
+      else
+        state_label='✓ clean'
+        state_color="$C_GREEN"
+      fi
+      printf '\n%b[%s]%b %b%s%b %b@ %s%b  %b%s%b\n' \
+        "$name_style" "$name" "$C_RESET" \
+        "$branch_color" "$branch_label" "$C_RESET" \
+        "$C_DIM" "$revision" "$C_RESET" \
+        "$state_color" "$state_label" "$C_RESET"
+      if [[ "$active" == "true" ]]; then
+        printf '  %bprofiles:%b %b%s%b %b(active)%b\n' \
+          "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
+          "$C_GREEN" "$C_RESET"
+      else
+        printf '  %bprofiles:%b %b%s%b %b(inactive)%b\n' \
+          "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
+          "$C_DIM" "$C_RESET"
+      fi
       upstream="$(git -C "$path" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
       if [[ -n "$upstream" ]]; then
         read -r ahead behind < <(
           git -C "$path" rev-list --left-right --count "HEAD...$upstream"
         )
-        printf 'upstream: %s (ahead %s, behind %s)\n' "$upstream" "$ahead" "$behind"
+        if (( ahead > 0 )); then ahead_color="$C_YELLOW"; else ahead_color="$C_DIM"; fi
+        if (( behind > 0 )); then behind_color="$C_RED"; else behind_color="$C_DIM"; fi
+        printf '  %bupstream:%b %s  %bahead %s%b  %bbehind %s%b\n' \
+          "$C_BLUE" "$C_RESET" "$upstream" \
+          "$ahead_color" "$ahead" "$C_RESET" \
+          "$behind_color" "$behind" "$C_RESET"
+      else
+        printf '  %bupstream: none%b\n' "$C_YELLOW" "$C_RESET"
       fi
-      git -C "$path" status --short
+      print_worktree_status "$path"
     done < <(jq -r '.components | keys[]' "$manifest")
     ;;
   graph)

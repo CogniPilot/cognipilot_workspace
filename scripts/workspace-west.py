@@ -16,6 +16,26 @@ from typing import Any
 import yaml
 
 
+def colors_enabled(stream: Any) -> bool:
+    if "NO_COLOR" in os.environ:
+        return False
+    forced = os.environ.get("CLICOLOR_FORCE", "0") != "0"
+    return forced or (stream.isatty() and os.environ.get("TERM", "dumb") != "dumb")
+
+
+if colors_enabled(sys.stdout):
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    CYAN = "\033[36m"
+else:
+    RESET = BOLD = DIM = RED = GREEN = YELLOW = BLUE = CYAN = ""
+
+
 class WorkspaceError(RuntimeError):
     pass
 
@@ -301,7 +321,7 @@ def validate(root: Path) -> tuple[dict[str, Any], str, dict[str, list[str]]]:
             + ", ".join(sorted(set(floating)))
         )
     print(
-        f"west union valid: {len(origins)} projects, "
+        f"{GREEN}✓{RESET} west union valid: {len(origins)} projects, "
         f"{len(shared)} shared definitions, all revisions pinned"
     )
     return manifest, text, origins
@@ -329,7 +349,7 @@ def sync(root: Path) -> None:
         json.dumps(marker, indent=2) + "\n", encoding="utf-8"
     )
     create_local_view(root, cache, manifest)
-    print(f"shared west workspace ready: {shared}")
+    print(f"{GREEN}✓{RESET} shared west workspace ready: {CYAN}{shared}{RESET}")
 
 
 def ensure(root: Path) -> None:
@@ -341,7 +361,10 @@ def ensure(root: Path) -> None:
         sync(root)
         return
     create_local_view(root, cache, manifest)
-    print(f"shared west workspace already matches {digest[:12]}")
+    print(
+        f"{GREEN}✓{RESET} shared west workspace already matches "
+        f"{DIM}{digest[:12]}{RESET}"
+    )
 
 
 def status(root: Path) -> None:
@@ -351,11 +374,14 @@ def status(root: Path) -> None:
     shared = cache / "shared"
     local = cache / "local"
     digest = manifest_digest(text)
-    print(f"west cache:   {cache}")
-    print(f"release view: {shared}")
-    print(f"local view:   {local}")
-    print(f"manifest:     {digest}")
-    print(f"ready:        {'yes' if checkout_ready(shared, manifest, digest) else 'no'}")
+    ready = checkout_ready(shared, manifest, digest)
+    ready_color = GREEN if ready else RED
+    ready_label = "yes" if ready else "no"
+    print(f"{BOLD}{BLUE}west cache:{RESET}   {CYAN}{cache}{RESET}")
+    print(f"{BOLD}{BLUE}release view:{RESET} {CYAN}{shared}{RESET}")
+    print(f"{BOLD}{BLUE}local view:{RESET}   {CYAN}{local}{RESET}")
+    print(f"{BOLD}{BLUE}manifest:{RESET}     {DIM}{digest}{RESET}")
+    print(f"{BOLD}{BLUE}ready:{RESET}        {ready_color}{ready_label}{RESET}")
 
 
 def main() -> int:
@@ -394,5 +420,6 @@ if __name__ == "__main__":
         )
         raise SystemExit(130)
     except WorkspaceError as error:
-        print(f"workspace-west: {error}", file=sys.stderr)
+        prefix = "\033[31merror:\033[0m" if colors_enabled(sys.stderr) else "error:"
+        print(f"workspace-west {prefix} {error}", file=sys.stderr)
         raise SystemExit(1)

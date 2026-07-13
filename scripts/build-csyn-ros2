@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${COGNIPILOT_WORKSPACE_ROOT:-}"
+if [[ -z "$root" ]]; then
+  printf 'enter the cognipilot_workspace devenv shell\n' >&2
+  exit 1
+fi
+state="${DEVENV_STATE:?DEVENV_STATE is not set}"
+repo="$root/src/csyn_ros2_bridge"
+synapse="$root/src/synapse_fbs"
+synapse_rust="$synapse/target/xtask/packages/rust"
+source_root="$state/overlays/csyn_ros2_bridge/source"
+work_root="$state/build/csyn_ros2_bridge"
+
+test -f "$synapse/fbs/all.fbs"
+test -f "$synapse_rust/Cargo.toml"
+
+rm -rf "$source_root"
+mkdir -p "$source_root/third_party" "$work_root"
+cp -a "$repo/csyn_msgs" "$source_root/csyn_msgs"
+cp -a "$repo/csyn_ros2_bridge" "$source_root/csyn_ros2_bridge"
+ln -s "$synapse" "$source_root/third_party/synapse_fbs"
+
+# This is a disposable source overlay. The checked-in Cargo.toml stays intact;
+# only the generated build view replaces the published schema crate with the
+# package staged by the local synapse_fbs build.
+python - "$source_root/csyn_ros2_bridge/Cargo.toml" "$synapse_rust" <<'PY'
+from pathlib import Path
+import sys
+
+manifest = Path(sys.argv[1])
+local_synapse = sys.argv[2]
+text = manifest.read_text(encoding="utf-8")
+old = 'synapse_fbs = "=0.5.0"'
+new = f'synapse_fbs = {{ path = "{local_synapse}" }}'
+if old not in text:
+    raise SystemExit(f"expected dependency declaration not found in {manifest}")
+manifest.write_text(text.replace(old, new), encoding="utf-8")
+PY
+
+cd "$work_root"
+rm -rf build install log
+colcon build \
+  --base-paths "$source_root/csyn_msgs" "$source_root/csyn_ros2_bridge" \
+  --packages-up-to csyn_ros2_bridge \
+  --event-handlers console_direct+ \
+  --cmake-args -DCSYN_SYNAPSE_FBS_DIR="$synapse/fbs"
+colcon test \
+  --base-paths "$source_root/csyn_msgs" "$source_root/csyn_ros2_bridge" \
+  --packages-up-to csyn_ros2_bridge \
+  --event-handlers console_direct+
+colcon test-result --verbose

@@ -1,0 +1,18 @@
+.devenv*
+.direnv/
+__pycache__/
+*.py[cod]
+result
+result-*
+
+# Component repositories are independent editable Git worktrees materialized
+# by `ws sync`; the workspace repository tracks their metadata, not their files.
+/src/
+
+# Optional source-adjacent west workspaces. The default shared workspace lives
+# in the user cache, outside this Git worktree.
+.west/
+zephyr/
+modules/
+bootloader/
+tools/

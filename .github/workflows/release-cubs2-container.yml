@@ -1,0 +1,84 @@
+name: Release CUBS2 workspace container
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-cubs2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  container:
+    name: Build and publish CUBS2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate release tag and snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf 'release tag must be exactly x.y.z; got %s\n' "$version" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            printf 'release tag %s is not on main\n' "$version" >&2
+            exit 1
+          fi
+
+          if [[ ! -r workspace.lock.json ]]; then
+            printf '%s\n' \
+              'workspace.lock.json is required for a reproducible release image.' \
+              'Run ws profile cubs2, validate with ws build, then run' \
+              'ws freeze workspace.lock.json and commit it before tagging.' >&2
+            exit 1
+          fi
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/cognipilot_workspace-cubs2"
+          printf 'image=%s\n' "$image" >> "$GITHUB_ENV"
+          printf 'version=%s\n' "$version" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and publish
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.cubs2
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.image }}:${{ env.version }}
+            ${{ env.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.version }}
+          cache-from: type=gha,scope=cubs2
+          cache-to: type=gha,mode=max,scope=cubs2
+          provenance: true
+          sbom: true

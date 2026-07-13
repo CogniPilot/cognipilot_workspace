@@ -1,0 +1,8 @@
+.git
+.github
+.devenv
+.direnv
+src
+result
+result-*
+**/.DS_Store

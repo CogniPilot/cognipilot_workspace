@@ -1,0 +1,47 @@
+{
+  "components": {
+    "cerebri_cubs2": {
+      "branch": "main",
+      "github": "CogniPilot/cerebri_cubs2",
+      "path": "src/cerebri_cubs2",
+      "revision": "8c4e2f29928445448ab2bef897d2135d0be8c1ea"
+    },
+    "cerebri_modules": {
+      "branch": "main",
+      "github": "CogniPilot/cerebri_modules",
+      "path": "src/cerebri_modules",
+      "revision": "ef73a4f8adeb4385c34af4344c9af27e43e02033"
+    },
+    "csyn": {
+      "branch": "main",
+      "github": "CogniPilot/csyn",
+      "path": "src/csyn",
+      "revision": "46debf42bb2b310c00ed5723f61989f1a2705634"
+    },
+    "electrode_web": {
+      "branch": "main",
+      "github": "CogniPilot/electrode_web",
+      "path": "src/electrode_web",
+      "revision": "bda10981cddd91ba12c216df67d34081fa21730b"
+    },
+    "modelica_models": {
+      "branch": "main",
+      "github": "CogniPilot/modelica_models",
+      "path": "src/modelica_models",
+      "revision": "8e0c1ddd0a48e2a7106f6b79137d4a04fcc94b37"
+    },
+    "rumoca": {
+      "branch": "main",
+      "github": "CogniPilot/rumoca",
+      "path": "src/rumoca",
+      "revision": "25ca822383954db4e71d2e522b56a81f0f3a6161"
+    },
+    "synapse_fbs": {
+      "branch": "main",
+      "github": "CogniPilot/synapse_fbs",
+      "path": "src/synapse_fbs",
+      "revision": "f6efaadf1a1cf0c48608b9b104b578da51322979"
+    }
+  },
+  "schema": 1
+}

@@ -46,10 +46,9 @@ def workspace_root() -> Path:
         return Path(configured).expanduser().resolve()
     current = Path.cwd().resolve()
     for candidate in (current, *current.parents):
-        if (
-            (candidate / "devenv.nix").is_file()
-            and (candidate / "nix/components.nix").is_file()
-        ):
+        if (candidate / "devenv.nix").is_file() and (
+            candidate / "nix/components/default.nix"
+        ).is_file():
             return candidate
     raise WorkspaceError(
         "could not locate cognipilot_workspace; enter its devenv shell"
@@ -126,7 +125,15 @@ def canonical_project(
     project.pop("repo-path", None)
     project.setdefault("path", name)
     project.setdefault("revision", "master")
+    relative_project_path(project)
     return project
+
+
+def relative_project_path(project: dict[str, Any]) -> Path:
+    path = Path(str(project["path"]))
+    if path.is_absolute() or not path.parts or ".." in path.parts:
+        raise WorkspaceError(f"unsafe west project path: {path}")
+    return path
 
 
 def merged_manifest(root: Path) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -289,7 +296,7 @@ def create_local_view(root: Path, cache: Path, manifest: dict[str, Any]) -> None
         overrides["zros"] = root / "src/zros"
     for project in manifest["manifest"].get("projects", []):
         name = str(project["name"])
-        relative = Path(str(project["path"]))
+        relative = relative_project_path(project)
         source = overrides.get(name, shared / relative)
         if not source.exists():
             raise WorkspaceError(f"west project source is missing: {source}")
@@ -306,13 +313,57 @@ def create_local_view(root: Path, cache: Path, manifest: dict[str, Any]) -> None
     temporary.rename(local)
 
 
+def create_source_view(root: Path, cache: Path, manifest: dict[str, Any]) -> None:
+    """Expose the local west view below src without replacing editable repos."""
+    source_root = root / "src"
+    local = cache / "local"
+    state_file = root / ".devenv/state/west-source-links.json"
+    links: dict[Path, Path] = {
+        Path(".west"): local / ".west",
+        Path("manifest"): local / "manifest",
+    }
+    for project in manifest["manifest"].get("projects", []):
+        relative = relative_project_path(project)
+        links[relative] = local / relative
+
+    try:
+        previous = set(json.loads(state_file.read_text(encoding="utf-8")))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        previous = set()
+
+    managed: set[str] = set()
+    for relative, source in links.items():
+        destination = source_root / relative
+        if destination.is_symlink():
+            if destination.resolve() == source.resolve():
+                managed.add(relative.as_posix())
+                continue
+            destination.unlink()
+        elif destination.exists():
+            # A real directory is an editable repository owned by the user.
+            continue
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.symlink_to(source.resolve(), target_is_directory=True)
+        managed.add(relative.as_posix())
+
+    for relative_text in previous - managed:
+        destination = source_root / relative_text
+        if destination.is_symlink():
+            destination.unlink()
+
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary = state_file.with_suffix(".tmp")
+    temporary.write_text(json.dumps(sorted(managed), indent=2) + "\n", encoding="utf-8")
+    temporary.replace(state_file)
+
+
 def validate(root: Path) -> tuple[dict[str, Any], str, dict[str, list[str]]]:
     text, origins = manifest_text(root)
     manifest = yaml.safe_load(text)
     shared = sorted(name for name, sources in origins.items() if len(sources) > 1)
     revisions = [
-        str(project["revision"])
-        for project in manifest["manifest"].get("projects", [])
+        str(project["revision"]) for project in manifest["manifest"].get("projects", [])
     ]
     floating = [revision for revision in revisions if len(revision) != 40]
     if floating:
@@ -340,7 +391,7 @@ def sync(root: Path) -> None:
     # Every merged revision is a full commit ID. Narrow updates ask GitHub only
     # for those pinned objects instead of fetching every branch and tag, which
     # keeps a first-time firmware setup substantially smaller.
-    run(["west", "update", "--narrow"], cwd=shared)
+    run([sys.executable, "-m", "west", "update", "--narrow"], cwd=shared)
     marker = {
         "manifest_sha256": manifest_digest(text),
         "sources": [str(path.relative_to(root)) for path in source_manifests(root)],
@@ -349,6 +400,7 @@ def sync(root: Path) -> None:
         json.dumps(marker, indent=2) + "\n", encoding="utf-8"
     )
     create_local_view(root, cache, manifest)
+    create_source_view(root, cache, manifest)
     print(f"{GREEN}✓{RESET} shared west workspace ready: {CYAN}{shared}{RESET}")
 
 
@@ -361,6 +413,7 @@ def ensure(root: Path) -> None:
         sync(root)
         return
     create_local_view(root, cache, manifest)
+    create_source_view(root, cache, manifest)
     print(
         f"{GREEN}✓{RESET} shared west workspace already matches "
         f"{DIM}{digest[:12]}{RESET}"
@@ -380,6 +433,7 @@ def status(root: Path) -> None:
     print(f"{BOLD}{BLUE}west cache:{RESET}   {CYAN}{cache}{RESET}")
     print(f"{BOLD}{BLUE}release view:{RESET} {CYAN}{shared}{RESET}")
     print(f"{BOLD}{BLUE}local view:{RESET}   {CYAN}{local}{RESET}")
+    print(f"{BOLD}{BLUE}source view:{RESET}  {CYAN}{root / 'src'}{RESET}")
     print(f"{BOLD}{BLUE}manifest:{RESET}     {DIM}{digest}{RESET}")
     print(f"{BOLD}{BLUE}ready:{RESET}        {ready_color}{ready_label}{RESET}")
 

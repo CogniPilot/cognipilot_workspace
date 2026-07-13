@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="local"
+if [[ "${1:-}" == "--mode" ]]; then
+	[[ $# -ge 3 ]] || {
+		printf 'usage: workspace-flake-ref [--mode local|release] PATH\n' >&2
+		exit 2
+	}
+	mode="$2"
+	shift 2
+fi
+[[ $# -eq 1 ]] || {
+	printf 'usage: workspace-flake-ref [--mode local|release] PATH\n' >&2
+	exit 2
+}
+case "$mode" in
+local | release) ;;
+*)
+	printf 'flake source mode must be local or release\n' >&2
+	exit 2
+	;;
+esac
+
+path="$(realpath "$1")"
+git -C "$path" rev-parse --git-dir >/dev/null 2>&1 || {
+	printf 'component is not a Git worktree: %s\n' "$path" >&2
+	exit 1
+}
+
+query=""
+if [[ -f "$path/.gitmodules" ]]; then
+	mapfile -t submodule_status < <(git -C "$path" submodule status --recursive)
+	all_submodules_ready=true
+	for status in "${submodule_status[@]}"; do
+		if [[ "$status" == -* ]]; then
+			all_submodules_ready=false
+			break
+		fi
+	done
+	if ((${#submodule_status[@]} > 0)) && [[ "$all_submodules_ready" == true ]]; then
+		query="submodules=1"
+	fi
+fi
+
+if [[ "$mode" == "local" ]]; then
+	mapfile -t untracked < <(git -C "$path" ls-files --others --exclude-standard)
+	if ((${#untracked[@]} > 0)); then
+		printf 'Nix git sources cannot see untracked files in %s:\n' "$path" >&2
+		printf '  %s\n' "${untracked[@]}" >&2
+		printf 'Stage them, or make them visible without staging content with:\n' >&2
+		printf '  git -C %q add -N --' "$path" >&2
+		printf ' %q' "${untracked[@]}" >&2
+		printf '\n' >&2
+		exit 1
+	fi
+else
+	if [[ -n "$(git -C "$path" status --porcelain)" ]]; then
+		printf 'release-mode Nix sources require a clean worktree: %s\n' "$path" >&2
+		exit 1
+	fi
+	revision="$(git -C "$path" rev-parse HEAD)"
+	if [[ -n "$query" ]]; then
+		query+="&rev=$revision"
+	else
+		query="rev=$revision"
+	fi
+fi
+
+printf 'git+file://%s' "$path"
+[[ -n "$query" ]] && printf '?%s' "$query"
+printf '\n'

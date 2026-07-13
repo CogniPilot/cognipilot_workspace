@@ -1,0 +1,95 @@
+name: Workspace CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate workspace orchestration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          determinate: false
+      - name: Install pinned devenv
+        run: nix profile install --accept-flake-config github:cachix/devenv/v2.1.2
+      - name: Evaluate registry, profiles, tasks, and CLI
+        run: |
+          devenv shell -- bash -euo pipefail -c '
+            ws graph >/dev/null
+            ws profile list >/dev/null
+            ws launch list >/dev/null
+            ws _complete launch "" | grep -Fx simulation-stack >/dev/null
+            python -m unittest discover -s tests -v
+          '
+      - name: Evaluate composable launch profiles
+        run: |
+          devenv --profile simulation-stack eval processes >/dev/null
+          devenv \
+            --profile simulation \
+            --profile ground-station \
+            --profile mocap \
+            eval processes >/dev/null
+      - name: Validate release snapshot when present
+        run: |
+          if [[ -e workspace.lock.json ]]; then
+            jq -e '.schema == 1 and ((.components | length) > 0)' workspace.lock.json
+          fi
+      - name: Run orchestration linters
+        run: devenv --profile ci shell -- scripts/lint-workspace
+
+  image-inputs:
+    name: Detect CUBS2 image changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            image:
+              - 'scripts/render-workspace-dockerfile'
+              - '.dockerignore'
+              - 'completions/**'
+              - 'devenv.*'
+              - 'launch/**'
+              - 'nix/**'
+              - 'scripts/**'
+
+  image:
+    name: Validate CUBS2 image environment
+    needs: image-inputs
+    if: needs.image-inputs.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - name: Generate CUBS2 Dockerfile
+        run: scripts/render-workspace-dockerfile cubs2 "${RUNNER_TEMP}/cubs2.Dockerfile"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ runner.temp }}/cubs2.Dockerfile
+          target: environment
+          platforms: linux/amd64
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=cubs2-pr
+          cache-to: type=gha,mode=min,scope=cubs2-pr

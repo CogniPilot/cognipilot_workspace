@@ -1,0 +1,10 @@
+#compdef ws
+
+_ws() {
+  local -a candidates arguments
+  arguments=("${words[@]:1}")
+  candidates=("${(@f)$(ws _complete "${arguments[@]}" 2>/dev/null)}")
+  _describe 'workspace command' candidates
+}
+
+compdef _ws ws

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${COGNIPILOT_WORKSPACE_ROOT:-$(git rev-parse --show-toplevel)}"
+working_directory="$(pwd -P)"
+
+workspace-west ensure >/dev/null
+
+case "$working_directory/" in
+"$root/src/"*) ;;
+*) working_directory="$root/src" ;;
+esac
+
+cd "$root"
+case "$working_directory/" in
+"$root/src/cerebri_cubs2/"*)
+	flake="$(workspace-flake-ref --mode local "$root/src/cerebri_cubs2")"
+	# The repository shell owns CUBS2's Rumoca/Synapse Python dependencies.
+	# Expansion belongs in that nested shell.
+	# shellcheck disable=SC2016
+	COGNIPILOT_NESTED_WEST=1 CUBS2_WORKSPACE_ROOT="$root/src" \
+		exec nix --accept-flake-config develop "$flake" -c bash -euo pipefail -c '
+      cd "$1"
+      shift
+      exec "$WEST_PYTHON" -m west "$@"
+    ' _ "$working_directory" "$@"
+	;;
+"$root/src/cerebri_rdd2/"*)
+	flake="$(workspace-flake-ref --mode local "$root/src/cerebri_rdd2")"
+	# Expansion belongs in the repository's nested shell.
+	# shellcheck disable=SC2016
+	COGNIPILOT_NESTED_WEST=1 RDD2_WORKSPACE_ROOT="$root/src" \
+		exec nix --accept-flake-config develop "$flake" -c bash -euo pipefail -c '
+      cd "$1"
+      shift
+      exec "$WEST_PYTHON" -m west "$@"
+    ' _ "$working_directory" "$@"
+	;;
+esac
+
+# Expansion belongs in the nested Zephyr shell.
+# shellcheck disable=SC2016
+COGNIPILOT_NESTED_WEST=1 exec devenv --quiet --profile zephyr-tests shell -- bash -euo pipefail -c '
+  cd "$1"
+  shift
+  exec "$COGNIPILOT_ZEPHYR_WEST" "$@"
+' _ "$working_directory" "$@"

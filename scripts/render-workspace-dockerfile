@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 2 ]] || {
+	printf 'usage: render-workspace-dockerfile PROFILE OUTPUT\n' >&2
+	exit 2
+}
+
+profile="$1"
+output="$2"
+[[ "$profile" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || {
+	printf 'invalid workspace profile: %s\n' "$profile" >&2
+	exit 2
+}
+mkdir -p "$(dirname "$output")"
+temporary="$(mktemp "$(dirname "$output")/.workspace.Dockerfile.XXXXXX")"
+trap 'rm -f "$temporary"' EXIT
+
+sed "s/@WORKSPACE_PROFILE@/$profile/g" >"$temporary" <<'DOCKERFILE'
+# syntax=docker/dockerfile:1.7
+
+# Profile release images currently target linux/amd64. Nix and devenv are
+# pinned so the bootstrap layer cannot drift underneath a workspace tag.
+FROM nixos/nix:2.32.8@sha256:72a13b0f42e3cc515945aa4250b772381d93c96d4bf93aa950b5c68defdab1dd AS environment
+
+ARG DEVENV_VERSION=2.1.2
+
+RUN printf '%s\n' \
+      'experimental-features = nix-command flakes' \
+      'accept-flake-config = true' \
+      >> /etc/nix/nix.conf \
+    && nix profile install --accept-flake-config \
+      "github:cachix/devenv/v${DEVENV_VERSION}"
+
+WORKDIR /workspace
+ENV COGNIPILOT_WORKSPACE_ROOT=/workspace
+
+COPY devenv.nix devenv.yaml devenv.lock ./
+COPY completions/ ./completions/
+COPY launch/ ./launch/
+COPY nix/ ./nix/
+COPY scripts/ ./scripts/
+RUN /root/.nix-profile/bin/devenv shell -- true
+
+FROM environment AS workspace
+COPY . .
+
+RUN /root/.nix-profile/bin/devenv shell -- bash -euo pipefail -c \
+      'ws profile @WORKSPACE_PROFILE@; ws restore workspace.lock.json; ws mode local; ws build'
+
+FROM workspace AS test
+RUN /root/.nix-profile/bin/devenv shell -- bash -euo pipefail -c \
+      'ws mode local; ws test'
+
+FROM workspace AS final
+
+ENTRYPOINT ["/root/.nix-profile/bin/devenv", "shell", "--"]
+CMD ["bash"]
+DOCKERFILE
+
+mv "$temporary" "$output"

@@ -1,20 +1,22 @@
 {
   config,
   lib,
-  pkgs,
   python,
   root,
 }:
 
 let
-  components = import ./components.nix { inherit root; };
-  workspaceProfiles = (import ./profiles.nix).resolved;
-  componentNames = builtins.attrNames components;
+  components = config.workspace.components;
+  workspaceProfiles =
+    (import ./profiles.nix {
+      componentNames = builtins.attrNames components;
+    }).resolved;
   defaultComponentNames = workspaceProfiles.default;
-  profileNames = builtins.filter (profile: profile != "default") (
-    builtins.attrNames workspaceProfiles
-  );
-  profileComponentNames = profile: workspaceProfiles.${profile};
+  hasTask =
+    mode: kind: name:
+    components.${name}.${mode}.${kind} != null;
+  taskComponents =
+    mode: kind: lib.filterAttrs (_: component: component.${mode}.${kind} != null) components;
 
   mkBuildTasks =
     mode:
@@ -28,9 +30,9 @@ let
           lib.optionals (mode == "local") (
             map (dependency: "local:build:${dependency}") component.dependencies
           )
-          ++ lib.optionals (component.needsWest or false) [ "workspace:west:ensure" ];
+          ++ lib.optionals component.needsWest [ "workspace:west:ensure" ];
       }
-    ) components;
+    ) (taskComponents mode "build");
 
   mkTestTasks =
     mode:
@@ -40,52 +42,28 @@ let
         description = "${mode} test: ${component.displayName}";
         cwd = "${root}/${component.path}";
         exec = component.${mode}.test;
-        after = [ "${mode}:build:${name}" ];
+        after = lib.optional (component.${mode}.build != null) "${mode}:build:${name}";
       }
-    ) components;
+    ) (taskComponents mode "test");
 
-  buildLeaves = mode: map (name: "${mode}:build:${name}") defaultComponentNames;
-  testLeaves = mode: map (name: "${mode}:test:${name}") defaultComponentNames;
-  buildProfileLeaves =
-    mode: profile: map (name: "${mode}:build:${name}") (profileComponentNames profile);
-  testProfileLeaves =
-    mode: profile: map (name: "${mode}:test:${name}") (profileComponentNames profile);
-  mkProfileTasks = profile: {
-    "workspace:build:local:${profile}" = {
-      description = "Build the local ${profile} profile graph";
-      exec = "echo 'local ${profile} workspace graph built'";
-      after = buildProfileLeaves "local" profile;
-    };
-    "workspace:build:release:${profile}" = {
-      description = "Build the release ${profile} profile graph";
-      exec = "echo 'release ${profile} workspace graph built'";
-      after = buildProfileLeaves "release" profile;
-    };
-    "workspace:test:local:${profile}" = {
-      description = "Test the local ${profile} profile graph";
-      exec = "echo 'local ${profile} workspace graph tested'";
-      after = testProfileLeaves "local" profile;
-    };
-    "workspace:test:release:${profile}" = {
-      description = "Test the release ${profile} profile graph";
-      exec = "echo 'release ${profile} workspace graph tested'";
-      after = testProfileLeaves "release" profile;
-    };
-  };
-  profileTasks = lib.foldl' (tasks: profile: tasks // mkProfileTasks profile) { } profileNames;
+  buildLeaves =
+    mode:
+    map (name: "${mode}:build:${name}") (builtins.filter (hasTask mode "build") defaultComponentNames);
+  testLeaves =
+    mode:
+    map (name: "${mode}:test:${name}") (builtins.filter (hasTask mode "test") defaultComponentNames);
 in
 (mkBuildTasks "local")
 // (mkBuildTasks "release")
 // (mkTestTasks "local")
 // (mkTestTasks "release")
-// profileTasks
 // {
   "workspace:west:validate" = {
     description = "Validate that available app manifests have a conflict-free pinned union";
     cwd = root;
     exec = ''
       set -euo pipefail
-      ${python}/bin/python ${../scripts/workspace-west.py} validate
+      ${python}/bin/python "${root}/scripts/workspace-west.py" validate
     '';
   };
 
@@ -94,7 +72,7 @@ in
     cwd = root;
     exec = ''
       set -euo pipefail
-      ${python}/bin/python ${../scripts/workspace-west.py} ensure
+      ${python}/bin/python "${root}/scripts/workspace-west.py" ensure
     '';
     after = [ "workspace:west:validate" ];
   };

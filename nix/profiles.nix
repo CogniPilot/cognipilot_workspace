@@ -1,3 +1,5 @@
+{ componentNames }:
+
 let
   definitions = {
     default = {
@@ -75,11 +77,17 @@ let
     else
       let
         definition = definitions.${name};
+        unknownComponents = builtins.filter (
+          component: !(builtins.elem component componentNames)
+        ) definition.components;
         inherited = builtins.concatLists (
           map (included: resolve (stack ++ [ name ]) included) definition.includes
         );
       in
-      unique (inherited ++ definition.components);
+      if unknownComponents != [ ] then
+        throw "workspace profile '${name}' references unknown components: ${builtins.concatStringsSep ", " unknownComponents}"
+      else
+        unique (inherited ++ definition.components);
 in
 {
   inherit definitions;

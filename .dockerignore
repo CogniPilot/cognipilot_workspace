@@ -2,6 +2,7 @@
 .github
 .devenv
 .direnv
+devenv.local.nix
 src
 result
 result-*

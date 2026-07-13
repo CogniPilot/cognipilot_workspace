@@ -1082,7 +1082,7 @@ Usage: ws <command> [arguments]
   banner                Print the compact shell-entry status line
 
 The default profile includes cubs2, which includes modelica. Other profiles
-are cubs2, rdd2, modelica, zros, qualisys, ros2, and fastdyn; profiles may be
+are cubs2, rdd2, modelica, zros, qualisys, ros2, ppm, and fastdyn; profiles may be
 combined. Build and test never clone or update repositories. Freeze also accepts --allow-unpushed and
 --include-optional.
 EOF

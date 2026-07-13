@@ -140,6 +140,7 @@ src/
 ├── qualisys_rust_sdk
 ├── rumoca
 ├── synapse_fbs
+├── synapse_ppm_bridge
 ├── synapse_qualisys_bridge
 ├── zephyr -> shared pinned Zephyr checkout
 ├── zros
@@ -163,13 +164,17 @@ ws build
 ```
 
 Available profiles are `default`, `cubs2`, `rdd2`, `modelica`, `zros`,
-`qualisys`, `ros2`, and `fastdyn`. Profiles can be combined. For example:
+`qualisys`, `ros2`, `ppm`, and `fastdyn`. Profiles can be combined. For example:
 
 ```sh
 ws profile list          # includes and resolved repository membership
 ws profile default qualisys  # CUBS2 plus the Qualisys bridge
 ws sync all
 ws build
+
+ws profile ppm           # host PPM serial bridge only
+ws sync all
+ws build synapse_ppm_bridge
 
 ws profile rdd2          # RDD2 plus the shared Modelica profile
 ws profile default       # return to the normal CUBS2 selection
@@ -193,6 +198,11 @@ If the private FastDyn clone is unavailable, copy a deployed FastDyn tree to
 `ws build FastDyn` and `ws shell FastDyn` activate its declared opt-in devenv
 toolchain profile. This keeps its compiler and QEMU prerequisites out of normal
 setup. FastDyn is externally owned and is never part of a workspace release.
+
+The CUBS2/default selection includes the host-side Rust bridge from Synapse
+manual-control messages to a serial PPM encoder; the standalone `ppm` profile
+selects only that bridge. Its Rust and libudev toolchain is loaded only by a
+build, test, or component shell, and the bridge is not started automatically.
 
 Profile sync clones only selected repositories and their local dependency
 closure, not every repository or all nested submodules. A local ROS bridge

@@ -143,11 +143,27 @@ in
   };
 
   profiles = {
+    # Small host-side Rust applications without their own flake can opt into a
+    # pinned compiler and the native libraries needed by serialport/libudev.
+    rust-serial-toolchain.module = {
+      packages = with pkgs; [
+        cargo
+        pkg-config
+        rustc
+        rustfmt
+        systemd.dev
+      ];
+    };
+
     # FastDyn is private and expensive to provision. Its compiler/QEMU stack is
     # only added when `ws build FastDyn` or `ws shell FastDyn` requests it.
     fastdyn-toolchain.module = {
       env.COGNIPILOT_FASTDYN_PROFILE = "1";
       env.COGNIPILOT_FASTDYN_PYTHON = "${pkgs.python3}/bin/python3";
+      env.LD_LIBRARY_PATH = lib.makeLibraryPath [
+        pkgs.stdenv.cc.cc.lib
+        pkgs.zlib
+      ];
       packages = with pkgs; [
         bison
         cargo

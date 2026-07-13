@@ -23,6 +23,7 @@ let
         "csyn"
         "electrode_web"
         "synapse_fbs"
+        "synapse_ppm_bridge"
       ];
     };
 
@@ -56,6 +57,11 @@ let
     ros2 = {
       includes = [ ];
       components = [ "csyn_ros2_bridge" ];
+    };
+
+    ppm = {
+      includes = [ ];
+      components = [ "synapse_ppm_bridge" ];
     };
 
     fastdyn = {

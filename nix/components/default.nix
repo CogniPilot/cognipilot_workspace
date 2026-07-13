@@ -388,6 +388,29 @@ in
       '';
     };
 
+    synapse_ppm_bridge = {
+      displayName = "Synapse PPM serial bridge";
+      path = "src/synapse_ppm_bridge";
+      repo = {
+        github = "CogniPilot/synapse_ppm_bridge";
+        branch = "main";
+      };
+      dependencies = [ ];
+      devenvProfile = "rust-serial-toolchain";
+      local.build = strict ''
+        cargo build --locked
+      '';
+      release.build = strict ''
+        cargo build --locked --release
+      '';
+      local.test = strict ''
+        cargo test --locked
+      '';
+      release.test = strict ''
+        cargo test --locked --release
+      '';
+    };
+
     electrode_web = {
       displayName = "Electrode web ground station";
       path = "src/electrode_web";
@@ -644,7 +667,7 @@ in
           exit 0
         fi
         cd "$DEVENV_ROOT/src/FastDyn"
-        "$DEVENV_STATE/fastdyn/venv/bin/python" -m pytest
+        "$DEVENV_STATE/fastdyn/venv/bin/python" -m pytest tests/unit
       '';
       release.test = strict ''
         if [ ! -x "$DEVENV_STATE/fastdyn-release/venv/bin/python" ]; then
@@ -652,7 +675,7 @@ in
           exit 0
         fi
         cd "$DEVENV_ROOT/src/FastDyn"
-        "$DEVENV_STATE/fastdyn-release/venv/bin/python" -m pytest
+        "$DEVENV_STATE/fastdyn-release/venv/bin/python" -m pytest tests/unit
       '';
     };
   };

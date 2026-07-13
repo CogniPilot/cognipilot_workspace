@@ -19,17 +19,14 @@ in
     exec = ''
       set -euo pipefail
       mkdir -p "${state}"
-      synapse_rust="${root}/src/synapse_fbs/target/xtask/packages/rust"
-      if [[ ! -f "$synapse_rust/Cargo.toml" ]]; then
-        printf 'local Synapse Rust package is missing; run: ws build synapse_fbs\n' >&2
+      bridge="${root}/src/synapse_qualisys_bridge/target/debug/synapse-qualisys-bridge"
+      if [[ ! -x "$bridge" ]]; then
+        printf 'mocap build artifact is missing or not executable: %s\n' "$bridge" >&2
+        printf 'run: ws build synapse_qualisys_bridge\n' >&2
         exit 1
       fi
-      flake_ref="$(workspace-flake-ref --mode local "$PWD")"
-      exec nix --accept-flake-config develop "$flake_ref" -c \
-        cargo run --locked \
-          --config "paths=[\"$synapse_rust\"]" \
-          --bin synapse-qualisys-bridge -- \
-          ${networkArgs}
+
+      exec "$bridge" ${networkArgs}
     '';
     ready = {
       http.get = {

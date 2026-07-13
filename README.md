@@ -289,6 +289,11 @@ ws build electrode_web
 ws build synapse_qualisys_bridge
 ```
 
+Launch profiles are run-only: they validate and execute those prebuilt
+artifacts, but never invoke npm, Cargo, or a component development shell. If an
+artifact is missing, the process exits with the exact `ws build` command needed
+to create it.
+
 Use the same launch profile when controlling or inspecting its process manager:
 
 ```sh
@@ -409,6 +414,20 @@ ws build csyn
 ws build electrode_web
 ws build                 # complete active-profile local graph
 ```
+
+The workspace shell exposes run-only `csyn` and `rumoca` commands for their
+prebuilt local artifacts:
+
+```sh
+ws build csyn
+csyn --help
+
+ws build rumoca
+rumoca --help
+```
+
+These commands never build implicitly. If an artifact is missing, the wrapper
+prints the exact `ws build` command required to create it.
 
 Examples of the injected overrides are Cargo's command-line `paths` override,
 temporary npm installs with lockfile writes disabled, CMake FetchContent source

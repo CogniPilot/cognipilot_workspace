@@ -19,17 +19,14 @@ in
     after = lib.optional usesSharedRouter "devenv:processes:${routerProcess}";
     exec = ''
       set -euo pipefail
-      synapse_rust="${root}/src/synapse_fbs/target/xtask/packages/rust"
-      if [[ ! -f "$synapse_rust/Cargo.toml" ]]; then
-        printf 'local Synapse Rust package is missing; run: ws build synapse_fbs\n' >&2
+      simulator="${root}/src/electrode_web/target/debug/electrode-fake-sim"
+      if [[ ! -x "$simulator" ]]; then
+        printf 'simulation build artifact is missing or not executable: %s\n' "$simulator" >&2
+        printf 'run: ws build electrode_web\n' >&2
         exit 1
       fi
-      flake_ref="$(workspace-flake-ref --mode local "$PWD")"
-      exec nix --accept-flake-config develop "$flake_ref" -c \
-        cargo run --locked \
-          --config "paths=[\"$synapse_rust\"]" \
-          -p electrode-fake-sim -- \
-          --role ${role} ${networkArgs}
+
+      exec "$simulator" --role ${role} ${networkArgs}
     '';
     restart = {
       on = "on_failure";

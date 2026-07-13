@@ -1,8 +1,9 @@
-{ config, ... }:
+{ config, lib, ... }:
 
 let
   root = config.devenv.root;
   state = "${config.devenv.state}/launch/ground-station";
+  hasLocalMocap = builtins.hasAttr "mocap" config.processes;
 in
 {
   processes.ground-station = {
@@ -13,35 +14,32 @@ in
       ELECTRODE_GCS_SIMULATION_FILE = "${state}/simulation.json";
       ELECTRODE_GCS_VELOCITY_BUDGET_DB = "${state}/velocity-budget-db.json";
       ELECTRODE_GCS_VELOCITY_BUDGET_CSV = "${state}/velocity-budget.csv";
+    } // lib.optionalAttrs (!hasLocalMocap) {
+      # Ground-station-only mode consumes Qualisys from the field router.
+      # When the local mocap process is selected it connects directly to the
+      # private vehicle router instead, so no external telemetry client is needed.
+      ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = "udp/192.168.10.2:7447";
     };
     exec = ''
       set -euo pipefail
       mkdir -p "${state}"
 
-      synapse_js="${root}/src/synapse_fbs/target/xtask/packages/js"
-      synapse_rust="${root}/src/synapse_fbs/target/xtask/packages/rust"
-      rumoca_js="${root}/src/rumoca/packages/rumoca/dist/dev-core"
-      for package in "$synapse_js/package.json" "$synapse_rust/Cargo.toml" "$rumoca_js/package.json"; do
-        if [[ ! -f "$package" ]]; then
-          printf 'local generated package is missing: %s\n' "$package" >&2
+      station="${root}/src/electrode_web/target/debug/electrode-ground-station"
+      web_index="${root}/src/electrode_web/apps/web/build/index.html"
+      for artifact in "$station" "$web_index"; do
+        if [[ ! -f "$artifact" ]]; then
+          printf 'ground-station build artifact is missing: %s\n' "$artifact" >&2
           printf 'run: ws build electrode_web\n' >&2
           exit 1
         fi
       done
+      if [[ ! -x "$station" ]]; then
+        printf 'ground-station binary is not executable: %s\n' "$station" >&2
+        printf 'run: ws build electrode_web\n' >&2
+        exit 1
+      fi
 
-      flake_ref="$(workspace-flake-ref --mode local "$PWD")"
-      exec nix --accept-flake-config develop "$flake_ref" -c \
-        bash -euo pipefail -c '
-          if [[ ! -d node_modules ]]; then
-            npm ci
-          fi
-          npm install --no-save --package-lock=false "$1"
-          npm install --workspace apps/web --no-save --package-lock=false "$3"
-          npm run build
-          exec cargo run --locked \
-            --config "paths=[\"$2\"]" \
-            -p electrode-ground-station --
-        ' _ "$synapse_js" "$synapse_rust" "$rumoca_js"
+      exec "$station"
     '';
     ready = {
       http.get = {

@@ -158,12 +158,14 @@ in
     # FastDyn is private and expensive to provision. Its compiler/QEMU stack is
     # only added when `ws build FastDyn` or `ws shell FastDyn` requests it.
     fastdyn-toolchain.module = {
-      env.COGNIPILOT_FASTDYN_PROFILE = "1";
-      env.COGNIPILOT_FASTDYN_PYTHON = "${pkgs.python3}/bin/python3";
-      env.LD_LIBRARY_PATH = lib.makeLibraryPath [
-        pkgs.stdenv.cc.cc.lib
-        pkgs.zlib
-      ];
+      env = {
+        COGNIPILOT_FASTDYN_PROFILE = "1";
+        COGNIPILOT_FASTDYN_PYTHON = "${pkgs.python3}/bin/python3";
+        LD_LIBRARY_PATH = lib.makeLibraryPath [
+          pkgs.stdenv.cc.cc.lib
+          pkgs.zlib
+        ];
+      };
       packages = with pkgs; [
         bison
         cargo
@@ -226,6 +228,32 @@ in
     ws = {
       description = "CogniPilot workspace mode, build, test, and status frontend";
       exec = ''exec ${pkgs.bash}/bin/bash "${root}/scripts/ws" "$@"'';
+    };
+
+    csyn = {
+      description = "Run the prebuilt local CSyn CLI";
+      exec = ''
+        binary="${root}/src/csyn/rust/target/debug/csyn"
+        if [[ ! -x "$binary" ]]; then
+          printf 'CSyn build artifact is missing or not executable: %s\n' "$binary" >&2
+          printf 'run: ws build csyn\n' >&2
+          exit 1
+        fi
+        exec "$binary" "$@"
+      '';
+    };
+
+    rumoca = {
+      description = "Run the prebuilt local Rumoca compiler";
+      exec = ''
+        binary="${root}/.devenv/state/results/rumoca/bin/rumoca"
+        if [[ ! -x "$binary" ]]; then
+          printf 'Rumoca build artifact is missing or not executable: %s\n' "$binary" >&2
+          printf 'run: ws build rumoca\n' >&2
+          exit 1
+        fi
+        exec "$binary" "$@"
+      '';
     };
 
     workspace-west = {

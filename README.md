@@ -95,6 +95,10 @@ for the new selection, and builds ignore checkouts outside the active profiles.
 The generated West symlink view may be replaced, but its editable `src/`
 targets are never removed.
 
+`ws status` shows repositories selected by the active profiles plus their local
+dependency closure. Use `ws status --all` to include inactive and optional
+repositories as well. Both forms are local-only and perform no fetch.
+
 If the private FastDyn clone is unavailable, copy a deployed FastDyn tree to
 `src/FastDyn/` after selecting or explicitly syncing it.
 
@@ -324,7 +328,7 @@ ws profile [NAME...]
 ws build [COMPONENT]
 ws test [COMPONENT]
 ws shell COMPONENT
-ws status
+ws status [--all]
 ws graph
 ws west {validate|sync|status|path}
 ws remotes {ssh|https}

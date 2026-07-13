@@ -552,7 +552,7 @@ Usage: ws <command> [arguments]
   west sync             Update the one shared pinned west checkout
   west status           Show shared west paths and pin state
   remotes [ssh|https]   Select local push protocol; fetch stays on HTTPS
-  status                Show mode and every repository without network access
+  status [--all]        Show active repositories; --all shows every repository
   graph                 Print dependency edges from components.nix
 
 The default profile includes cubs2, which includes modelica. Other profiles
@@ -745,25 +745,50 @@ case "$command" in
     ;;
   status)
     require_manifest
+    show_all=false
+    if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--all" ) ]]; then
+      printf 'usage: ws status [--all]\n' >&2
+      exit 2
+    fi
+    [[ $# -eq 1 ]] && show_all=true
+    # Active status includes each selected profile's local dependency closure,
+    # matching what sync/build/test operate on.
+    select_components all true
     mode="$(current_mode)"
     if [[ "$mode" == "local" ]]; then mode_color="$C_GREEN"; else mode_color="$C_YELLOW"; fi
     printf '%bmode:%b     %b%s%b\n' \
       "$C_BOLD$C_BLUE" "$C_RESET" "$mode_color" "$mode" "$C_RESET"
     printf '%bprofiles:%b %b%s%b\n' \
       "$C_BOLD$C_BLUE" "$C_RESET" "$C_CYAN" "$(profile_label)" "$C_RESET"
-    if [[ -f "$root/src/cerebri_cubs2/west.yml" ||
+    if [[ "$show_all" == "true" || -n "${selected[cerebri_cubs2]:-}" ||
+          -n "${selected[cerebri_rdd2]:-}" ]] &&
+       [[ -f "$root/src/cerebri_cubs2/west.yml" ||
           -f "$root/src/cerebri_rdd2/west.yml" ]]; then
       COGNIPILOT_WORKSPACE_PROFILES="$(profiles_csv)" workspace-west status
-    else
+    elif [[ -n "${selected[cerebri_cubs2]:-}" ||
+            -n "${selected[cerebri_rdd2]:-}" ]]; then
       printf 'west: not available until a firmware repository is synced\n'
     fi
     while IFS= read -r name; do
+      if [[ -n "${selected[$name]:-}" ]]; then active=true; else active=false; fi
+      if [[ "$show_all" != "true" && "$active" != "true" ]]; then
+        continue
+      fi
       path="$(component_path "$name")"
       memberships="$(jq -r --arg name "$name" \
         '[.profiles | to_entries[] | select(.value | index($name)) | .key] | join(",")' \
         "$manifest")"
       name_style="$C_BOLD$C_CYAN"
-      if component_is_active "$name"; then active=true; else active=false; fi
+      if [[ "$active" == "true" ]] && component_is_active "$name"; then
+        profile_state='active'
+        profile_state_color="$C_GREEN"
+      elif [[ "$active" == "true" ]]; then
+        profile_state='dependency'
+        profile_state_color="$C_CYAN"
+      else
+        profile_state='inactive'
+        profile_state_color="$C_DIM"
+      fi
       if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
         if [[ -d "$path" && "$(component_value "$name" '(.repo.allowDeployed // false)')" == "true" ]]; then
           printf '\n%b[%s]%b %b● deployed/non-Git tree%b\n' \
@@ -771,16 +796,16 @@ case "$command" in
         elif [[ "$active" == "true" ]]; then
           printf '\n%b[%s]%b %b✗ missing%b\n' \
             "$name_style" "$name" "$C_RESET" "$C_RED" "$C_RESET"
-          printf '  %bprofiles:%b %b%s%b %b(active)%b\n' \
+          printf '  %bprofiles:%b %b%s%b %b(%s)%b\n' \
             "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
-            "$C_GREEN" "$C_RESET"
+            "$profile_state_color" "$profile_state" "$C_RESET"
           printf '  %brun: ws sync %s%b\n' "$C_YELLOW" "$name" "$C_RESET"
         else
           printf '\n%b[%s]%b %b○ not checked out%b\n' \
             "$name_style" "$name" "$C_RESET" "$C_DIM" "$C_RESET"
-          printf '  %bprofiles:%b %b%s%b %b(inactive)%b\n' \
+          printf '  %bprofiles:%b %b%s%b %b(%s)%b\n' \
             "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
-            "$C_DIM" "$C_RESET"
+            "$profile_state_color" "$profile_state" "$C_RESET"
         fi
         continue
       fi
@@ -809,15 +834,9 @@ case "$command" in
         "$branch_color" "$branch_label" "$C_RESET" \
         "$C_DIM" "$revision" "$C_RESET" \
         "$state_color" "$state_label" "$C_RESET"
-      if [[ "$active" == "true" ]]; then
-        printf '  %bprofiles:%b %b%s%b %b(active)%b\n' \
-          "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
-          "$C_GREEN" "$C_RESET"
-      else
-        printf '  %bprofiles:%b %b%s%b %b(inactive)%b\n' \
-          "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
-          "$C_DIM" "$C_RESET"
-      fi
+      printf '  %bprofiles:%b %b%s%b %b(%s)%b\n' \
+        "$C_BLUE" "$C_RESET" "$C_MAGENTA" "$memberships" "$C_RESET" \
+        "$profile_state_color" "$profile_state" "$C_RESET"
       upstream="$(git -C "$path" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
       if [[ -n "$upstream" ]]; then
         read -r ahead behind < <(

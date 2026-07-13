@@ -9,9 +9,78 @@ native West discovery.
 ## Prerequisites
 
 - x86-64 Linux for the qualified CUBS2 container and firmware workflow.
-- Nix with `nix-command` and `flakes` enabled and `accept-flake-config = true`.
-- devenv 2.1.2 (the workspace rejects a different CLI version).
 - direnv is optional.
+
+### Fresh Linux host
+
+Start by installing the host tools used to download Nix and clone this
+workspace. For example, on Debian or Ubuntu:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl git xz-utils
+```
+
+Use the equivalent packages from the host distribution on other Linux
+systems. The official Nix installer requires an HTTPS downloader and may
+require `xz`; this workspace also requires Git.
+
+Install Nix with the official recommended multi-user installer:
+
+```sh
+curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install \
+  | sh -s -- --daemon
+```
+
+Use the official [Nix download instructions](https://nixos.org/download/) for
+a single-user installation, WSL, a system without `sudo`, or a distribution
+whose native Nix package is preferred. Open a new terminal after installation,
+then verify it:
+
+```sh
+nix --version
+```
+
+Enable the Nix CLI and flake features used by this workspace in
+`~/.config/nix/nix.conf`:
+
+```text
+experimental-features = nix-command flakes
+accept-flake-config = true
+```
+
+Install the exact devenv CLI version required by this checkout:
+
+```sh
+nix profile add --accept-flake-config "github:cachix/devenv/v2.1.2"
+devenv version
+```
+
+The version command must report `2.1.2`. Ensure that `~/.nix-profile/bin` is
+on `PATH` if the newly installed `devenv` command is not found in a fresh
+terminal.
+
+Finally, clone this workspace over HTTPS if it is not already checked out:
+
+```sh
+git clone https://github.com/CogniPilot/cognipilot_workspace.git
+cd cognipilot_workspace
+```
+
+The devenv and Cachix binary caches substantially reduce the first install.
+On a multi-user Nix installation, a system administrator may add these lines
+to the system Nix configuration before installing devenv, then restart the Nix
+daemon:
+
+```text
+extra-substituters = https://devenv.cachix.org https://cachix.cachix.org
+extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw= cachix.cachix.org-1:eWNHQldwUO7G2VkjpnjDbWwy4KQ/HNxht7H4SSoMckM=
+```
+
+Trusting a binary cache allows its correctly signed builds into the local Nix
+store, so this remains an explicit administrator decision. Without these
+entries the setup still works, but it may download or build a much larger
+dependency closure.
 
 For ROS 2, add the component flake's cache to the system-level trusted Nix
 configuration so Nix does not rebuild ROS Jazzy from source:

@@ -12,9 +12,17 @@ let
   unknownDependencies = lib.concatMap (
     name:
     map (dependency: "${name} -> ${dependency}") (
+      builtins.filter (dependency: !(builtins.elem dependency componentNames)) (
+        rawComponents.${name}.dependencies ++ rawComponents.${name}.buildDependencies
+      )
+    )
+  ) componentNames;
+  invalidBuildDependencies = lib.concatMap (
+    name:
+    map (dependency: "${name} -> ${dependency}") (
       builtins.filter (
-        dependency: !(builtins.elem dependency componentNames)
-      ) rawComponents.${name}.dependencies
+        dependency: !(builtins.elem dependency rawComponents.${name}.dependencies)
+      ) rawComponents.${name}.buildDependencies
     )
   ) componentNames;
   unknownDevenvProfiles = builtins.filter (profile: !(builtins.hasAttr profile config.profiles)) (
@@ -27,6 +35,8 @@ let
   components =
     if unknownDependencies != [ ] then
       throw "workspace components reference unknown dependencies: ${builtins.concatStringsSep ", " unknownDependencies}"
+    else if invalidBuildDependencies != [ ] then
+      throw "workspace build dependencies must also be source dependencies: ${builtins.concatStringsSep ", " invalidBuildDependencies}"
     else if unknownDevenvProfiles != [ ] then
       throw "workspace components reference unknown devenv profiles: ${builtins.concatStringsSep ", " unknownDevenvProfiles}"
     else
@@ -43,6 +53,7 @@ let
         inherit (component)
           path
           dependencies
+          buildDependencies
           repo
           devenvProfile
           ;
@@ -137,6 +148,16 @@ in
 
   env = {
     COGNIPILOT_WORKSPACE_ROOT = root;
+    # Workspace artifacts are deliberately independent of devenv's
+    # profile-specific DEVENV_STATE. Entering any profile sees the same local
+    # overlay and incremental build products without requiring a setup script.
+    COGNIPILOT_WORKSPACE_STATE = "${root}/.devenv/state";
+    COGNIPILOT_BUILD_ROOT = "${root}/.devenv/state/build";
+    COGNIPILOT_DEVEL_ROOT = "${root}/.devenv/state/devel";
+    # Convenience GC roots for release-mode Nix outputs. These are not an
+    # overlay, are never placed on PATH, and are not deployment inputs.
+    COGNIPILOT_RELEASE_RESULTS = "${root}/.devenv/state/release-results";
+    COGNIPILOT_LOG_ROOT = "${root}/.devenv/state/log";
     COGNIPILOT_COMPONENTS_ROOT = "${root}/src";
     COGNIPILOT_LAUNCH_MANIFEST = launchManifest;
     COGNIPILOT_REPO_MANIFEST = repositoryManifest;
@@ -169,6 +190,7 @@ in
       packages = with pkgs; [
         bison
         cargo
+        cjson
         cmake
         dtc
         expat
@@ -176,8 +198,6 @@ in
         gcc
         glib
         gnumake
-        libcjson
-        libfdt
         meson
         ninja
         pixman
@@ -246,7 +266,7 @@ in
     rumoca = {
       description = "Run the prebuilt local Rumoca compiler";
       exec = ''
-        binary="${root}/.devenv/state/results/rumoca/bin/rumoca"
+        binary="${root}/.devenv/state/devel/rumoca/bin/rumoca"
         if [[ ! -x "$binary" ]]; then
           printf 'Rumoca build artifact is missing or not executable: %s\n' "$binary" >&2
           printf 'run: ws build rumoca\n' >&2

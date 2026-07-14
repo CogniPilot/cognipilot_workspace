@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "definition": "Maximum unchanged warm-build wall time in seconds. Cold builds are recorded but not gated because host and network state dominate them.",
+  "warm_max_seconds": {
+    "FastDyn": 8.0,
+    "cerebri_cubs2": 6.0,
+    "cerebri_modules": 2.0,
+    "csyn": 2.0,
+    "electrode_web": 4.0,
+    "modelica_models": 2.0,
+    "rumoca": 2.0,
+    "synapse_fbs": 1.0,
+    "synapse_ppm_bridge": 1.0
+  }
+}

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+	printf 'usage: workspace-cached-task KEY REPOSITORY OUTPUT... -- COMMAND [ARG ...]\n' >&2
+	exit 2
+}
+
+[[ $# -ge 5 ]] || usage
+key="$1"
+repository="$2"
+shift 2
+
+outputs=()
+while [[ $# -gt 0 && "$1" != "--" ]]; do
+	outputs+=("$1")
+	shift
+done
+[[ $# -gt 0 && "$1" == "--" ]] || usage
+shift
+[[ $# -gt 0 && ${#outputs[@]} -gt 0 ]] || usage
+
+root="${COGNIPILOT_WORKSPACE_ROOT:?COGNIPILOT_WORKSPACE_ROOT is not set}"
+build_root="${COGNIPILOT_BUILD_ROOT:?COGNIPILOT_BUILD_ROOT is not set}"
+cache="$root/scripts/workspace-task-cache"
+lock_name="${key//:/_}"
+lock_name="${lock_name//\//_}"
+lock_dir="$build_root/locks"
+
+mkdir -p "$lock_dir"
+exec 9>"$lock_dir/$lock_name.lock"
+flock 9
+
+# Another process may have completed the same task while this process waited
+# for the coordinate lock. Recheck inside the lock before executing anything.
+if "$cache" check "$key" "$repository" "${outputs[@]}"; then
+	exit 0
+fi
+
+"$@"
+"$cache" record "$key" "$repository" "${outputs[@]}"

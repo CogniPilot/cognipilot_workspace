@@ -405,8 +405,8 @@ Dockerfile to the repository root.
 
 ## Local and release dependency modes
 
-Local mode is the default. It builds dependencies first and injects their
-generated paths without changing component manifests:
+Local mode is the default. It builds only required dependency artifacts first
+and injects their generated paths without changing component manifests:
 
 ```sh
 ws mode local
@@ -449,6 +449,28 @@ ws build                 # release-build every active-profile component
 Use `ws shell COMPONENT` for a component's own pinned Nix development shell.
 This is also the point at which that component's language tools are fetched.
 
+### Build performance
+
+Run the opt-in benchmark outside the normal development path:
+
+```sh
+ws benchmark                         # every declared local build target
+ws benchmark cerebri_cubs2           # one target
+ws benchmark --check                 # enforce unchanged warm-build budgets
+```
+
+Each target is built in an isolated scratch state, first cold and then as an
+immediate unchanged warm repeat. Cold means fresh workspace `build/`, `devel/`,
+and task-cache state while shared Nix, Cargo, npm, and download caches remain
+available. The command never deletes or modifies a developer's existing build
+outputs. Results and per-phase logs are written under ignored
+`dev/benchmarks/`, with `latest.json` pointing at the newest run.
+
+Only warm times are gated by
+[`nix/workspace-benchmark-thresholds.json`](nix/workspace-benchmark-thresholds.json),
+because cold times depend heavily on host and network state. Benchmarking is
+never run implicitly by `ws build`, shell entry, or a component build task.
+
 Component flake references use Git filtering, so `.git`, `target/`,
 `node_modules/`, and ignored build outputs are not copied into the Nix store.
 Tracked modifications are visible. A new untracked source file is rejected
@@ -459,9 +481,11 @@ stage it normally or use intent-to-add before building.
 
 The typed graph is declared in [`nix/components/default.nix`](nix/components/default.nix), composable
 selections live in [`nix/profiles.nix`](nix/profiles.nix), and both are turned
-into devenv task edges by [`nix/tasks.nix`](nix/tasks.nix). `ws build NAME`
-runs the named node and its upstream local closure. `ws graph` prints the
-summary and resolved profile membership.
+into devenv task edges by [`nix/tasks.nix`](nix/tasks.nix). Repository
+`dependencies` control source checkout and workspace composition;
+`buildDependencies` create task edges only when a component consumes another
+component's generated artifact. `ws graph` prints the source graph and resolved
+profile membership.
 
 ```text
 synapse_fbs ──┬──> csyn ───────────────┬──> cerebri_cubs2
@@ -483,6 +507,38 @@ Nix still provides content-addressed package caching, while native Cargo, npm,
 CMake, and west builds retain their own incremental build directories.
 Synapse package staging is serialized across overlapping `ws` invocations so
 one build cannot reset the generated bindings while another consumes them.
+After the first successful firmware configuration, an unchanged build invokes
+the existing CMake/Ninja graph directly. Changes to the component flake lock,
+west pin manifest, board, or generated-package configuration automatically
+return to `west build -p auto` for reconfiguration.
+
+Local overlays are exposed automatically by devenv; developers do not source a
+setup script. Workspace-owned paths remain stable across devenv profiles:
+
+```text
+.devenv/state/
+├── build/            # disposable native intermediates and task fingerprints
+├── devel/            # automatic local overlay; mutable and never deployable
+├── release-results/  # convenience links to immutable release-mode Nix outputs
+└── log/              # workspace command logs
+```
+
+`ws mode local` consumes `devel/` paths automatically. It is intentionally
+mutable, may contain uncommitted local component changes, and must never be an
+input to deployment.
+
+`ws mode release` ignores `devel/` completely. It evaluates checked-in locks and
+published dependency revisions, then links selected immutable Nix outputs into
+`release-results/` for developer inspection and to keep them alive in the Nix
+store. That directory is not an install prefix, is not placed on `PATH`, and is
+not the source of deployed packages. Deployment must promote an explicit Nix
+derivation output (for example a versioned firmware bundle or container) and
+record its lock/revision and content digest. Deleting `release-results/` only
+removes the convenience links; it does not change what a deployment references.
+
+Release tasks enforce this boundary: the selected component worktree must be
+clean and committed, development-only overrides are unset, and any `devel/`
+entries are removed from common package search paths before the task starts.
 
 ## One shared, reproducible west checkout
 
@@ -541,8 +597,10 @@ cd src/cerebri_cubs2
 west build -b native_sim -p
 ```
 
-Use `ws build cerebri_cubs2` when the full local dependency DAG and generated
-local Synapse/Rumoca artifacts are required.
+Use `ws build cerebri_cubs2` to generate its required local Synapse/Rumoca
+artifacts and incrementally build the firmware. Independent CSyn, Modelica, and
+Cerebri Modules validation is handled by their own build/test tasks rather than
+being repeated in the firmware hot path.
 
 Set `COGNIPILOT_WEST_CACHE` to choose another cache location. If the applications
 intentionally need different pins in the future, use their existing managed
@@ -567,7 +625,7 @@ ws build
 ```
 
 The bridge's own flake supplies ROS 2 Jazzy. Local mode builds from a disposable
-source overlay under `$DEVENV_STATE`: schema generation points to
+source overlay under `$COGNIPILOT_BUILD_ROOT`: schema generation points to
 `src/synapse_fbs`, and only the disposable Cargo manifest points to the locally
 staged Rust crate. The repository's manifests and pinned nested submodule stay
 unchanged. Release mode runs its checked-in `nix run .#ci` flow.
@@ -590,6 +648,7 @@ ws mode [local|release]
 ws profile [NAME...]
 ws build [COMPONENT]
 ws test [COMPONENT]
+ws benchmark [--check] [COMPONENT...]
 ws shell COMPONENT
 ws launch [list|PROFILE...] [ACTION [PROCESS]]
 ws status [--all]

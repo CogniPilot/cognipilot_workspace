@@ -16,6 +16,7 @@ def component(*, optional: bool = False) -> dict[str, object]:
     return {
         "path": "src/demo",
         "dependencies": [],
+        "buildDependencies": [],
         "devenvProfile": None,
         "optional": optional,
         "repo": {
@@ -285,6 +286,53 @@ class WorkspaceCliTests(unittest.TestCase):
 
         self.assertEqual(build.returncode, 2)
         self.assertEqual(freeze.returncode, 2)
+
+    def test_build_activates_only_artifact_dependency_profiles(self) -> None:
+        app = component()
+        app.update(
+            {
+                "path": "src/app",
+                "dependencies": ["source", "artifact"],
+                "buildDependencies": ["artifact"],
+                "tasks": {
+                    "local": {"build": True, "test": False},
+                    "release": {"build": True, "test": False},
+                },
+            }
+        )
+        source = component()
+        source.update({"path": "src/source", "devenvProfile": "source-tools"})
+        artifact = component()
+        artifact.update({"path": "src/artifact", "devenvProfile": "artifact-tools"})
+        for entry in (app, source, artifact):
+            entry["repo"]["allowDeployed"] = True
+        for name in ("app", "source", "artifact"):
+            (self.root / "src" / name).mkdir(parents=True)
+        self.manifest.write_text(
+            json.dumps(
+                {
+                    "schema": 1,
+                    "profiles": {"default": ["app"]},
+                    "profileDefinitions": {
+                        "default": {"includes": [], "components": ["app"]}
+                    },
+                    "components": {
+                        "app": app,
+                        "source": source,
+                        "artifact": artifact,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_ws("build", "app")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = self.devenv_log.read_text(encoding="utf-8").splitlines()
+        self.assertIn("artifact-tools", arguments)
+        self.assertNotIn("source-tools", arguments)
+        self.assertEqual(arguments[-3:], ["tasks", "run", "local:build:app"])
 
     def test_launch_lists_central_profiles(self) -> None:
         result = self.run_ws("launch", "list")

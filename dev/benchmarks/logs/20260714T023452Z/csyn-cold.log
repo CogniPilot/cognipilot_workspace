@@ -1,0 +1,41 @@
+• Validating lock
+✓ Validating lock in 7.27ms
+• Configuring cachix
+✓ Configuring cachix in 1.80ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.73ms (cached)
+✓ Configuring shell in 6.60ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 270µs (cached)
+✓ Loading tasks in 1.09ms
+• Running tasks
+• Running local:build:synapse_fbs
+✖ check status in 9.36ms (failed)
+warning: Git tree '/home/jgoppert/git/cognipilot_workspace/src/synapse_fbs' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/cargo/debug/xtask build --release-name local`
+    Updating crates.io index
+     Locking 163 packages to latest Rust 1.95.0 compatible versions
+From https://github.com/dvidelabs/flatcc
+ * branch            d17e324e7e595272da486c5b9b20e848b78ba9ba -> FETCH_HEAD
+HEAD is now at d17e324 Bump to version 0.6.1
+CMake Deprecation Warning at CMakeLists.txt:5 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+✓ Running local:build:synapse_fbs in 72.9s
+• Running local:build:csyn
+✖ check status in 9.70ms (failed)
+   Compiling synapse_fbs v0.8.0 (/tmp/cognipilot-benchmark.OzhGDj/state/csyn/devel/synapse_fbs/rust)
+   Compiling csyn v0.6.0 (/home/jgoppert/git/cognipilot_workspace/src/csyn/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.21s
+✓ Running local:build:csyn in 19.8s
+✓ Running tasks in 92.7s
+{}

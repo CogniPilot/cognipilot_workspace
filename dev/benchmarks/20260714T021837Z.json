@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "created_at": "2026-07-14T02:22:41Z",
+  "root_revision": "9d47770397953bb0734b7e3917e26d88b1ab4f88",
+  "hostname": "storm",
+  "definition": {
+    "cold": "fresh workspace build/devel/task state; shared package and download caches retained",
+    "warm": "immediate unchanged repeat using the cold build outputs"
+  },
+  "targets": {
+    "FastDyn": {
+      "status": "ok",
+      "path": "src/FastDyn",
+      "cold_seconds": 167.427,
+      "warm_seconds": 0.270,
+      "cold_exit_code": 0,
+      "warm_exit_code": 0,
+      "cold_log": "logs/20260714T021837Z/FastDyn-cold.log",
+      "warm_log": "logs/20260714T021837Z/FastDyn-warm.log"
+    },
+    "synapse_fbs": {
+      "status": "ok",
+      "path": "src/synapse_fbs",
+      "cold_seconds": 73.898,
+      "warm_seconds": 0.302,
+      "cold_exit_code": 0,
+      "warm_exit_code": 0,
+      "cold_log": "logs/20260714T021837Z/synapse_fbs-cold.log",
+      "warm_log": "logs/20260714T021837Z/synapse_fbs-warm.log"
+    }
+  }
+}

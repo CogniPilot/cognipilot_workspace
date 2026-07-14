@@ -1,0 +1,21 @@
+• Validating lock
+✓ Validating lock in 6.79ms
+• Configuring cachix
+✓ Configuring cachix in 1.63ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 4.50ms (cached)
+✓ Configuring shell in 5.34ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 342µs (cached)
+✓ Loading tasks in 1.18ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 88.5ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 128ms
+• Running local:build:zros
+✓ Running local:build:zros in 238ms (cached)
+✓ Running tasks in 455ms
+{"local:build:zros":{"devenv":{"env":{}}}}

@@ -1,0 +1,38 @@
+• Validating lock
+✓ Validating lock in 6.72ms
+• Configuring cachix
+✓ Configuring cachix in 1.81ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 16.0ms (cached)
+✓ Configuring shell in 16.8ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 286µs (cached)
+✓ Loading tasks in 1.12ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 90.0ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 125ms
+• Running local:build:cerebri_modules
+✖ check status in 187ms (failed)
+INFO    - Using Ninja..
+INFO    - Zephyr version: c908d12ebc2b
+INFO    - Using 'zephyr' toolchain.
+INFO    - Building initial testsuite list...
+INFO    - Writing JSON report /tmp/cognipilot-benchmark.tJZLRi/state/cerebri_modules/build/twister/cerebri_modules/local-build/testplan.json
+INFO    - JOBS: 64
+INFO    - Adding tasks to the queue...
+INFO    - Added initial list of jobs to queue
+INFO    - 1 test scenarios (1 configurations) selected, 0 configurations filtered (0 by static filter, 0 at runtime).
+INFO    - 0 of 1 executed test configurations passed (0.00%), 1 built (not run), 0 failed, 0 errored, with no warnings in 12.82 seconds.
+INFO    - 0 test configurations executed on platforms, 1 test configurations were only built.
+INFO    - Saving reports...
+INFO    - Writing JSON report /tmp/cognipilot-benchmark.tJZLRi/state/cerebri_modules/build/twister/cerebri_modules/local-build/twister.json
+INFO    - Writing xunit report /tmp/cognipilot-benchmark.tJZLRi/state/cerebri_modules/build/twister/cerebri_modules/local-build/twister.xml...
+INFO    - Writing xunit report /tmp/cognipilot-benchmark.tJZLRi/state/cerebri_modules/build/twister/cerebri_modules/local-build/twister_report.xml...
+INFO    - Run completed
+✓ Running local:build:cerebri_modules in 14.1s
+✓ Running tasks in 14.3s
+{}

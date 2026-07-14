@@ -1,10 +1,14 @@
 # Package-owned devenv architecture
 
-Status: initial proposal, materially revised by
+Status: historical initial proposal, materially revised by
 `dev/adversarial-devenv-direction-review.md`, 2026-07-13. Do not implement this
 proposal unchanged: the six-agent review replaces eager executable package Nix
 with static manifests and lazy providers, and replaces package-level build and
 launch requirements with artifact/variant-aware plans.
+
+The typed flake modules, generated plans, and atomic no-compatibility cutover
+documented in `dev/devenv-implementation-roadmap.md` are authoritative where
+this proposal discusses temporary migration behavior.
 
 This document proposes ROS-like package semantics for the CogniPilot workspace
 without forcing every repository into a ROS 2 filesystem layout or deployment
@@ -215,8 +219,9 @@ Every package should declare:
 
 Package IDs should use lowercase letters, digits, and underscores, begin with a
 letter, and be globally unique. This matches most current target names and is
-familiar to ROS users. `FastDyn` should gain the canonical ID `fastdyn`, with a
-temporary `FastDyn` CLI alias during migration.
+familiar to ROS users. This initial proposal considered a migration-only
+compatibility alias while changing `FastDyn` to the canonical ID `fastdyn`.
+The implemented atomic cutover selected `fastdyn` without retaining an alias.
 
 ### Dependency kinds
 
@@ -357,7 +362,7 @@ Required validation includes:
 - descriptor, source, and referenced module paths remain within the declaring
   repository and exist when required;
 - all dependency references resolve and the build graph is acyclic;
-- selected profiles include the required source closure;
+- selected products include the required source closure;
 - all buildable packages declare commands, inputs, and required outputs;
 - development outputs stay below approved mutable state roots;
 - deployable releases resolve to Nix outputs and never reference `devel/`;
@@ -432,7 +437,7 @@ Developers should only need:
 
 ```sh
 direnv allow                 # once, if using direnv
-ws profile default
+ws product default
 ws sync all
 ws build cerebri_cubs2
 ws launch electrode_web/ground-station

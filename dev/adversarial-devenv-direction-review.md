@@ -1,6 +1,8 @@
 # Six-agent adversarial review of the CogniPilot development environment
 
-Status: direction review and revised roadmap, 2026-07-13.
+Status: historical pre-cutover direction review, 2026-07-13. The implemented
+Nix/Rust boundary and current roadmap supersede its migration scaffolding and
+central-registry recommendations; they remain here as decision context.
 
 The concrete implementation sequence, phase gates, package migration waves,
 and initial change list are in `dev/devenv-implementation-roadmap.md`.
@@ -177,7 +179,8 @@ last.
 
 ### Global state can surprise concurrent terminals
 
-`ws mode` and `ws profile` write shared state files. A release-mode change in
+The former `ws mode` and `ws profile` commands wrote shared state files. A
+release-mode change in
 one terminal can change the behavior of a build in another terminal. The word
 “profile” is also overloaded across repository selection, devenv toolchain
 profiles, and launch profiles.
@@ -675,7 +678,8 @@ ws env electrode_web --json
 ws editor vscode electrode_web
 ```
 
-Rename public repository profile selection to `product` or `selection`.
+Public repository selection is named `product`; devenv and launch profiles
+remain separate implementation/runtime concepts.
 Reserve “devenv profile” for the implementation mechanism.
 
 `./ws doctor` should diagnose platform support, Nix daemon/features, pinned

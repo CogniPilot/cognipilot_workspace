@@ -5,11 +5,16 @@
     "FastDyn": 8.0,
     "cerebri_cubs2": 6.0,
     "cerebri_modules": 2.0,
+    "cerebri_rdd2": 10.0,
     "csyn": 2.0,
     "electrode_web": 4.0,
     "modelica_models": 2.0,
+    "qualisys_rust_sdk": 1.0,
     "rumoca": 2.0,
     "synapse_fbs": 1.0,
-    "synapse_ppm_bridge": 1.0
+    "synapse_ppm_bridge": 2.0,
+    "synapse_qualisys_bridge": 2.0,
+    "zros": 2.0,
+    "zros_drivers": 1.0
   }
 }

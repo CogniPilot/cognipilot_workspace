@@ -1,0 +1,117 @@
+{
+  "nodes": {
+    "alpha_definition": {
+      "flake": false,
+      "locked": {
+        "path": "./definitions/alpha",
+        "type": "path"
+      },
+      "original": {
+        "path": "./definitions/alpha",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "alpha_source": {
+      "flake": false,
+      "locked": {
+        "path": "./sources/alpha",
+        "type": "path"
+      },
+      "original": {
+        "path": "./sources/alpha",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "beta_definition": {
+      "flake": false,
+      "locked": {
+        "path": "./definitions/beta",
+        "type": "path"
+      },
+      "original": {
+        "path": "./definitions/beta",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "beta_source": {
+      "flake": false,
+      "locked": {
+        "path": "./sources/beta",
+        "type": "path"
+      },
+      "original": {
+        "path": "./sources/beta",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1782949081,
+        "narHash": "sha256-vp6Y/Grm98ESt6ceOkWiHWyZRDV3J1RID4w+6NWK9yA=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "17c9d6cdfc60c64f4ee8d306f9bc0b4ccb51481e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1783776592,
+        "narHash": "sha256-UgCQzxeWI75XM8G+hPrPh+MKzEPjG3SpAj7dtqSbksA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e7a3ca8092b61ff85b6a45bf863ea2b2d6a661b3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "release_provider": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "path": "./provider",
+        "type": "path"
+      },
+      "original": {
+        "path": "./provider",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "root": {
+      "inputs": {
+        "alpha_definition": "alpha_definition",
+        "alpha_source": "alpha_source",
+        "beta_definition": "beta_definition",
+        "beta_source": "beta_source",
+        "flake-parts": "flake-parts",
+        "nixpkgs": "nixpkgs",
+        "release_provider": "release_provider"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

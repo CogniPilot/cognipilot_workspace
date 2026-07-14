@@ -1,0 +1,17 @@
+• Validating lock
+✓ Validating lock in 6.68ms
+• Configuring cachix
+✓ Configuring cachix in 1.78ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.25ms (cached)
+✓ Configuring shell in 6.05ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 279µs (cached)
+✓ Loading tasks in 1.09ms
+• Running tasks
+• Running local:build:qualisys_rust_sdk
+✓ Running local:build:qualisys_rust_sdk in 963ms
+✓ Running tasks in 963ms
+{}

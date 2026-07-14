@@ -1,0 +1,223 @@
+• Validating lock
+✓ Validating lock in 6.90ms
+• Configuring cachix
+✓ Configuring cachix in 2.94ms
+• Configuring shell
+• Evaluating shell
+• Building devenv-profile
+• Building devenv-files-cleanup
+structuredAttrs is enabled
+✓ Building devenv-files-cleanup in 48.5ms
+• Building tasks.json
+structuredAttrs is enabled
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/chcpu' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/chcpu'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mkfs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mkfs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/uuidgen' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/uuidgen'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/flock' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/flock'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/dmesg' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/dmesg'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/last' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/last'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/unshare' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/unshare'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mkfs.bfs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mkfs.bfs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/colrm' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/colrm'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/hardlink' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/hardlink'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fsck.minix' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fsck.minix'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/cfdisk' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/cfdisk'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fadvise' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fadvise'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsipc' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsipc'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ipcrm' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ipcrm'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/column' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/column'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/blkdiscard' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/blkdiscard'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/renice' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/renice'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/eject' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/eject'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/nsenter' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/nsenter'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/write' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/write'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/rtcwake' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/rtcwake'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/look' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/look'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fdisk' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fdisk'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/choom' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/choom'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/blkzone' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/blkzone'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/scriptreplay' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/scriptreplay'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mesg' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mesg'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/wall' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/wall'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ldattach' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ldattach'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/cal' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/cal'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/delpart' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/delpart'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/isosize' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/isosize'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mkswap' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mkswap'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fallocate' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fallocate'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lastlog2' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lastlog2'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/colcrt' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/colcrt'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/rename' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/rename'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/pivot_root' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/pivot_root'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/exch' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/exch'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fincore' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fincore'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/getino' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/getino'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/swaplabel' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/swaplabel'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/wipefs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/wipefs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/partx' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/partx'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/swapoff' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/swapoff'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/chfn' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/chfn'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fsck.cramfs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fsck.cramfs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/setterm' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/setterm'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/whereis' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/whereis'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/getopt' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/getopt'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/uuidd' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/uuidd'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/losetup' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/losetup'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/setarch' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/setarch'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/findmnt' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/findmnt'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/setpgid' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/setpgid'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/blkid' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/blkid'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/copyfilerange' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/copyfilerange'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsclocks' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsclocks'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/coresched' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/coresched'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/chsh' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/chsh'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mkfs.minix' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mkfs.minix'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/enosys' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/enosys'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/waitpid' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/waitpid'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ctrlaltdel' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ctrlaltdel'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/readprofile' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/readprofile'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsirq' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsirq'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ionice' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ionice'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lslocks' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lslocks'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/script' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/script'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/setpriv' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/setpriv'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mountpoint' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mountpoint'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/addpart' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/addpart'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsblk' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsblk'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/umount' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/umount'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mount' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mount'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/col' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/col'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/taskset' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/taskset'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/chrt' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/chrt'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/blockdev' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/blockdev'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/wdctl' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/wdctl'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/swapon' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/swapon'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/uclampset' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/uclampset'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/irqtop' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/irqtop'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/setsid' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/setsid'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/resizepart' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/resizepart'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/hexdump' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/hexdump'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ipcs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ipcs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsfd' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsfd'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fsfreeze' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fsfreeze'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fstrim' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fstrim'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/scriptlive' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/scriptlive'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/utmpdump' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/utmpdump'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/hwclock' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/hwclock'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mkfs.cramfs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mkfs.cramfs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsns' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsns'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/namei' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/namei'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/rev' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/rev'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/logger' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/logger'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lsmem' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lsmem'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/chmem' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/chmem'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/zramctl' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/zramctl'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/mcookie' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/mcookie'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/fsck' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/fsck'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/prlimit' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/prlimit'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lscpu' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lscpu'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/sfdisk' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/sfdisk'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/more' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/more'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/rfkill' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/rfkill'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/findfs' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/findfs'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ul' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ul'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/bits' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/bits'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/blkpr' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/blkpr'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/uuidparse' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/uuidparse'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/pipesz' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/pipesz'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/lslogins' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/lslogins'
+pkgs.buildEnv warning: colliding subpath (ignored): `/nix/store/c2ndp3f1lxh38zp3ydm85qb52rcw97dn-util-linux-2.42/share/bash-completion/completions/ipcmk' and `/nix/store/qjs15klpvpwz64pjdspy3mln6d54pd8f-util-linux-2.42-bin/share/bash-completion/completions/ipcmk'
+✓ Building tasks.json in 58.7ms
+created 2220 symlinks in user environment
+✓ Building devenv-profile in 384ms
+• Building cognipilot_workspace
+Running phase: buildPhase
+✓ Building cognipilot_workspace in 212ms
+• Building cognipilot_workspace-env
+✓ Building cognipilot_workspace-env in 365ms
+✓ Evaluating shell in 3.28s
+✓ Configuring shell in 3.28s
+• Evaluating bash
+✓ Evaluating bash in 2.25ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 5.61ms
+✓ Loading tasks in 5.98ms
+• Running tasks
+• Running local:build:rumoca
+• Running workspace:west:validate
+• Running local:build:synapse_fbs
+✖ check status in 9.44ms (failed)
+✖ check status in 9.63ms (failed)
+✓ Running workspace:west:validate in 94.4ms
+• Running workspace:west:ensure
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running `target/cargo/debug/xtask build --release-name local`
+Error: Custom { kind: Other, error: "unknown command 'build'. expected: ci, js, docs, check, or update-compatibility" }
+✖ execute command in 694ms (failed)
+✖ Running local:build:synapse_fbs in 704ms (failed)
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+   Compiling rumoca-phase-codegen v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-phase-codegen)
+   Compiling rumoca-compile v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-compile)
+   Compiling rumoca-tool-lint v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-tool-lint)
+   Compiling rumoca-tool-fmt v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-tool-fmt)
+   Compiling rumoca-tool-lsp v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-tool-lsp)
+   Compiling rumoca-bind-wasm v0.9.20 (/home/jgoppert/git/cognipilot_workspace/src/rumoca/crates/rumoca-bind-wasm)
+From https://github.com/CogniPilot/zephyr
+ * branch                    c908d12ebc2baa679d0f5b8e31eeb459ea93caff -> FETCH_HEAD
+HEAD is now at c908d12ebc2 shell: add Ctrl-C callback registration hooks
+    Finished `dev` profile [optimized + debuginfo] target(s) in 29.89s
+HEAD is now at c908d12ebc2 shell: add Ctrl-C callback registration hooks
+From https://github.com/zephyrproject-rtos/cmsis
+ * branch            512cc7e895e8491696b61f7ba8066b4a182569b8 -> FETCH_HEAD
+HEAD is now at 512cc7e cmsis: pac_armv81.h missing
+HEAD is now at 512cc7e cmsis: pac_armv81.h missing
+[INFO]: ✨   Done in 32.42s
+[INFO]: 📦   Your wasm pkg is ready to publish at packages/rumoca/dist/dev-core.
+From https://github.com/zephyrproject-rtos/cmsis_6
+ * branch              30a859f44ef8ab4dc8f84b03ed586fd16ccf9d74 -> FETCH_HEAD
+HEAD is now at 30a859f4 m-profile/gcc: Support picolibc startup mechanism (#246)
+HEAD is now at 30a859f4 m-profile/gcc: Support picolibc startup mechanism (#246)
+✓ Running local:build:rumoca in 35.6s
+From https://github.com/CogniPilot/hal_nxp
+ * branch                cf8f1631e862528ee044850bcc70273975b90771 -> FETCH_HEAD
+HEAD is now at cf8f1631e MIMX9131: add tpm control count definition
+HEAD is now at cf8f1631e MIMX9131: add tpm control count definition
+From https://github.com/CogniPilot/zros
+ * branch            959bce412d6e12b3a49fb8b55c219affcf7f6d0e -> FETCH_HEAD
+HEAD is now at 959bce4 zros: expose public types and add shell diagnostics
+HEAD is now at 959bce4 zros: expose public types and add shell diagnostics
+From https://github.com/CogniPilot/csyn
+ * branch            c1fdc903b5eb48e9a4362c716f50e658bed15961 -> FETCH_HEAD
+HEAD is now at c1fdc90 Document v0.5.0 release
+HEAD is now at c1fdc90 Document v0.5.0 release
+From https://github.com/CogniPilot/cerebri_modules
+ * branch            ef73a4f8adeb4385c34af4344c9af27e43e02033 -> FETCH_HEAD
+HEAD is now at ef73a4f Document the shared cerebri_modules charter
+HEAD is now at ef73a4f Document the shared cerebri_modules charter
+From https://github.com/CogniPilot/modelica_models
+ * branch            62ea9f97cec28e092c8e67c9f4a0dbb842f6233b -> FETCH_HEAD
+HEAD is now at 62ea9f9 Add LieGroups library (#4)
+HEAD is now at 62ea9f9 Add LieGroups library (#4)
+From https://github.com/cognipilot/zenoh-pico
+ * branch              cb9d8391c8e3c394fd288f2299c2b6758523b1c6 -> FETCH_HEAD
+HEAD is now at cb9d8391 Add native_sim support.
+HEAD is now at cb9d8391 Add native_sim support.
+From https://github.com/CogniPilot/zephyr_boards
+ * branch            d006ec84e621ee33f43c233a96380c8c3f6470eb -> FETCH_HEAD
+HEAD is now at d006ec8 Merge branch 'main' into cerebri2-base
+HEAD is now at d006ec8 Merge branch 'main' into cerebri2-base
+From https://github.com/zephyrproject-rtos/cmsis-dsp
+ * branch              97512610ec92058f0119450b9e743eeb7e95b5c8 -> FETCH_HEAD
+HEAD is now at 97512610 arm_biquad_cascade_df1_32x64_q31: asrl(val, -shift) -> lsll(val, shift) (#265)
+HEAD is now at 97512610 arm_biquad_cascade_df1_32x64_q31: asrl(val, -shift) -> lsll(val, shift) (#265)
+From https://github.com/zephyrproject-rtos/fatfs
+ * branch            f4ead3bf4a6dab3a07d7b5f5315795c073db568d -> FETCH_HEAD
+HEAD is now at f4ead3b zephyr: Bring back accidentally removed disk access window alignment
+HEAD is now at f4ead3b zephyr: Bring back accidentally removed disk access window alignment
+✓ Running workspace:west:ensure in 55.0s
+• Running local:build:cerebri_cubs2
+✖ Running local:build:cerebri_cubs2 in 4.22µs (dependency failed)
+✖ Running tasks in 55.1s (failed)
+  [31m×[0m Some tasks failed

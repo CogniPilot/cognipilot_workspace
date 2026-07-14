@@ -1,0 +1,19 @@
+• Validating lock
+✓ Validating lock in 6.74ms
+• Configuring cachix
+✓ Configuring cachix in 1.65ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 4.22ms (cached)
+✓ Configuring shell in 4.84ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 268µs (cached)
+✓ Loading tasks in 1.15ms
+• Running tasks
+• Running local:build:rumoca
+✓ Running local:build:rumoca in 64.8ms (cached)
+• Running local:build:modelica_models
+✓ Running local:build:modelica_models in 66.8ms (cached)
+✓ Running tasks in 132ms
+{"local:build:modelica_models":{"devenv":{"env":{}}},"local:build:rumoca":{"devenv":{"env":{}}}}

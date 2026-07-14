@@ -1,0 +1,32 @@
+• Validating lock
+✓ Validating lock in 6.90ms
+• Configuring cachix
+✓ Configuring cachix in 1.77ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.10ms (cached)
+✓ Configuring shell in 10.5ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 283µs (cached)
+✓ Loading tasks in 1.19ms
+• Running tasks
+• Running local:build:synapse_fbs
+• Running local:build:rumoca
+✖ check status in 9.33ms (failed)
+✖ check status in 9.58ms (failed)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `target/cargo/debug/xtask build --release-name local`
+Error: Custom { kind: Other, error: "unknown command 'build'. expected: ci, js, docs, check, or update-compatibility" }
+✖ execute command in 463ms (failed)
+✖ Running local:build:synapse_fbs in 472ms (failed)
+• Running local:build:electrode_web
+✖ Running local:build:electrode_web in 9.80µs (dependency failed)
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.23s
+[INFO]: ✨   Done in 2.77s
+[INFO]: 📦   Your wasm pkg is ready to publish at packages/rumoca/dist/dev-core.
+✓ Running local:build:rumoca in 5.74s
+✖ Running tasks in 5.74s (failed)
+  [31m×[0m Some tasks failed

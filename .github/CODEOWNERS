@@ -1,0 +1,11 @@
+# Workspace-interface, product-selection, release, and CI policy changes require
+# review from the organization administrators who own the CogniPilot platform.
+/flake.nix @CogniPilot/admins
+/flake.lock @CogniPilot/admins
+/nix/cognipilot/ @CogniPilot/admins
+/nix/nixspace/ @CogniPilot/admins
+/nix/project-definitions/ @CogniPilot/admins
+/tools/nixspace/ @CogniPilot/admins
+/setup @CogniPilot/admins
+/ws @CogniPilot/admins
+/.github/workflows/ @CogniPilot/admins @CogniPilot/credentials

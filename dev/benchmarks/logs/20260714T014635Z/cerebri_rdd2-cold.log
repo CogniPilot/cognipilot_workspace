@@ -1,0 +1,36 @@
+• Validating lock
+✓ Validating lock in 6.89ms
+• Configuring cachix
+✓ Configuring cachix in 1.93ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 4.23ms (cached)
+✓ Configuring shell in 4.95ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 288µs (cached)
+✓ Loading tasks in 1.13ms
+• Running tasks
+• Running local:build:rumoca
+• Running local:build:synapse_fbs
+• Running workspace:west:validate
+✖ check status in 9.03ms (failed)
+✖ check status in 9.41ms (failed)
+✓ Running workspace:west:validate in 94.4ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 140ms
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/cargo/debug/xtask build --release-name local`
+Error: Custom { kind: Other, error: "unknown command 'build'. expected: ci, js, docs, check, or update-compatibility" }
+✖ execute command in 459ms (failed)
+✖ Running local:build:synapse_fbs in 469ms (failed)
+• Running local:build:cerebri_rdd2
+✖ Running local:build:cerebri_rdd2 in 3.97µs (dependency failed)
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.23s
+[INFO]: ✨   Done in 2.77s
+[INFO]: 📦   Your wasm pkg is ready to publish at packages/rumoca/dist/dev-core.
+✓ Running local:build:rumoca in 5.78s
+✖ Running tasks in 5.78s (failed)
+  [31m×[0m Some tasks failed

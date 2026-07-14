@@ -1,0 +1,45 @@
+• Validating lock
+✓ Validating lock in 7.15ms
+• Configuring cachix
+✓ Configuring cachix in 2.96ms
+• Configuring shell
+• Evaluating shell
+• Building tasks.json
+structuredAttrs is enabled
+✓ Building tasks.json in 60.1ms
+• Building cognipilot_workspace
+Running phase: buildPhase
+✓ Building cognipilot_workspace in 265ms
+• Building cognipilot_workspace-env
+✓ Building cognipilot_workspace-env in 433ms
+✓ Evaluating shell in 3.27s
+✓ Configuring shell in 3.27s
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 6.13ms
+✓ Loading tasks in 6.82ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 88.9ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 129ms
+• Running local:build:zros
+INFO    - Using Ninja..
+INFO    - Zephyr version: c908d12ebc2b
+INFO    - Using 'zephyr' toolchain.
+INFO    - Building initial testsuite list...
+INFO    - Writing JSON report /tmp/cognipilot-benchmark.Afyska/state/zros/build/twister/zros/local-build/testplan.json
+INFO    - JOBS: 64
+INFO    - Adding tasks to the queue...
+INFO    - Added initial list of jobs to queue
+INFO    - 10 test scenarios (10 configurations) selected, 0 configurations filtered (0 by static filter, 0 at runtime).
+INFO    - 0 of 10 executed test configurations passed (0.00%), 10 built (not run), 0 failed, 0 errored, with no warnings in 25.03 seconds.
+INFO    - 0 test configurations executed on platforms, 10 test configurations were only built.
+INFO    - Saving reports...
+INFO    - Writing JSON report /tmp/cognipilot-benchmark.Afyska/state/zros/build/twister/zros/local-build/twister.json
+INFO    - Writing xunit report /tmp/cognipilot-benchmark.Afyska/state/zros/build/twister/zros/local-build/twister.xml...
+INFO    - Writing xunit report /tmp/cognipilot-benchmark.Afyska/state/zros/build/twister/zros/local-build/twister_report.xml...
+INFO    - Run completed
+✓ Running local:build:zros in 26.0s
+✓ Running tasks in 26.2s
+{}

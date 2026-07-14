@@ -1,5 +1,6 @@
 .devenv*
 .direnv/
+.nixspace/
 devenv.local.nix
 __pycache__/
 *.py[cod]
@@ -16,4 +17,7 @@ result-*
 zephyr/
 modules/
 bootloader/
-tools/
+/tools/*
+!/tools/nixspace/
+!/tools/nixspace/**
+/tools/nixspace/target/

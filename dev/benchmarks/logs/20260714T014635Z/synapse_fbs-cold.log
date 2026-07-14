@@ -1,0 +1,22 @@
+• Validating lock
+✓ Validating lock in 6.75ms
+• Configuring cachix
+✓ Configuring cachix in 1.70ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 4.97ms (cached)
+✓ Configuring shell in 5.74ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 263µs (cached)
+✓ Loading tasks in 1.14ms
+• Running tasks
+• Running local:build:synapse_fbs
+✖ check status in 9.32ms (failed)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/cargo/debug/xtask build --release-name local`
+Error: Custom { kind: Other, error: "unknown command 'build'. expected: ci, js, docs, check, or update-compatibility" }
+✖ execute command in 459ms (failed)
+✖ Running local:build:synapse_fbs in 468ms (failed)
+✖ Running tasks in 468ms (failed)
+  [31m×[0m Some tasks failed

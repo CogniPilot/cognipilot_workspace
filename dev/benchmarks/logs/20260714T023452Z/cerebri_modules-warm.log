@@ -1,0 +1,21 @@
+• Validating lock
+✓ Validating lock in 6.70ms
+• Configuring cachix
+✓ Configuring cachix in 1.72ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.88ms (cached)
+✓ Configuring shell in 6.48ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 285µs (cached)
+✓ Loading tasks in 1.32ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 95.2ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 140ms
+• Running local:build:cerebri_modules
+✓ Running local:build:cerebri_modules in 35.8ms (cached)
+✓ Running tasks in 272ms
+{"local:build:cerebri_modules":{"devenv":{"env":{}}}}

@@ -2,8 +2,10 @@
 .github
 .devenv
 .direnv
+.nixspace
 devenv.local.nix
 src
+tools/nixspace/target
 result
 result-*
 **/.DS_Store

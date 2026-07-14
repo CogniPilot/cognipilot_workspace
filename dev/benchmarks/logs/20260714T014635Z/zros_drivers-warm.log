@@ -1,0 +1,17 @@
+• Validating lock
+✓ Validating lock in 6.67ms
+• Configuring cachix
+✓ Configuring cachix in 1.74ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.61ms (cached)
+✓ Configuring shell in 6.45ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 268µs (cached)
+✓ Loading tasks in 1.07ms
+• Running tasks
+• Running local:build:zros_drivers
+✓ Running local:build:zros_drivers in 6.00ms
+✓ Running tasks in 6.14ms
+{}

@@ -1,0 +1,167 @@
+{
+  "apiVersion": "nixspace/v1",
+  "kind": "BenchmarkReport",
+  "interfaceVersion": 1,
+  "planId": "cognipilot-lightweight-client-v1",
+  "planPath": "/tmp/nixspace-benchmark-plan/share/nixspace/benchmark-plan.json",
+  "reportPath": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.json",
+  "workspace": "/home/jgoppert/git/cognipilot_workspace",
+  "reference": {
+    "name": "storm",
+    "class": "local-developer"
+  },
+  "context": {
+    "cacheState": "warm generated index",
+    "flakeLockSha256": "9964c8290092ba4132c6e2ade4cd38ac8f93d3a1c1fda3f6da3369dcc7b355b3",
+    "nixVersion": "2.34.8",
+    "planEvaluatorNixVersion": "2.34.7",
+    "system": "x86_64-linux"
+  },
+  "startedAtUnixMilliseconds": 1784055084715,
+  "durationNanoseconds": 62955381,
+  "passed": true,
+  "cases": [
+    {
+      "id": "ws-build-plan",
+      "description": "Dispatch through the setup-installed ws entry point and resolve a build plan without starting a native task.",
+      "context": {
+        "cacheState": "warm generated index; measured command performs no Nix evaluation",
+        "coordinate": "workspace/ws-build-plan"
+      },
+      "command": {
+        "argv": [
+          "./ws",
+          "build",
+          "synapse_fbs",
+          "--plan",
+          "--json"
+        ],
+        "cwd": "/home/jgoppert/git/cognipilot_workspace",
+        "environment": {},
+        "inheritEnvironment": false,
+        "expectedExitCodes": [
+          0
+        ]
+      },
+      "warmups": [
+        {
+          "index": 1,
+          "durationNanoseconds": 8626193,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/warmup-001.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/warmup-001.stderr.log"
+        }
+      ],
+      "samples": [
+        {
+          "index": 1,
+          "durationNanoseconds": 7583132,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-001.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-001.stderr.log"
+        },
+        {
+          "index": 2,
+          "durationNanoseconds": 7532543,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-002.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-002.stderr.log"
+        },
+        {
+          "index": 3,
+          "durationNanoseconds": 7527352,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-003.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-003.stderr.log"
+        },
+        {
+          "index": 4,
+          "durationNanoseconds": 7523753,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-004.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-004.stderr.log"
+        },
+        {
+          "index": 5,
+          "durationNanoseconds": 7484033,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-005.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-005.stderr.log"
+        },
+        {
+          "index": 6,
+          "durationNanoseconds": 8673803,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-006.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-006.stderr.log"
+        },
+        {
+          "index": 7,
+          "durationNanoseconds": 7557542,
+          "status": {
+            "kind": "exited",
+            "success": true,
+            "code": 0,
+            "expected": true
+          },
+          "stdoutLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-007.stdout.log",
+          "stderrLog": "/home/jgoppert/git/cognipilot_workspace/dev/benchmarks/nixspace/20260714-ws-dispatch.logs/ws-build-plan/sample-007.stderr.log"
+        }
+      ],
+      "statistics": {
+        "p50Nanoseconds": 7532543,
+        "p95Nanoseconds": 8673803
+      },
+      "gates": [
+        {
+          "statistic": "p50",
+          "actualNanoseconds": 7532543,
+          "limitMilliseconds": 500,
+          "passed": true
+        },
+        {
+          "statistic": "p95",
+          "actualNanoseconds": 8673803,
+          "limitMilliseconds": 500,
+          "passed": true
+        }
+      ],
+      "passed": true
+    }
+  ]
+}

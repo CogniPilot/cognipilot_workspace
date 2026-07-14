@@ -1,0 +1,94 @@
+• Validating lock
+✓ Validating lock in 6.76ms
+• Configuring cachix
+✓ Configuring cachix in 1.64ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 4.58ms (cached)
+✓ Configuring shell in 5.22ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 292µs (cached)
+✓ Loading tasks in 1.46ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 93.0ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 145ms
+• Running local:build:zros
+src/zros_broker.c:28:60: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(k_mutex_lock(&_broker._lock, g_broker_timeout),
+                                                           ^
+src/zros_broker.c:29:46: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("failed to lock broker");
+                                             ^
+src/zros_sub.c:122:57: error: code should be clang-formatted [-Wclang-format-violations]
+    return (generation != sub->_last_seen_generation) &&
+                                                        ^
+src/zros_sub.c:208:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(zros_node_add_sub(node, sub),
+                                         ^
+src/zros_sub.c:209:55: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("failed to add push sub to node");
+                                                      ^
+src/zros_sub.c:300:55: error: code should be clang-formatted [-Wclang-format-violations]
+            if (!K_TIMEOUT_EQ(remaining, K_FOREVER) &&
+                                                      ^
+src/zros_sub.c:301:58: error: code should be clang-formatted [-Wclang-format-violations]
+                (K_TIMEOUT_EQ(wait_timeout, K_FOREVER) ||
+                                                         ^
+src/zros_topic.c:6:1: error: code should be clang-formatted [-Wclang-format-violations]
+#include <stdio.h>
+^
+src/zros_topic.c:114:50: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(k_mutex_lock(write, g_topic_timeout),
+                                                 ^
+src/zros_topic.c:115:44: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("write lock failed\n");
+                                           ^
+src/zros_topic.c:273:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:274:51: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("topic metadata lock failed");
+                                                  ^
+src/zros_topic.c:292:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:293:49: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("pub metadata lock failed");
+                                                ^
+src/zros_topic.c:310:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:311:49: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("pub metadata lock failed");
+                                                ^
+src/zros_topic.c:322:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:323:51: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_WRN("topic metadata lock failed");
+                                                  ^
+src/zros_topic.c:335:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:336:51: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("topic metadata lock failed");
+                                                  ^
+src/zros_topic.c:420:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:421:51: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("topic metadata lock failed");
+                                                  ^
+src/zros_topic.c:438:42: error: code should be clang-formatted [-Wclang-format-violations]
+    ZROS_RC(_zros_topic_meta_lock(topic),
+                                         ^
+src/zros_topic.c:439:51: error: code should be clang-formatted [-Wclang-format-violations]
+            LOG_ERR("topic metadata lock failed");
+                                                  ^
+✖ execute command in 282ms (failed)
+✖ Running local:build:zros in 282ms (failed)
+✖ Running tasks in 520ms (failed)
+  [31m×[0m Some tasks failed

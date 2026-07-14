@@ -1,0 +1,53 @@
+• Validating lock
+✓ Validating lock in 6.77ms
+• Configuring cachix
+✓ Configuring cachix in 1.71ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 15.9ms (cached)
+✓ Configuring shell in 16.4ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 271µs (cached)
+✓ Loading tasks in 1.32ms
+• Running tasks
+• Running workspace:west:validate
+• Running local:build:rumoca
+• Running local:build:synapse_fbs
+✖ check status in 9.45ms (failed)
+✖ check status in 9.57ms (failed)
+✓ Running workspace:west:validate in 89.1ms
+• Running workspace:west:ensure
+warning: Git tree '/home/jgoppert/git/cognipilot_workspace/src/synapse_fbs' is dirty
+✓ Running workspace:west:ensure in 124ms
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
+     Running `target/cargo/debug/xtask build --release-name local`
+    Updating crates.io index
+     Locking 163 packages to latest Rust 1.95.0 compatible versions
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.26s
+[INFO]: ✨   Done in 3.01s
+[INFO]: 📦   Your wasm pkg is ready to publish at packages/rumoca/dist/dev-core.
+✓ Running local:build:rumoca in 6.52s
+From https://github.com/dvidelabs/flatcc
+ * branch            d17e324e7e595272da486c5b9b20e848b78ba9ba -> FETCH_HEAD
+HEAD is now at d17e324 Bump to version 0.6.1
+CMake Deprecation Warning at CMakeLists.txt:5 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+✓ Running local:build:synapse_fbs in 72.5s
+• Running local:build:cerebri_rdd2
+error: missing required west checkout: /home/jgoppert/.cache/cognipilot_workspace/86ef9fbd9e26/west/workspaces/b453b96596d4794cb27ef882078c5f418b23be4852ca671374f677f69a31e9e9/local/d63679d52c4d962a7c1c9356957288c4d065a6777b52911269cf12954613059b/modules/fs/fatfs
+error: missing required west checkout: /home/jgoppert/.cache/cognipilot_workspace/86ef9fbd9e26/west/workspaces/b453b96596d4794cb27ef882078c5f418b23be4852ca671374f677f69a31e9e9/local/d63679d52c4d962a7c1c9356957288c4d065a6777b52911269cf12954613059b/modules/lib/cmsis-dsp
+run: nix run .#west-update
+✖ execute command in 758ms (failed)
+✖ Running local:build:cerebri_rdd2 in 758ms (failed)
+✖ Running tasks in 73.2s (failed)
+  [31m×[0m Some tasks failed

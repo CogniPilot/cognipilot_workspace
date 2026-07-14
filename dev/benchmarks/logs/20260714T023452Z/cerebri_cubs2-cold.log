@@ -1,0 +1,50 @@
+• Validating lock
+✓ Validating lock in 6.77ms
+• Configuring cachix
+✓ Configuring cachix in 1.69ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.91ms (cached)
+✓ Configuring shell in 6.51ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 332µs (cached)
+✓ Loading tasks in 1.40ms
+• Running tasks
+• Running local:build:rumoca
+• Running workspace:west:validate
+• Running local:build:synapse_fbs
+✖ check status in 9.45ms (failed)
+✖ check status in 9.84ms (failed)
+warning: Git tree '/home/jgoppert/git/cognipilot_workspace/src/synapse_fbs' is dirty
+✓ Running workspace:west:validate in 121ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 142ms
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target/cargo/debug/xtask build --release-name local`
+    Updating crates.io index
+     Locking 163 packages to latest Rust 1.95.0 compatible versions
+[INFO]: 🎯  Checking for the Wasm target...
+[INFO]: 🌀  Compiling to Wasm...
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.39s
+[INFO]: ✨   Done in 3.27s
+[INFO]: 📦   Your wasm pkg is ready to publish at packages/rumoca/dist/dev-core.
+✓ Running local:build:rumoca in 6.52s
+From https://github.com/dvidelabs/flatcc
+ * branch            d17e324e7e595272da486c5b9b20e848b78ba9ba -> FETCH_HEAD
+HEAD is now at d17e324 Bump to version 0.6.1
+CMake Deprecation Warning at CMakeLists.txt:5 (cmake_minimum_required):
+  Compatibility with CMake < 3.10 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value.  Or, use the <min>...<max> syntax
+  to tell CMake that the project requires at least <min> but has been updated
+  to work with policies introduced by <max> or earlier.
+
+
+✓ Running local:build:synapse_fbs in 74.4s
+• Running local:build:cerebri_cubs2
+Loading Zephyr default modules (Zephyr base).
+✓ Running local:build:cerebri_cubs2 in 20.0s
+✓ Running tasks in 94.5s
+{}

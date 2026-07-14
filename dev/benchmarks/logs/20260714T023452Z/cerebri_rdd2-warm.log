@@ -1,0 +1,26 @@
+• Validating lock
+✓ Validating lock in 6.87ms
+• Configuring cachix
+✓ Configuring cachix in 1.96ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.69ms (cached)
+✓ Configuring shell in 6.42ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 377µs (cached)
+✓ Loading tasks in 1.41ms
+• Running tasks
+• Running local:build:synapse_fbs
+• Running workspace:west:validate
+• Running local:build:rumoca
+✓ Running local:build:rumoca in 63.5ms (cached)
+✓ Running local:build:synapse_fbs in 77.0ms (cached)
+✓ Running workspace:west:validate in 94.9ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 141ms
+• Running local:build:cerebri_rdd2
+Loading Zephyr default modules (Zephyr base (cached)).
+✓ Running local:build:cerebri_rdd2 in 7.88s
+✓ Running tasks in 8.12s
+{"local:build:rumoca":{"devenv":{"env":{}}},"local:build:synapse_fbs":{"devenv":{"env":{}}}}

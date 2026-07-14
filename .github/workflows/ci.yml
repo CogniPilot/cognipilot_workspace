@@ -1,4 +1,4 @@
-name: Workspace CI
+name: Nix workspace CI
 
 on:
   pull_request:
@@ -9,87 +9,290 @@ on:
 permissions:
   contents: read
 
+# Only the newest run for a ref may publish or advance rolling pins. Cachix
+# uploads are content-addressed, while `main-${system}` pins are mutable and
+# must never be moved backwards by an overlapping older run.
+concurrency:
+  group: nix-workspace-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    name: Validate workspace orchestration
-    runs-on: ubuntu-latest
+    name: Validate the Nix workspace contract (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-      - uses: DeterminateSystems/nix-installer-action@v22
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
         with:
           determinate: false
-      - name: Install pinned devenv
-        run: nix profile install --accept-flake-config github:cachix/devenv/v2.1.2
-      - name: Evaluate registry, profiles, tasks, and CLI
-        run: |
-          devenv shell -- bash -euo pipefail -c '
-            ws graph >/dev/null
-            ws profile list >/dev/null
-            ws launch list >/dev/null
-            ws _complete launch "" | grep -Fx simulation-stack >/dev/null
-            python -m unittest discover -s tests -v
-          '
-      - name: Evaluate composable launch profiles
-        run: |
-          devenv --profile simulation-stack eval processes >/dev/null
-          devenv \
-            --profile simulation \
-            --profile ground-station \
-            --profile mocap \
-            eval processes >/dev/null
-      - name: Validate release snapshot when present
-        run: |
-          if [[ -e workspace.lock.json ]]; then
-            jq -e '.schema == 1 and ((.components | length) > 0)' workspace.lock.json
-          fi
-      - name: Run orchestration linters
-        run: devenv --profile ci shell -- scripts/lint-workspace
+          kvm: false
 
-  image-inputs:
-    name: Detect CUBS2 image changes
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.image }}
+      # This action only installs the public substituter and key. Validation
+      # must never upload an incidental build or expose the organization token.
+      - name: Configure the public cache for reads
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: cognipilot
+          skipPush: true
+
+      - name: Evaluate the versioned workspace interface
+        run: nix eval --accept-flake-config --raw .#nixspaceIndex.kind
+
+      - name: Evaluate the system public workspace root
+        run: >-
+          nix eval --accept-flake-config --raw
+          ".#packages.${{ matrix.system }}.public-cache-root.drvPath"
+
+      # The public root is the sole CI/cache boundary. It contains the Nix-built
+      # Rust client and the generic interface, compliance, launch, and West
+      # checks selected by the product module, but excludes private sources and
+      # private release outputs by construction.
+      - name: Realize the public Nix and Rust contract closure
+        run: >-
+          nix build --accept-flake-config --print-build-logs
+          --out-link result-public-cache-root
+          ".#packages.${{ matrix.system }}.public-cache-root"
+
+      # This conventional action supplies GitHub's cache-service credentials;
+      # compilation still uses the exact sccache, Cargo, and rustc selected by
+      # the locked Nixpkgs input and retained in the public aggregate root.
+      - name: Configure the shared sccache backend
+        if: matrix.system == 'x86_64-linux'
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+        with:
+          version: "v0.16.0"
+
+      - name: Reset sccache pilot statistics
+        if: matrix.system == 'x86_64-linux'
+        env:
+          SCCACHE_DIR: ${{ github.workspace }}/.nixspace/state/sccache
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_GHA_VERSION: cognipilot-v1
+        run: result-public-cache-root/sccache-tools/sccache/bin/sccache --zero-stats
+
+      - name: Clean the sccache pilot fixture
+        if: matrix.system == 'x86_64-linux'
+        run: >-
+          result-public-cache-root/sccache-tools/cargo/bin/cargo clean
+          --manifest-path tests/fixtures/sccache-pilot/Cargo.toml
+
+      - name: Compile the cold sccache pilot fixture
+        if: matrix.system == 'x86_64-linux'
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTC: ${{ github.workspace }}/result-public-cache-root/sccache-tools/rustc/bin/rustc
+          RUSTC_WRAPPER: ${{ github.workspace }}/result-public-cache-root/sccache-tools/sccache/bin/sccache
+          RUSTFLAGS: --cfg nixspace_sccache_probe_${{ github.run_id }}_${{ github.run_attempt }}
+          SCCACHE_DIR: ${{ github.workspace }}/.nixspace/state/sccache
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_GHA_VERSION: cognipilot-v1
+        run: >-
+          result-public-cache-root/sccache-tools/cargo/bin/cargo build --locked
+          --manifest-path tests/fixtures/sccache-pilot/Cargo.toml
+
+      - name: Record cold sccache statistics
+        if: matrix.system == 'x86_64-linux'
+        run: >-
+          result-public-cache-root/sccache-tools/sccache/bin/sccache
+          --show-stats --stats-format json > sccache-cold.json
+
+      - name: Clean the sccache pilot fixture before replay
+        if: matrix.system == 'x86_64-linux'
+        run: >-
+          result-public-cache-root/sccache-tools/cargo/bin/cargo clean
+          --manifest-path tests/fixtures/sccache-pilot/Cargo.toml
+
+      - name: Replay the sccache pilot fixture
+        if: matrix.system == 'x86_64-linux'
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTC: ${{ github.workspace }}/result-public-cache-root/sccache-tools/rustc/bin/rustc
+          RUSTC_WRAPPER: ${{ github.workspace }}/result-public-cache-root/sccache-tools/sccache/bin/sccache
+          RUSTFLAGS: --cfg nixspace_sccache_probe_${{ github.run_id }}_${{ github.run_attempt }}
+          SCCACHE_DIR: ${{ github.workspace }}/.nixspace/state/sccache
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_GHA_VERSION: cognipilot-v1
+        run: >-
+          result-public-cache-root/sccache-tools/cargo/bin/cargo build --locked
+          --manifest-path tests/fixtures/sccache-pilot/Cargo.toml
+
+      - name: Record warm sccache statistics
+        if: matrix.system == 'x86_64-linux'
+        run: >-
+          result-public-cache-root/sccache-tools/sccache/bin/sccache
+          --show-stats --stats-format json > sccache-warm.json
+
+      - name: Require an sccache miss-to-hit transition
+        if: matrix.system == 'x86_64-linux'
+        run: >-
+          result-public-cache-root/sccache-tools/jq/bin/jq -e
+          '([.stats.cache_misses.counts[]] | add // 0) > 0 and
+          ([.stats.cache_hits.counts[]] | add // 0) > 0'
+          sccache-warm.json
+
+      - name: Retain sccache pilot evidence
+        if: matrix.system == 'x86_64-linux' && always() && hashFiles('sccache-warm.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sccache-pilot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            sccache-cold.json
+            sccache-warm.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # Push only the already-realized public root, and only from main. This
+      # blocking command must finish before coverage is observed;
+      # the Cachix action's pathsToPush mode runs in a post-job hook, which is
+      # too late for an in-job verification step. The root links the selected
+      # public flake source and definition inputs, so its runtime closure also
+      # archives those inputs without `nix flake archive`, which would include
+      # the separately locked private FastDyn source.
+      - name: Publish the explicit public closure
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: cachix push cognipilot ./result-public-cache-root
+
+      # One rolling pin per native system gives main bounded history while
+      # retaining the whole aggregate closure. Pull requests never publish and
+      # therefore do not create branch roots that need separate retention.
+      - name: Retain bounded main revisions
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: >-
+          cachix pin cognipilot "main-${{ matrix.system }}"
+          "$(nix path-info ./result-public-cache-root)"
+          --keep-revisions 30
+
+      # Pull requests inventory the existing public cache after realization,
+      # but remain read-only and do not require a complete hit set.
+      - name: Report pull-request cache coverage
+        if: github.event_name == 'pull_request'
+        run: >-
+          result-public-cache-root/nixspace/bin/nixspace
+          --workspace-root .
+          --host-plan result-public-cache-root/nixspace-host-plan/share/nixspace/host-plan.json
+          cache coverage --json
+          --output cache-coverage.json
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      # Main observes the public endpoint only after the blocking Cachix
+      # command has finished publishing the explicit root. This proves cache
+      # inventory, not bytes transferred by the preceding build.
+      - name: Verify main cache coverage
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: >-
+          result-public-cache-root/nixspace/bin/nixspace
+          --workspace-root .
+          --host-plan result-public-cache-root/nixspace-host-plan/share/nixspace/host-plan.json
+          cache coverage --json --require-complete
+          --output cache-coverage.json
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain the cache coverage report
+        if: always() && hashFiles('cache-coverage.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nix-cache-coverage-${{ matrix.system }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: cache-coverage.json
+          if-no-files-found: error
+          retention-days: 30
+
+  substitute:
+    name: Prove fresh signed substitution (${{ matrix.system }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out the exact published revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            image:
-              - 'scripts/render-workspace-dockerfile'
-              - '.dockerignore'
-              - 'completions/**'
-              - 'devenv.*'
-              - 'launch/**'
-              - 'nix/**'
-              - 'scripts/**'
 
-  image:
-    name: Validate CUBS2 image environment
-    needs: image-inputs
-    if: needs.image-inputs.outputs.changed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
+      - name: Install Nix on the fresh runner
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
         with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@v4
-      - name: Generate CUBS2 Dockerfile
-        run: scripts/render-workspace-dockerfile cubs2 "${RUNNER_TEMP}/cubs2.Dockerfile"
-      - uses: docker/build-push-action@v7
+          determinate: false
+          kvm: false
+
+      - name: Configure the public cache for substitution
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
-          context: .
-          file: ${{ runner.temp }}/cubs2.Dockerfile
-          target: environment
-          platforms: linux/amd64
-          push: false
-          provenance: false
-          sbom: false
-          cache-from: type=gha,scope=cubs2-pr
-          cache-to: type=gha,mode=min,scope=cubs2-pr
+          name: cognipilot
+          skipPush: true
+
+      # max-jobs=0 and an empty builder list make a cache miss fatal: this
+      # fresh job has no local or remote build fallback after publication.
+      - name: Substitute the complete public root without builders
+        run: >-
+          nix build --accept-flake-config --print-build-logs
+          --max-jobs 0 --builders "" --option fallback false
+          --option substituters
+          "https://cache.nixos.org https://cognipilot.cachix.org"
+          --out-link result-public-cache-root
+          ".#packages.${{ matrix.system }}.public-cache-root"
+
+      - name: Record the substituted closure
+        run: >-
+          nix path-info --json --recursive ./result-public-cache-root
+          > substitution-closure.json
+
+      # Reuse Host v4's declared store union rather than treating either
+      # upstream NixOS or the organization cache as individually complete.
+      - name: Verify substituted union cache coverage
+        run: >-
+          result-public-cache-root/nixspace/bin/nixspace
+          --workspace-root .
+          --host-plan result-public-cache-root/nixspace-host-plan/share/nixspace/host-plan.json
+          cache coverage --json --require-complete
+          --output substitution-cache-coverage.json
+          --summary "$GITHUB_STEP_SUMMARY"
+
+      # Nix checks every closure member against a trusted signature (or an
+      # ultimately trusted/content-addressed path) and exits nonzero on an
+      # untrusted path. Verbose output is retained with the exact closure.
+      - name: Verify closure trust against the declared cache union
+        run: >-
+          nix store verify --recursive --no-contents --sigs-needed 1 --verbose
+          --substituter https://cache.nixos.org
+          --substituter https://cognipilot.cachix.org
+          ./result-public-cache-root 2>&1 | tee substitution-trust.log
+
+      - name: Retain fresh-runner substitution evidence
+        if: always() && hashFiles('substitution-closure.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nix-substitution-${{ matrix.system }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            substitution-closure.json
+            substitution-cache-coverage.json
+            substitution-trust.log
+          if-no-files-found: error
+          retention-days: 30

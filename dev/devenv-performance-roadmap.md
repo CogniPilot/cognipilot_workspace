@@ -1,8 +1,16 @@
 # Devenv performance roadmap
 
-Working document for turning the CogniPilot workspace into a fast, predictable
-developer environment. This file is intentionally local: `/dev/` is already
-ignored by the workspace `.gitignore`.
+> **Superseded pre-cutover record.** This document preserves measurements and
+> design history from the deleted script-based workspace. Commands, paths, and
+> interfaces below such as `ws ci`, `ws verify`, `devel/`, and
+> `release-results/` are not supported by the current workspace. The active,
+> Nix-first contract and remaining acceptance gates live in
+> [`devenv-implementation-roadmap.md`](devenv-implementation-roadmap.md) and
+> [`workspace-performance-summary.md`](workspace-performance-summary.md).
+
+Historical working document from the effort to turn the CogniPilot workspace
+into a fast, predictable developer environment. It is retained only as local
+measurement provenance; `/dev/` is ignored by the workspace `.gitignore`.
 
 ## Baseline
 
@@ -114,8 +122,17 @@ ignored by the workspace `.gitignore`.
 - [x] Fetch only the required QEMU branch tip for FastDyn instead of its full
   multi-decade Git history.
 - [ ] Add a bounded Nix jobs recommendation and warning to `ws doctor`.
-- [ ] Evaluate an organization binary cache and a shared local-development
-  nixpkgs override while retaining release pins.
+- [x] Select a standard organization binary-cache architecture: Cachix first,
+  Attic if self-hosting is required, and protected CI as the only stable-cache
+  writer. Retain release pins rather than overriding nixpkgs for cache hits.
+- [x] Wire the public `cognipilot` Cachix cache for workspace/devenv and
+  read-only pull-request CI use.
+- [x] Add the cache-scoped `CACHIX_AUTH_TOKEN` organization secret.
+- [x] Authorize all organization repositories as trusted public-cache
+  publishers.
+- [ ] Verify protected `main` CI can push.
+- [ ] Publish the product flake roots once those pure outputs exist.
+- [ ] Pilot shared `sccache` for mutable C/C++/Rust task builds.
 
 ### Phase 4: developer operations and guardrails
 
@@ -153,3 +170,9 @@ ignored by the workspace `.gitignore`.
 - 2026-07-13: Repaired FastDyn's renamed Nix dependencies and changed its QEMU
   checkout to depth-1/blob-filtered fetch. Its first valid measurement is
   389.3 seconds cold and 4.8 seconds warm.
+- 2026-07-13: Selected Cachix-compatible Nix closure caching for pure product
+  outputs and `sccache` for mutable compiler work. This deliberately avoids a
+  custom workspace cache and does not weaken per-project release pins.
+- 2026-07-13: Disabled unused QEMU docs and SDL auto-detection in FastDyn's
+  headless setup. The isolated result is 167.427 seconds cold and 0.270 seconds
+  warm; Synapse is 73.898 seconds cold and 0.302 seconds warm.

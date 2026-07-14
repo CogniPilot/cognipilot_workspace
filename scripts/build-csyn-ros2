@@ -6,12 +6,12 @@ if [[ -z "$root" ]]; then
   printf 'enter the cognipilot_workspace devenv shell\n' >&2
   exit 1
 fi
-state="${DEVENV_STATE:?DEVENV_STATE is not set}"
+state="${COGNIPILOT_BUILD_ROOT:?COGNIPILOT_BUILD_ROOT is not set}"
 repo="$root/src/csyn_ros2_bridge"
 synapse="$root/src/synapse_fbs"
-synapse_rust="$synapse/target/xtask/packages/rust"
+synapse_rust="${COGNIPILOT_DEVEL_ROOT:?COGNIPILOT_DEVEL_ROOT is not set}/synapse_fbs/rust"
 source_root="$state/overlays/csyn_ros2_bridge/source"
-work_root="$state/build/csyn_ros2_bridge"
+work_root="$state/csyn_ros2_bridge"
 
 test -f "$synapse/fbs/all.fbs"
 test -f "$synapse_rust/Cargo.toml"

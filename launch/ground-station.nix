@@ -14,7 +14,8 @@ in
       ELECTRODE_GCS_SIMULATION_FILE = "${state}/simulation.json";
       ELECTRODE_GCS_VELOCITY_BUDGET_DB = "${state}/velocity-budget-db.json";
       ELECTRODE_GCS_VELOCITY_BUDGET_CSV = "${state}/velocity-budget.csv";
-    } // lib.optionalAttrs (!hasLocalMocap) {
+    }
+    // lib.optionalAttrs (!hasLocalMocap) {
       # Ground-station-only mode consumes Qualisys from the field router.
       # When the local mocap process is selected it connects directly to the
       # private vehicle router instead, so no external telemetry client is needed.

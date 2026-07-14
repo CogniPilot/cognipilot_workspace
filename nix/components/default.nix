@@ -9,6 +9,11 @@ let
         default = null;
         description = "Native command used to build this component.";
       };
+      buildOutputs = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = "Required local outputs used to validate an incremental task-cache entry.";
+      };
       test = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -46,6 +51,12 @@ let
         dependencies = mkOption {
           type = types.listOf types.str;
           default = [ ];
+          description = "Repositories whose source must be present in the editable workspace.";
+        };
+        buildDependencies = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          description = "Components whose built artifacts are required before this component builds.";
         };
         needsWest = mkOption {
           type = types.bool;
@@ -69,8 +80,8 @@ let
   nix = "${pkgs.nix}/bin/nix --accept-flake-config";
   flake = path: ''$(workspace-flake-ref --mode local "$DEVENV_ROOT/${path}")'';
   releaseFlake = path: ''$(workspace-flake-ref --mode release "$DEVENV_ROOT/${path}")'';
-  synapseRust = "$DEVENV_ROOT/src/synapse_fbs/target/xtask/packages/rust";
-  synapseC = "$DEVENV_ROOT/src/synapse_fbs/target/xtask/artifacts-work/synapse_fbs-c";
+  synapseRust = "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/rust";
+  synapseC = "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/c";
   resetStaleWestBuild = ''
     reset_stale_west_build() {
       local build_dir="$1"
@@ -96,7 +107,9 @@ let
     }:
     strict ''
       west_root="$(workspace-west path --mode ${mode})"
-      outdir="$DEVENV_STATE/twister/${component}/${mode}-${if buildOnly then "build" else "test"}"
+      outdir="$COGNIPILOT_BUILD_ROOT/twister/${component}/${mode}-${
+        if buildOnly then "build" else "test"
+      }"
       ${lib.optionalString format ''
         "$COGNIPILOT_ZEPHYR_PYTHON" scripts/format.py --check
       ''}
@@ -132,21 +145,37 @@ in
         branch = "main";
       };
       dependencies = [ ];
-      local.build = strict ''
-        mkdir -p "$DEVENV_STATE/locks"
-        flock "$DEVENV_STATE/locks/synapse_fbs-packages.lock" \
+      local = {
+        build = strict ''
+          mkdir -p "$COGNIPILOT_BUILD_ROOT/locks" "$COGNIPILOT_DEVEL_ROOT/synapse_fbs"
+          flock "$COGNIPILOT_BUILD_ROOT/locks/synapse_fbs-packages.lock" \
+            ${nix} develop "${flake "src/synapse_fbs"}" -c \
+              cargo run --locked --manifest-path xtask/Cargo.toml -- build --release-name local
+          ln -sfnT "$DEVENV_ROOT/src/synapse_fbs/target/xtask/packages/rust" \
+            "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/rust"
+          ln -sfnT "$DEVENV_ROOT/src/synapse_fbs/target/xtask/packages/python" \
+            "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/python"
+          ln -sfnT "$DEVENV_ROOT/src/synapse_fbs/target/xtask/packages/js" \
+            "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/js"
+          ln -sfnT "$DEVENV_ROOT/src/synapse_fbs/target/xtask/artifacts-work/synapse_fbs-c" \
+            "$COGNIPILOT_DEVEL_ROOT/synapse_fbs/c"
+        '';
+        buildOutputs = [
+          "devel:synapse_fbs/rust"
+          "devel:synapse_fbs/python"
+          "devel:synapse_fbs/js"
+          "devel:synapse_fbs/c"
+        ];
+        test = strict ''
           ${nix} develop "${flake "src/synapse_fbs"}" -c \
-            cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
-      '';
+            cargo run --locked --manifest-path xtask/Cargo.toml -- check
+        '';
+      };
       release.build = strict ''
-        mkdir -p "$DEVENV_STATE/locks"
-        flock "$DEVENV_STATE/locks/synapse_fbs-packages.lock" \
+        mkdir -p "$COGNIPILOT_BUILD_ROOT/locks"
+        flock "$COGNIPILOT_BUILD_ROOT/locks/synapse_fbs-packages.lock" \
           ${nix} develop "${releaseFlake "src/synapse_fbs"}" -c \
             cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
-      '';
-      local.test = strict ''
-        ${nix} develop "${flake "src/synapse_fbs"}" -c \
-          cargo run --locked --manifest-path xtask/Cargo.toml -- check
       '';
       release.test = strict ''
         ${nix} flake check "${releaseFlake "src/synapse_fbs"}"
@@ -161,22 +190,31 @@ in
         branch = "main";
       };
       dependencies = [ ];
-      local.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
-        ${nix} build "${flake "src/rumoca"}#rumoca" \
-          --out-link "$DEVENV_STATE/results/rumoca"
-        ${nix} build "${flake "src/rumoca"}#rumoca-python-env" \
-          --out-link "$DEVENV_STATE/results/rumoca-python"
-        ${nix} develop "${flake "src/rumoca"}" -c \
-          npm --prefix packages/rumoca run build:dev
-      '';
+      local = {
+        build = strict ''
+          mkdir -p "$COGNIPILOT_DEVEL_ROOT"
+          ${nix} build "${flake "src/rumoca"}#rumoca" \
+            --out-link "$COGNIPILOT_DEVEL_ROOT/rumoca"
+          ${nix} build "${flake "src/rumoca"}#rumoca-python-env" \
+            --out-link "$COGNIPILOT_DEVEL_ROOT/rumoca-python"
+          ${nix} develop "${flake "src/rumoca"}" -c \
+            npm --prefix packages/rumoca run build:dev
+          ln -sfnT "$DEVENV_ROOT/src/rumoca/packages/rumoca/dist/dev-core" \
+            "$COGNIPILOT_DEVEL_ROOT/rumoca-js"
+        '';
+        buildOutputs = [
+          "devel:rumoca/bin/rumoca"
+          "devel:rumoca-python/bin/python"
+          "devel:rumoca-js/package.json"
+        ];
+        test = strict ''
+          ${nix} flake check "${flake "src/rumoca"}"
+        '';
+      };
       release.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
+        mkdir -p "$COGNIPILOT_RELEASE_RESULTS"
         ${nix} build "${releaseFlake "src/rumoca"}#rumoca" \
-          --out-link "$DEVENV_STATE/results/rumoca-release"
-      '';
-      local.test = strict ''
-        ${nix} flake check "${flake "src/rumoca"}"
+          --out-link "$COGNIPILOT_RELEASE_RESULTS/rumoca"
       '';
       release.test = strict ''
         ${nix} flake check "${releaseFlake "src/rumoca"}"
@@ -191,20 +229,24 @@ in
         branch = "main";
       };
       dependencies = [ "rumoca" ];
-      local.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
-        ${nix} build "${flake "src/modelica_models"}#ci" \
-          --override-input rumoca "${flake "src/rumoca"}" \
-          --out-link "$DEVENV_STATE/results/modelica-models"
-      '';
+      buildDependencies = [ "rumoca" ];
+      local = {
+        build = strict ''
+          mkdir -p "$COGNIPILOT_DEVEL_ROOT"
+          ${nix} build "${flake "src/modelica_models"}#ci" \
+            --override-input rumoca "${flake "src/rumoca"}" \
+            --out-link "$COGNIPILOT_DEVEL_ROOT/modelica-models"
+        '';
+        buildOutputs = [ "devel:modelica-models" ];
+        test = strict ''
+          ${nix} run "${flake "src/modelica_models"}#ci" \
+            --override-input rumoca "${flake "src/rumoca"}"
+        '';
+      };
       release.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
+        mkdir -p "$COGNIPILOT_RELEASE_RESULTS"
         ${nix} build "${releaseFlake "src/modelica_models"}#ci" \
-          --out-link "$DEVENV_STATE/results/modelica-models-release"
-      '';
-      local.test = strict ''
-        ${nix} run "${flake "src/modelica_models"}#ci" \
-          --override-input rumoca "${flake "src/rumoca"}"
+          --out-link "$COGNIPILOT_RELEASE_RESULTS/modelica-models"
       '';
       release.test = strict ''
         ${nix} run "${releaseFlake "src/modelica_models"}#ci"
@@ -219,19 +261,23 @@ in
         branch = "main";
       };
       dependencies = [ "synapse_fbs" ];
-      local.build = strict ''
-        test -f "${synapseRust}/Cargo.toml"
-        ${nix} develop "${flake "src/csyn"}" -c \
-          cargo build --locked --manifest-path rust/Cargo.toml \
-            --config "paths=['${synapseRust}']"
-      '';
+      buildDependencies = [ "synapse_fbs" ];
+      local = {
+        build = strict ''
+          test -f "${synapseRust}/Cargo.toml"
+          ${nix} develop "${flake "src/csyn"}" -c \
+            cargo build --locked --manifest-path rust/Cargo.toml \
+              --config "paths=['${synapseRust}']"
+        '';
+        buildOutputs = [ "repo:rust/target/debug/csyn" ];
+        test = strict ''
+          ${nix} develop "${flake "src/csyn"}" -c \
+            cargo test --locked --manifest-path rust/Cargo.toml \
+              --config "paths=['${synapseRust}']"
+        '';
+      };
       release.build = strict ''
         ${nix} run "${releaseFlake "src/csyn"}#test-rust"
-      '';
-      local.test = strict ''
-        ${nix} develop "${flake "src/csyn"}" -c \
-          cargo test --locked --manifest-path rust/Cargo.toml \
-            --config "paths=['${synapseRust}']"
       '';
       release.test = strict ''
         ${nix} run "${releaseFlake "src/csyn"}#ci"
@@ -248,19 +294,22 @@ in
       dependencies = [ ];
       needsWest = true;
       devenvProfile = "zephyr-tests";
-      local.build = twister {
-        mode = "local";
-        component = "cerebri_modules";
-        buildOnly = true;
+      local = {
+        build = twister {
+          mode = "local";
+          component = "cerebri_modules";
+          buildOnly = true;
+        };
+        buildOutputs = [ "build:twister/cerebri_modules/local-build/twister.json" ];
+        test = twister {
+          mode = "local";
+          component = "cerebri_modules";
+        };
       };
       release.build = twister {
         mode = "release";
         component = "cerebri_modules";
         buildOnly = true;
-      };
-      local.test = twister {
-        mode = "local";
-        component = "cerebri_modules";
       };
       release.test = twister {
         mode = "release";
@@ -336,14 +385,14 @@ in
       };
       dependencies = [ ];
       local.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
+        mkdir -p "$COGNIPILOT_DEVEL_ROOT"
         ${nix} build "${flake "src/qualisys_rust_sdk"}#default" \
-          --out-link "$DEVENV_STATE/results/qualisys-rust-sdk"
+          --out-link "$COGNIPILOT_DEVEL_ROOT/qualisys-rust-sdk"
       '';
       release.build = strict ''
-        mkdir -p "$DEVENV_STATE/results"
+        mkdir -p "$COGNIPILOT_RELEASE_RESULTS"
         ${nix} build "${releaseFlake "src/qualisys_rust_sdk"}#default" \
-          --out-link "$DEVENV_STATE/results/qualisys-rust-sdk-release"
+          --out-link "$COGNIPILOT_RELEASE_RESULTS/qualisys-rust-sdk"
       '';
       local.test = strict ''
         ${nix} flake check "${flake "src/qualisys_rust_sdk"}"
@@ -364,6 +413,7 @@ in
         "qualisys_rust_sdk"
         "synapse_fbs"
       ];
+      buildDependencies = [ "synapse_fbs" ];
       local.build = strict ''
         test -f ../qualisys_rust_sdk/Cargo.toml
         test -f "${synapseRust}/Cargo.toml"
@@ -399,14 +449,17 @@ in
       };
       dependencies = [ ];
       devenvProfile = "rust-serial-toolchain";
-      local.build = strict ''
-        cargo build --locked
-      '';
+      local = {
+        build = strict ''
+          cargo build --locked
+        '';
+        buildOutputs = [ "repo:target/debug/synapse-ppm-bridge" ];
+        test = strict ''
+          cargo test --locked
+        '';
+      };
       release.build = strict ''
         cargo build --locked --release
-      '';
-      local.test = strict ''
-        cargo test --locked
       '';
       release.test = strict ''
         cargo test --locked --release
@@ -424,42 +477,53 @@ in
         "synapse_fbs"
         "rumoca"
       ];
-      local.build = strict ''
-        ${nix} develop "${flake "src/electrode_web"}" -c \
-          bash -euo pipefail -c '
-            root="$1"
-            synapse_js="$root/src/synapse_fbs/target/xtask/packages/js"
-            synapse_rust="$root/src/synapse_fbs/target/xtask/packages/rust"
-            rumoca_js="$root/src/rumoca/packages/rumoca/dist/dev-core"
-            manifests=(
-              Cargo.toml Cargo.lock package.json package-lock.json
-              apps/web/package.json packages/electrode-sdk/package.json
-            )
-            manifests_before="$(sha256sum "''${manifests[@]}")"
-            test -f "$synapse_js/package.json"
-            test -f "$synapse_rust/Cargo.toml"
-            test -f "$rumoca_js/package.json"
-            npm ci
-            npm install --no-save --package-lock=false "$synapse_js"
-            npm install --workspace apps/web --no-save --package-lock=false "$rumoca_js"
-            cargo build --locked \
-              --config "paths=[\"$synapse_rust\"]"
-            npm run build
-            test "$manifests_before" = "$(sha256sum "''${manifests[@]}")"
-          ' _ "$DEVENV_ROOT"
-      '';
+      buildDependencies = [
+        "synapse_fbs"
+        "rumoca"
+      ];
+      local = {
+        build = strict ''
+          ${nix} develop "${flake "src/electrode_web"}" -c \
+            bash -euo pipefail -c '
+              root="$1"
+              synapse_js="$COGNIPILOT_DEVEL_ROOT/synapse_fbs/js"
+              synapse_rust="$COGNIPILOT_DEVEL_ROOT/synapse_fbs/rust"
+              rumoca_js="$COGNIPILOT_DEVEL_ROOT/rumoca-js"
+              manifests=(
+                Cargo.toml Cargo.lock package.json package-lock.json
+                apps/web/package.json packages/electrode-sdk/package.json
+              )
+              manifests_before="$(sha256sum "''${manifests[@]}")"
+              test -f "$synapse_js/package.json"
+              test -f "$synapse_rust/Cargo.toml"
+              test -f "$rumoca_js/package.json"
+              npm ci
+              npm install --no-save --package-lock=false "$synapse_js"
+              npm install --workspace apps/web --no-save --package-lock=false "$rumoca_js"
+              cargo build --locked \
+                --config "paths=[\"$synapse_rust\"]"
+              npm run build
+              test "$manifests_before" = "$(sha256sum "''${manifests[@]}")"
+            ' _ "$DEVENV_ROOT"
+        '';
+        buildOutputs = [
+          "repo:target/debug/electrode-ground-station"
+          "repo:target/debug/electrode-fake-sim"
+          "repo:apps/web/build/index.html"
+        ];
+        test = strict ''
+          ${nix} develop "${flake "src/electrode_web"}" -c \
+            bash -euo pipefail -c '
+              synapse_rust="$1"
+              npm run ci
+              cargo test --locked \
+                --config "paths=[\"$synapse_rust\"]"
+            ' _ "${synapseRust}"
+        '';
+      };
       release.build = strict ''
         ${nix} develop "${releaseFlake "src/electrode_web"}" -c \
           bash -euo pipefail -c 'npm ci; cargo build --locked; npm run build'
-      '';
-      local.test = strict ''
-        ${nix} develop "${flake "src/electrode_web"}" -c \
-          bash -euo pipefail -c '
-            synapse_rust="$1"
-            npm run ci
-            cargo test --locked \
-              --config "paths=[\"$synapse_rust\"]"
-          ' _ "${synapseRust}"
       '';
       release.test = strict ''
         ${nix} develop "${releaseFlake "src/electrode_web"}" -c \
@@ -481,24 +545,41 @@ in
         "csyn"
         "cerebri_modules"
       ];
+      buildDependencies = [
+        "synapse_fbs"
+        "rumoca"
+      ];
       needsWest = true;
       local.build = strict ''
         west_root="$(workspace-west path --mode local)"
-        build_dir="$DEVENV_STATE/build/cerebri_cubs2/native_sim_sil"
+        build_dir="$COGNIPILOT_BUILD_ROOT/cerebri_cubs2/native_sim_sil"
+        flake_ref="${flake "src/cerebri_cubs2"}"
+        west_marker="$(dirname "$west_root")/shared/.cognipilot_workspace.json"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
         test -f "${synapseC}/CMakeLists.txt"
-        test -x "$DEVENV_STATE/results/rumoca-python/bin/python"
+        test -x "$COGNIPILOT_DEVEL_ROOT/rumoca-python/bin/python"
+        BOARD="native_sim/native/64" \
+        ZEPHYR_TOOLCHAIN_VARIANT="host" \
         CUBS2_WORKSPACE_ROOT="$west_root" \
         CUBS2_NATIVE_SIM_BUILD_DIR="$build_dir" \
-        CUBS2_RUMOCA_PYTHON="$DEVENV_STATE/results/rumoca-python/bin/python" \
-        ${nix} run "${flake "src/cerebri_cubs2"}#build-native-sim" -- \
-          -p always -- \
-          -DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C="${synapseC}"
+        CUBS2_RUMOCA_PYTHON="$COGNIPILOT_DEVEL_ROOT/rumoca-python/bin/python" \
+        "$DEVENV_ROOT/scripts/workspace-cmake-build" \
+          --build-dir "$build_dir" \
+          --flake-ref "$flake_ref" \
+          --config-file "$DEVENV_ROOT/src/cerebri_cubs2/flake.nix" \
+          --config-file "$DEVENV_ROOT/src/cerebri_cubs2/flake.lock" \
+          --config-file "$west_marker" \
+          --config-value "board=native_sim/native/64" \
+          --config-value "synapse-c=${synapseC}" \
+          -- \
+          ${nix} run "$flake_ref#build-native-sim" -- \
+            -p auto -- \
+            -DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C="${synapseC}"
       '';
       release.build = strict ''
         west_root="$(workspace-west path --mode release)"
-        build_dir="$DEVENV_STATE/build/cerebri_cubs2/native_sim_sil"
+        build_dir="$COGNIPILOT_BUILD_ROOT/release/cerebri_cubs2/native_sim_sil"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
         CUBS2_WORKSPACE_ROOT="$west_root" \
@@ -507,19 +588,19 @@ in
       '';
       local.test = strict ''
         west_root="$(workspace-west path --mode local)"
-        build_dir="$DEVENV_STATE/build/cerebri_cubs2/native_sim_sil"
+        build_dir="$COGNIPILOT_BUILD_ROOT/cerebri_cubs2/native_sim_sil"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
-        test -x "$DEVENV_STATE/results/rumoca-python/bin/python"
+        test -x "$COGNIPILOT_DEVEL_ROOT/rumoca-python/bin/python"
         CUBS2_WORKSPACE_ROOT="$west_root" \
         CUBS2_NATIVE_SIM_BUILD_DIR="$build_dir" \
-        CUBS2_RUMOCA_PYTHON="$DEVENV_STATE/results/rumoca-python/bin/python" \
+        CUBS2_RUMOCA_PYTHON="$COGNIPILOT_DEVEL_ROOT/rumoca-python/bin/python" \
         CUBS2_SYNAPSE_C_ROOT="${synapseC}" \
         ${nix} run "${flake "src/cerebri_cubs2"}#native-sim-sil-test"
       '';
       release.test = strict ''
         west_root="$(workspace-west path --mode release)"
-        build_dir="$DEVENV_STATE/build/cerebri_cubs2/native_sim_sil"
+        build_dir="$COGNIPILOT_BUILD_ROOT/release/cerebri_cubs2/native_sim_sil"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
         CUBS2_WORKSPACE_ROOT="$west_root" \
@@ -541,25 +622,29 @@ in
         "csyn"
         "cerebri_modules"
       ];
+      buildDependencies = [
+        "synapse_fbs"
+        "rumoca"
+      ];
       needsWest = true;
       local.build = strict ''
         west_root="$(workspace-west path --mode local)"
-        build_dir="$DEVENV_STATE/build/cerebri_rdd2/native_sim"
+        build_dir="$COGNIPILOT_BUILD_ROOT/cerebri_rdd2/native_sim"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
         test -f "${synapseC}/CMakeLists.txt"
-        test -x "$DEVENV_STATE/results/rumoca/bin/rumoca"
+        test -x "$COGNIPILOT_DEVEL_ROOT/rumoca/bin/rumoca"
         RDD2_WORKSPACE_ROOT="$west_root" \
         RDD2_NATIVE_SIM_BUILD_DIR="$build_dir" \
         ${nix} run "${flake "src/cerebri_rdd2"}#build-native-sim" -- \
-          -p always -- \
+          -p auto -- \
           -DRDD2_RUMOCA_VERSION=workspace \
-          -DRDD2_RUMOCA_EXECUTABLE="$DEVENV_STATE/results/rumoca/bin/rumoca" \
+          -DRDD2_RUMOCA_EXECUTABLE="$COGNIPILOT_DEVEL_ROOT/rumoca/bin/rumoca" \
           -DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C="${synapseC}"
       '';
       release.build = strict ''
         west_root="$(workspace-west path --mode release)"
-        build_dir="$DEVENV_STATE/build/cerebri_rdd2/native_sim"
+        build_dir="$COGNIPILOT_BUILD_ROOT/release/cerebri_rdd2/native_sim"
         ${resetStaleWestBuild}
         reset_stale_west_build "$build_dir" "$west_root"
         RDD2_WORKSPACE_ROOT="$west_root" \
@@ -583,6 +668,7 @@ in
         "synapse_fbs"
         "csyn"
       ];
+      buildDependencies = [ "synapse_fbs" ];
       local.build = strict ''
         if [ ! -f "$DEVENV_ROOT/src/csyn_ros2_bridge/flake.nix" ]; then
           echo "ROS 2 support is optional and is not installed."
@@ -606,10 +692,10 @@ in
           echo "ROS 2 support is not installed; skipping optional tests."
           exit 0
         fi
-        test -f "$DEVENV_STATE/build/csyn_ros2_bridge/log/latest_test/events.log"
+        test -f "$COGNIPILOT_BUILD_ROOT/csyn_ros2_bridge/log/latest_test/events.log"
         ${nix} develop "${flake "src/csyn_ros2_bridge"}" -c \
           colcon test-result \
-            --test-result-base "$DEVENV_STATE/build/csyn_ros2_bridge/build" \
+            --test-result-base "$COGNIPILOT_BUILD_ROOT/csyn_ros2_bridge/build" \
             --verbose
       '';
       release.test = strict ''
@@ -634,21 +720,35 @@ in
       };
       dependencies = [ ];
       devenvProfile = "fastdyn-toolchain";
-      local.build = strict ''
-        if [ ! -f "$DEVENV_ROOT/src/FastDyn/setup.sh" ]; then
-          echo "FastDyn is optional and is not installed."
-          echo "Run 'ws sync FastDyn' or copy a deployed tree to:"
-          echo "  $DEVENV_ROOT/src/FastDyn"
-          exit 0
-        fi
-        cd "$DEVENV_ROOT/src/FastDyn"
-        mkdir -p "$DEVENV_STATE/fastdyn"
-        source ./setup.sh \
-          --python "''${COGNIPILOT_FASTDYN_PYTHON:-python3}" \
-          --venv "$DEVENV_STATE/fastdyn/venv" \
-          --qemu-root "$DEVENV_STATE/fastdyn/qemu" \
-          --build-qemu --skip-optifuzz --skip-qemu-workspace
-      '';
+      local = {
+        build = strict ''
+          if [ ! -f "$DEVENV_ROOT/src/FastDyn/setup.sh" ]; then
+            echo "FastDyn is optional and is not installed."
+            echo "Run 'ws sync FastDyn' or copy a deployed tree to:"
+            echo "  $DEVENV_ROOT/src/FastDyn"
+            exit 0
+          fi
+          cd "$DEVENV_ROOT/src/FastDyn"
+          mkdir -p "$COGNIPILOT_BUILD_ROOT/fastdyn"
+          source ./setup.sh \
+            --python "''${COGNIPILOT_FASTDYN_PYTHON:-python3}" \
+            --venv "$COGNIPILOT_BUILD_ROOT/fastdyn/venv" \
+            --qemu-root "$COGNIPILOT_BUILD_ROOT/fastdyn/qemu" \
+            --build-qemu --skip-optifuzz --skip-qemu-workspace
+        '';
+        buildOutputs = [
+          "build:fastdyn/venv/bin/python"
+          "build:fastdyn/qemu/build/qemu-system-arm"
+        ];
+        test = strict ''
+          if [ ! -x "$COGNIPILOT_BUILD_ROOT/fastdyn/venv/bin/python" ]; then
+            echo "FastDyn unavailable; skipping optional tests."
+            exit 0
+          fi
+          cd "$DEVENV_ROOT/src/FastDyn"
+          "$COGNIPILOT_BUILD_ROOT/fastdyn/venv/bin/python" -m pytest tests/unit
+        '';
+      };
       release.build = strict ''
         if [ ! -f "$DEVENV_ROOT/src/FastDyn/setup.sh" ]; then
           echo "FastDyn unavailable; skipping optional release build."
@@ -656,28 +756,20 @@ in
           exit 0
         fi
         cd "$DEVENV_ROOT/src/FastDyn"
-        mkdir -p "$DEVENV_STATE/fastdyn-release"
+        mkdir -p "$COGNIPILOT_BUILD_ROOT/release/fastdyn"
         source ./setup.sh \
           --python "''${COGNIPILOT_FASTDYN_PYTHON:-python3}" \
-          --venv "$DEVENV_STATE/fastdyn-release/venv" \
-          --qemu-root "$DEVENV_STATE/fastdyn-release/qemu" \
+          --venv "$COGNIPILOT_BUILD_ROOT/release/fastdyn/venv" \
+          --qemu-root "$COGNIPILOT_BUILD_ROOT/release/fastdyn/qemu" \
           --build-qemu --skip-optifuzz --skip-qemu-workspace
       '';
-      local.test = strict ''
-        if [ ! -x "$DEVENV_STATE/fastdyn/venv/bin/python" ]; then
-          echo "FastDyn unavailable; skipping optional tests."
-          exit 0
-        fi
-        cd "$DEVENV_ROOT/src/FastDyn"
-        "$DEVENV_STATE/fastdyn/venv/bin/python" -m pytest tests/unit
-      '';
       release.test = strict ''
-        if [ ! -x "$DEVENV_STATE/fastdyn-release/venv/bin/python" ]; then
+        if [ ! -x "$COGNIPILOT_BUILD_ROOT/release/fastdyn/venv/bin/python" ]; then
           echo "FastDyn unavailable; skipping optional release tests."
           exit 0
         fi
         cd "$DEVENV_ROOT/src/FastDyn"
-        "$DEVENV_STATE/fastdyn-release/venv/bin/python" -m pytest tests/unit
+        "$COGNIPILOT_BUILD_ROOT/release/fastdyn/venv/bin/python" -m pytest tests/unit
       '';
     };
   };

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="${COGNIPILOT_WORKSPACE_ROOT:-$(git rev-parse --show-toplevel)}"
-state="${DEVENV_STATE:-$root/.devenv/state}"
+state="${COGNIPILOT_STATE_ROOT_OVERRIDE:-${COGNIPILOT_WORKSPACE_STATE:-${DEVENV_STATE:-$root/.devenv/state}}}"
 manifest="${COGNIPILOT_REPO_MANIFEST:-}"
 launch_manifest="${COGNIPILOT_LAUNCH_MANIFEST:-}"
 mode_file="$state/workspace-mode"
@@ -265,7 +265,7 @@ complete_workspace_command() {
 
 	if ((${#completed[@]} == 0)); then
 		printf '%s\n' \
-			sync update commit push freeze restore mode profile build test shell \
+			sync update commit push freeze restore mode profile build test benchmark shell \
 			launch west remotes status graph banner help
 		return
 	fi
@@ -391,19 +391,28 @@ EOF
 	fi
 }
 
-component_closure() {
+component_closure_field() {
 	local name="$1"
+	local field="$2"
 	require_component "$name"
-	jq -r --arg name "$name" '
+	jq -r --arg name "$name" --arg field "$field" '
     . as $root
     | def closure($current):
         ($root.components[$current]
           // error("unknown dependency: \($current)")) as $component
-        | ($component.dependencies[] | closure(.)), $current;
+        | (($component[$field] // [])[] | closure(.)), $current;
       reduce closure($name) as $component
         ([]; if index($component) then . else . + [$component] end)
       | .[]
   ' "$manifest"
+}
+
+component_closure() {
+	component_closure_field "$1" dependencies
+}
+
+component_build_closure() {
+	component_closure_field "$1" buildDependencies
 }
 
 declare -a targets=()
@@ -428,6 +437,14 @@ add_closure() {
 	while IFS= read -r dependency; do
 		add_target "$dependency"
 	done < <(component_closure "$name")
+}
+
+add_build_closure() {
+	local name="$1"
+	local dependency
+	while IFS= read -r dependency; do
+		add_target "$dependency"
+	done < <(component_build_closure "$name")
 }
 
 current_profiles() {
@@ -481,6 +498,23 @@ select_components() {
 	else
 		add_target "$selector"
 	fi
+}
+
+select_build_components() {
+	local selector="$1"
+	local name profile
+	clear_selection
+	if [[ "$selector" == "all" ]]; then
+		while IFS= read -r profile; do
+			validate_profile "$profile"
+			while IFS= read -r name; do
+				add_build_closure "$name"
+			done < <(jq -r --arg profile "$profile" '.profiles[$profile][]' "$manifest")
+		done < <(current_profiles)
+		return
+	fi
+	require_component "$selector"
+	add_build_closure "$selector"
 }
 
 current_mode() {
@@ -1070,6 +1104,7 @@ Usage: ws <command> [arguments]
   profile list          List profiles, includes, and resolved components
   build [COMPONENT]     Build one component and its dependency closure
   test [COMPONENT]      Test one component and its dependency closure
+  benchmark [COMPONENT...]  Record isolated cold and warm local build times
   shell COMPONENT       Enter the component's own pinned Nix shell
   launch [list|PROFILE...]  List or run composable supervised process profiles
   west sync             Update the one shared pinned west checkout
@@ -1307,6 +1342,9 @@ build | test)
 					"$C_DIM" "$C_RESET" "$selected_component" "$command"
 			fi
 		done
+		if [[ "$mode" == "local" ]]; then
+			select_build_components "$selector"
+		fi
 	else
 		selector="$component"
 		require_component "$component"
@@ -1318,6 +1356,7 @@ build | test)
 		task_names+=("$mode:$command:$component")
 		if [[ "$mode" == "local" ]]; then
 			check_selection_present "$selector" true
+			select_build_components "$selector"
 		else
 			check_selection_present "$selector" false
 		fi
@@ -1334,6 +1373,9 @@ build | test)
 	export COGNIPILOT_WORKSPACE_PROFILES
 	mapfile -t devenv_args < <(devenv_profile_args "${targets[@]}")
 	exec devenv "${devenv_args[@]}" tasks run "${task_names[@]}"
+	;;
+benchmark)
+	exec "$root/scripts/benchmark-workspace" "$@"
 	;;
 shell)
 	[[ $# -eq 1 ]] || {

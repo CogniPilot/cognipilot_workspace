@@ -13,9 +13,13 @@ statix check nix
 shell_scripts=(
 	completions/ws.bash
 	scripts/lint-workspace
+	scripts/benchmark-workspace
 	scripts/render-workspace-dockerfile
 	scripts/west-workspace
+	scripts/workspace-cmake-build
 	scripts/workspace-flake-ref
+	scripts/workspace-release-environment
+	scripts/workspace-task-cache
 	scripts/ws
 )
 shfmt -d "${shell_scripts[@]}"

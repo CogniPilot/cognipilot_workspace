@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+	printf 'usage: workspace-cmake-build --build-dir DIR --flake-ref REF [--config-file FILE] [--config-value VALUE] -- FALLBACK [ARG ...]\n' >&2
+	exit 2
+}
+
+build_dir=""
+flake_ref=""
+declare -a config_files=()
+declare -a config_values=()
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--build-dir)
+		[[ $# -ge 2 ]] || usage
+		build_dir="$2"
+		shift 2
+		;;
+	--flake-ref)
+		[[ $# -ge 2 ]] || usage
+		flake_ref="$2"
+		shift 2
+		;;
+	--config-file)
+		[[ $# -ge 2 ]] || usage
+		config_files+=("$2")
+		shift 2
+		;;
+	--config-value)
+		[[ $# -ge 2 ]] || usage
+		config_values+=("$2")
+		shift 2
+		;;
+	--)
+		shift
+		break
+		;;
+	*) usage ;;
+	esac
+done
+
+[[ -n "$build_dir" && -n "$flake_ref" && $# -gt 0 ]] || usage
+
+fingerprint() {
+	{
+		printf 'workspace-cmake-build-v1\0'
+		sha256sum -- "${BASH_SOURCE[0]}" | cut -d' ' -f1 | tr -d '\n'
+		printf '\0flake-ref\0%s\0' "$flake_ref"
+		for value in "${config_values[@]}"; do
+			printf 'value\0%s\0' "$value"
+		done
+		for file in "${config_files[@]}"; do
+			[[ -f "$file" ]] || {
+				printf 'incremental-build configuration file is missing: %s\n' "$file" >&2
+				return 1
+			}
+			printf 'file\0%s\0' "$file"
+			sha256sum -- "$file" | cut -d' ' -f1 | tr -d '\n'
+			printf '\0'
+		done
+	} | sha256sum | cut -d' ' -f1
+}
+
+expected="$(fingerprint)"
+stamp="$build_dir/.cognipilot-build-config.sha256"
+
+if [[ -f "$build_dir/build.ninja" && -f "$stamp" ]] &&
+	[[ "$(cat "$stamp")" == "$expected" ]]; then
+	printf 'incremental CMake build: %s\n' "$build_dir"
+	if nix --accept-flake-config develop "$flake_ref" -c \
+		cmake --build "$build_dir"; then
+		exit 0
+	fi
+	printf 'incremental build requires reconfiguration; retrying through west\n' >&2
+	rm -f "$stamp"
+fi
+
+"$@"
+
+[[ -f "$build_dir/build.ninja" ]] || {
+	printf 'fallback build did not create %s/build.ninja\n' "$build_dir" >&2
+	exit 1
+}
+mkdir -p "$build_dir"
+temporary="$(mktemp "$build_dir/.cognipilot-build-config.XXXXXX")"
+trap 'rm -f "$temporary"' EXIT
+printf '%s\n' "$expected" >"$temporary"
+mv "$temporary" "$stamp"
+trap - EXIT

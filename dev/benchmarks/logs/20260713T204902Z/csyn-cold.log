@@ -1,0 +1,28 @@
+• Validating lock
+✓ Validating lock in 14.2ms
+• Configuring cachix
+• [35;1mwarning:[0m Substituter '[35;1mhttps://devenv.cachix.org[0m' is already present in the substituters list
+✓ Configuring cachix in 4.38ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.19ms (cached)
+✓ Configuring shell in 6.23ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 501µs (cached)
+✓ Loading tasks in 2.44ms
+• Running tasks
+• Running local:build:synapse_fbs
+✖ check status in 12.7ms (failed)
+warning: Git tree '/home/jgoppert/git/cognipilot_workspace/src/synapse_fbs' is dirty
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/cargo/debug/xtask build --release-name local`
+✓ Running local:build:synapse_fbs in 1.91s
+• Running local:build:csyn
+✖ check status in 12.1ms (failed)
+   Compiling synapse_fbs v0.8.0 (/tmp/cognipilot-benchmark.iDQUtL/state/csyn/devel/synapse_fbs/rust)
+   Compiling csyn v0.6.0 (/home/jgoppert/git/cognipilot_workspace/src/csyn/rust)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.11s
+✓ Running local:build:csyn in 33.3s
+✓ Running tasks in 35.2s
+{}

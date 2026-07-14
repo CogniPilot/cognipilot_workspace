@@ -1,0 +1,11 @@
+• Validating lock
+✓ Validating lock in 13.8ms
+• Configuring cachix
+• [35;1mwarning:[0m Substituter '[35;1mhttps://devenv.cachix.org[0m' is already present in the substituters list
+✓ Configuring cachix in 4.78ms
+• Configuring shell
+• Evaluating shell
+✖ Evaluating shell in 1.49s (failed)
+✓ Configuring shell in 1.49s
+  [31m×[0m Failed to get drvPath from shell derivation: [35;1mwarning:[0m ignoring the client-specified setting 'system', because it is a restricted setting and you are not a trusted user
+

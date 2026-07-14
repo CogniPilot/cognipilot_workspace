@@ -1,0 +1,22 @@
+• Validating lock
+✓ Validating lock in 13.9ms
+• Configuring cachix
+• [35;1mwarning:[0m Substituter '[35;1mhttps://devenv.cachix.org[0m' is already present in the substituters list
+✓ Configuring cachix in 4.75ms
+• Configuring shell
+• Evaluating shell
+✓ Evaluating shell in 5.26ms (cached)
+✓ Configuring shell in 6.73ms
+• Loading tasks
+• Evaluating devenv.config.task.config
+✓ Evaluating devenv.config.task.config in 498µs (cached)
+✓ Loading tasks in 2.53ms
+• Running tasks
+• Running workspace:west:validate
+✓ Running workspace:west:validate in 147ms
+• Running workspace:west:ensure
+✓ Running workspace:west:ensure in 199ms
+• Running local:build:cerebri_modules
+✓ Running local:build:cerebri_modules in 54.3ms (cached)
+✓ Running tasks in 401ms
+{"local:build:cerebri_modules":{"devenv":{"env":{}}}}

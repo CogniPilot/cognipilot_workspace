@@ -6,9 +6,6 @@ __pycache__/
 result
 result-*
 
-# Local scratch space for notes, reviews, and working documents.
-/dev/
-
 # Component repositories are independent editable Git worktrees materialized
 # by `ws sync`; the workspace repository tracks their metadata, not their files.
 /src/

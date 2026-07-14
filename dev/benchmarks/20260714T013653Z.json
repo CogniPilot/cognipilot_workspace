@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "created_at": "2026-07-14T01:39:22Z",
+  "root_revision": "fc698df31445b2f49a0cc7a7317ff2cf2a456601",
+  "hostname": "xps15",
+  "definition": {
+    "cold": "fresh workspace build/devel/task state; shared package and download caches retained",
+    "warm": "immediate unchanged repeat using the cold build outputs"
+  },
+  "targets": {
+    "synapse_fbs": {
+      "status": "ok",
+      "path": "src/synapse_fbs",
+      "cold_seconds": 75.732,
+      "warm_seconds": 11.392,
+      "cold_exit_code": 0,
+      "warm_exit_code": 0,
+      "cold_log": "logs/20260714T013653Z/synapse_fbs-cold.log",
+      "warm_log": "logs/20260714T013653Z/synapse_fbs-warm.log"
+    },
+    "modelica_models": {
+      "status": "ok",
+      "path": "src/modelica_models",
+      "cold_seconds": 57.478,
+      "warm_seconds": 1.374,
+      "cold_exit_code": 0,
+      "warm_exit_code": 0,
+      "cold_log": "logs/20260714T013653Z/modelica_models-cold.log",
+      "warm_log": "logs/20260714T013653Z/modelica_models-warm.log"
+    }
+  }
+}

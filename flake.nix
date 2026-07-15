@@ -133,7 +133,9 @@
   outputs =
     inputs@{ flake-parts, ... }:
     let
-      cachePolicy = import ./nix/cognipilot/cache-policy.nix;
+      cachePolicy = import ./nix/cognipilot/cache-policy.nix {
+        devenvInput = inputs.devenv;
+      };
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [

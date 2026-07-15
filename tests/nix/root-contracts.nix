@@ -8,7 +8,9 @@
 
 let
   inherit (pkgs) lib;
-  cachePolicy = import ../../nix/cognipilot/cache-policy.nix;
+  cachePolicy = import ../../nix/cognipilot/cache-policy.nix {
+    devenvInput = inputs.devenv;
+  };
   flakeNixConfig = (import ../../flake.nix).nixConfig;
   providerIndex = rootConfig.cognipilot.validatedIndex;
   genericIndex = rootConfig.flake.nixspaceIndex;
@@ -20,6 +22,9 @@ let
     builtins.attrNames benchmarkPlan.cases
   );
   nativeWarmPackages = map (lib.removePrefix "native-warm-") nativeWarmCaseNames;
+  nativeWarmBudgets = lib.genAttrs nativeWarmPackages (
+    package: benchmarkPlan.cases."native-warm-${package}".gates
+  );
   promotionSbom = systemConfig.packages.promotion-sbom.passthru.document;
   cacheProjection = systemConfig.packages.public-cache-root.passthru.projection;
 
@@ -295,6 +300,8 @@ let
         observedStores = hostPlan.readiness.cache.stores;
         observedRoots = hostPlan.readiness.cache.roots;
         trust = cachePolicy.hostPlan.nix.settings.trusted-users;
+        devenvPin = cachePolicy.devenvPin;
+        devenvTool = cachePolicy.hostPlan.tools.devenv;
       };
       expected = {
         flake = {
@@ -325,6 +332,30 @@ let
           }
         ];
         trust = [ "*" ];
+        devenvPin = {
+          revision = inputs.devenv.rev;
+          version =
+            (builtins.fromTOML (builtins.readFile (inputs.devenv.outPath + "/Cargo.toml")))
+            .workspace.package.version;
+          installable = "github:cachix/devenv/${inputs.devenv.rev}";
+        };
+        devenvTool = {
+          executable = "devenv";
+          expectedVersion =
+            (builtins.fromTOML (builtins.readFile (inputs.devenv.outPath + "/Cargo.toml")))
+            .workspace.package.version;
+          versionArgv = [
+            "devenv"
+            "version"
+          ];
+          installArgv = [
+            "nix"
+            "profile"
+            "add"
+            "--accept-flake-config"
+            "github:cachix/devenv/${inputs.devenv.rev}"
+          ];
+        };
       };
     };
     testProviderAndGenericInterfacesCompose = {
@@ -432,7 +463,9 @@ let
         inherit (benchmarkPlan) apiVersion interfaceVersion kind;
         inherit system;
         defaultCases = benchmarkPlan.defaultCases;
+        limits = benchmarkPlan.limits;
         inherit nativeWarmPackages;
+        inherit nativeWarmBudgets;
         allNativeWarmCasesBuildable = builtins.all (
           package: genericIndex.actionPlans.actions.build.packages.${package} != [ ]
         ) nativeWarmPackages;
@@ -440,9 +473,10 @@ let
       };
       expected = {
         apiVersion = "nixspace/v1";
-        interfaceVersion = 3;
+        interfaceVersion = 4;
         kind = "BenchmarkPlan";
         inherit system;
+        limits.maxSamplesPerPhase = 1000;
         defaultCases = [
           "help"
           "completion-backend"
@@ -467,6 +501,56 @@ let
           "synapse_qualisys_bridge"
           "zros"
         ];
+        nativeWarmBudgets = lib.optionalAttrs (system == "x86_64-linux") {
+          cerebri_cubs2 = {
+            p50Milliseconds = 6000;
+            p95Milliseconds = 6000;
+          };
+          cerebri_modules = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          cerebri_rdd2 = {
+            p50Milliseconds = 10000;
+            p95Milliseconds = 10000;
+          };
+          csyn = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          electrode_web = {
+            p50Milliseconds = 4000;
+            p95Milliseconds = 4000;
+          };
+          modelica_models = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          qualisys_rust_sdk = {
+            p50Milliseconds = 1000;
+            p95Milliseconds = 1000;
+          };
+          rumoca = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          synapse_fbs = {
+            p50Milliseconds = 1000;
+            p95Milliseconds = 1000;
+          };
+          synapse_ppm_bridge = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          synapse_qualisys_bridge = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+          zros = {
+            p50Milliseconds = 2000;
+            p95Milliseconds = 2000;
+          };
+        };
         allNativeWarmCasesBuildable = true;
         hasNativeWarmCases = system == "x86_64-linux";
       };

@@ -1,6 +1,7 @@
 # nixspace boundary review
 
-Status: multi-agent audit completed and surviving findings resolved, 2026-07-14.
+Status: multi-agent audit completed; surviving boundary findings and the
+medium-severity Nix pin drift were resolved, 2026-07-14.
 
 Method: 16 independent auditors (11 per-module + 5 cross-cutting lenses) reviewed
 the `nixspace` Rust crate and the Nix modules against the boundary contract in
@@ -55,9 +56,8 @@ source-coordinate synthesis in `index.rs`. That implementation and its tests
 have now been deleted, and the replacement transports one opaque installable
 to Nix. Product-agnosticism remains intact (zero CogniPilot identifiers in
 `src/`) and Nix is the sole semantic authority. Residual maintainability work
-is the intra-Nix devenv tool-pin trio and broader negative guards against every
-possible future form of second-engine code; neither is an active boundary
-violation.
+is limited to broader negative guards against every possible future form of
+second-engine code; it is not an active boundary violation.
 
 ## Survived findings at audit time (resolved)
 
@@ -261,15 +261,21 @@ golden literals (including the `builtins.tail` relationship for the flake copy).
 Cache stores/roots, trusted-users, host `interfaceVersion`, and benchmark
 `defaultCases` are similarly golden-guarded.
 
-The **one genuine weakness** is the devenv tool-pin trio: the exact devenv commit
-is authored twice (flake input `url` and `cache-policy.nix` `installArgv`), the
-version string once more (`expectedVersion = "2.1.2"`), and **none of the three
-are tied together by a check**. This is intra-Nix duplication (all loci are
-NIX-owned, so it is not a cross-owner boundary violation, and the finding was
-refuted *as a boundary-contract finding*), but it is a real drift risk requiring
-manual sync. Note also `nativeWarmBudgets`/per-case budget numbers are
-single-authored but their values are unguarded — the test only checks
-`any (hasPrefix "native-warm-")`, not the numbers.
+At audit time, the **one genuine weakness** was the devenv tool-pin trio: the
+exact commit was authored in both the flake input and the host installer, while
+the expected CLI version was separately hard-coded. That drift is now removed.
+`cache-policy.nix` is a function of the locked devenv input: it obtains the
+installer revision from `devenv.rev` and the CLI version from the pinned input's
+workspace Cargo manifest. The root contract asserts that the exported pin and
+complete generated tool plan agree with those independent locked-input facts.
+This also corrected the stale expected CLI version and taught the generic Rust
+host checker to accept standard SemVer build metadata such as `2.1.3+REV` while
+still reporting the declared semantic version.
+
+The native warm package set and every p50/p95 budget are now golden-guarded in
+the root Nix contract. BenchmarkPlan v4 also carries the Nix-owned per-phase
+sample ceiling; Rust consumes that generated limit instead of compiling a
+second constant.
 
 ## Nix-side integrity / hidden shell
 
@@ -344,16 +350,17 @@ because so much was cleared:
   native git) and flake.lock path-input reading (a snapshot-completeness safety
   guard over Nix-resolved data) were refuted; only the URL *synthesis* and its
   gating classifier survived.
-- **benchmark** — the duplicated `MAX_SAMPLES_PER_PHASE = 1000` (a
-  self-protection executor ceiling, though a real maintainability nit), the
-  p50/p95 gate vocabulary, and the percentile estimator (measurement methodology
-  is the runner's own domain).
+- **benchmark** — the audit-time duplicated `MAX_SAMPLES_PER_PHASE = 1000` (a
+  self-protection executor ceiling, later removed in favor of the Nix-generated
+  v4 limit), the p50/p95 gate vocabulary, and the percentile estimator
+  (measurement methodology is the runner's own domain).
 - **main-model** — `validate_index_relationships`, `coordinate_matches`, and
   `_complete` vocabularies (integrity validation / CLI presentation over
   Nix-generated data, not graph computation).
 - **two-authority** — the devenv commit/version duplication and cachix pull-name
-  were refuted *as boundary-contract violations* (all loci NIX-owned) while
-  remaining flagged as intra-Nix DRY nits.
+  were refuted *as boundary-contract violations* (all loci NIX-owned). The
+  commit/version duplication was subsequently removed as an intra-Nix drift
+  risk.
 
 ## Recommendations (prioritized)
 
@@ -366,11 +373,10 @@ because so much was cleared:
    shipped Rust. Broader graph/closure vocabulary and hand-written Nix builder
    auditing remain maintainability improvements rather than current defects.
 
-3. **[Medium — real drift risk] Tie the devenv tool-pin trio to a single
-   source.** Derive `cache-policy.nix` `installArgv` and `expectedVersion` from
-   the flake input `rev`/version (or add a golden contract test asserting all
-   three agree), so the pin cannot silently diverge. This is the one place today
-   where a fact is authored multiple times with no guard.
+3. **[Resolved] Tie the devenv tool-pin trio to a single source.** The host
+   installer revision and expected CLI version are derived from the locked
+   devenv input, and the root Nix contract checks the exported pin and complete
+   tool plan against that input.
 
 4. **[Low — reduce coupling] Push residual Nix-infrastructure constants into the
    plan where cheap.** The store-path hash format, daemon socket path, `nix.conf`
@@ -380,9 +386,7 @@ because so much was cleared:
    interface field is inexpensive, prefer sourcing them from the plan over
    embedding them in the generic crate.
 
-5. **[Low — maintainability] Extend golden-tests to the unguarded benchmark
-   budgets and de-duplicate the `1000` sample bound.** The `nativeWarmBudgets`
-   package set and numeric budgets, and the twice-authored
-   `MAX_SAMPLES_PER_PHASE`/`maxSamples = 1000`, are correct today but require
-   manual sync; a golden test (budgets) and a single shared constant (sample
-   bound) remove the drift risk.
+5. **[Resolved] Extend golden-tests to the benchmark budgets and de-duplicate
+   the `1000` sample bound.** The package set and all numeric p50/p95 budgets
+   have exact root Nix golden coverage. BenchmarkPlan v4 transports the one
+   Nix-owned sample ceiling to Rust, with no v3 compatibility path.

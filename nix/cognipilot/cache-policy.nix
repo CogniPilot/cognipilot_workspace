@@ -1,4 +1,10 @@
+{ devenvInput }:
+
 let
+  devenvRevision = devenvInput.rev or (throw "the locked devenv input must expose its revision");
+  devenvManifest = builtins.fromTOML (builtins.readFile (devenvInput.outPath + "/Cargo.toml"));
+  devenvVersion = devenvManifest.workspace.package.version;
+  devenvInstallable = "github:cachix/devenv/${devenvRevision}";
   substituters = [
     "https://cache.nixos.org"
     "https://devenv.cachix.org"
@@ -16,6 +22,12 @@ let
 in
 {
   inherit publicKeys substituters;
+
+  devenvPin = {
+    revision = devenvRevision;
+    version = devenvVersion;
+    installable = devenvInstallable;
+  };
 
   # cache.nixos.org and its signing key are Nix defaults. Keep them explicit in
   # the managed Host contract, but do not redundantly request them as flake
@@ -102,7 +114,7 @@ in
     };
     tools.devenv = {
       executable = "devenv";
-      expectedVersion = "2.1.2";
+      expectedVersion = devenvVersion;
       versionArgv = [
         "devenv"
         "version"
@@ -112,7 +124,7 @@ in
         "profile"
         "add"
         "--accept-flake-config"
-        "github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c"
+        devenvInstallable
       ];
     };
   };

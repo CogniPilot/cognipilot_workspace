@@ -1637,7 +1637,12 @@ fn command_version(output: &Output) -> Option<String> {
 fn tool_version(output: &Output, expected: &str) -> Option<String> {
     let text = command_text(output);
     let mut tokens = text.split_whitespace();
-    if text.split_whitespace().any(|token| token == expected) {
+    if text.split_whitespace().any(|token| {
+        token == expected
+            || token
+                .strip_prefix(expected)
+                .is_some_and(|suffix| suffix.starts_with('+'))
+    }) {
         return Some(expected.to_owned());
     }
     tokens

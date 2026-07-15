@@ -97,7 +97,7 @@ printf 'formatter' >> "$NIXSPACE_TEST_COMMAND_LOG"
 printf ' %s' "$@" >> "$NIXSPACE_TEST_COMMAND_LOG"
 printf '\n' >> "$NIXSPACE_TEST_COMMAND_LOG"
 if [ -e "$NIXSPACE_TEST_TOOL_STATE" ]; then
-  printf 'formatter 3.2.1 (test-system)\n'
+  printf 'formatter %s\n' "${NIXSPACE_TEST_TOOL_VERSION:-3.2.1 (test-system)}"
 else
   printf 'formatter 1.0.0 (test-system)\n'
 fi
@@ -178,7 +178,8 @@ printf '\n' >> "$NIXSPACE_TEST_COMMAND_LOG"
             .env("NIXSPACE_NIXOS_MARKER", &self.nixos_marker)
             .env("NIXSPACE_NIX_MODE", "single-user")
             .env_remove("NIXSPACE_TEST_INSTALL_EXIT")
-            .env_remove("NIXSPACE_TEST_NIX_VERSION");
+            .env_remove("NIXSPACE_TEST_NIX_VERSION")
+            .env_remove("NIXSPACE_TEST_TOOL_VERSION");
         command
     }
 
@@ -519,6 +520,22 @@ fn doctor_is_read_only_uses_exact_commands_and_reports_root_equivalent_trust() {
         "nix --version\nnix config show --json\nformatter version\n"
     );
     assert!(!fixture.config.exists());
+}
+
+#[test]
+fn doctor_accepts_semver_build_metadata_from_a_pinned_tool() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.tool_state, "current").unwrap();
+    let output = fixture
+        .command("doctor")
+        .arg("--json")
+        .env("NIXSPACE_TEST_TOOL_VERSION", "3.2.1+407080fe (test-system)")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["tools"]["formatter"]["version"], "3.2.1");
+    assert_eq!(report["tools"]["formatter"]["satisfied"], true);
 }
 
 #[test]

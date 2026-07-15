@@ -81,11 +81,12 @@ The `./ws` row is retained with its own exact logs and argv in
 `dev/benchmarks/nixspace/20260714-ws-dispatch.json`; all other rows come from
 the v3 report above. The ordered plan defaults include this dispatch case and
 exclude the two evaluator-heavy cases, so ordinary `./ws benchmark` remains
-quick. The current BenchmarkPlan v3 also contains opt-in `native-warm-*` cases
+quick. The current BenchmarkPlan v4 also contains opt-in `native-warm-*` cases
 for every declared non-QEMU warm budget. Run those from the generated devenv
 shell so dispatch stays on the direct task path. Explicit case IDs select only
 the requested rows; `./ws benchmark --all` includes both evaluator-heavy and
-native cases. FastDyn/QEMU is deliberately not in that plan.
+native cases. FastDyn/QEMU is deliberately not in that plan. Version 4 also
+carries the Nix-owned maximum sample count consumed by the Rust runner.
 
 ## Current strict lifecycle matrix
 

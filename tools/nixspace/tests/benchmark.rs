@@ -39,7 +39,8 @@ impl Fixture {
         json!({
             "apiVersion": "nixspace/v1",
             "kind": "BenchmarkPlan",
-            "interfaceVersion": 3,
+            "interfaceVersion": 4,
+            "limits": {"maxSamplesPerPhase": 1000},
             "id": "fixture",
             "reference": {"name": "test-host", "class": "test"},
             "context": {"cacheState": "fixture-warm", "flakeLockSha256": "test-lock"},
@@ -433,19 +434,30 @@ fn expected_exit_codes_and_sample_counts_are_strictly_bounded() {
             "too-many-warmups",
             {
                 let mut plan = fixture.plan_value(60_000, 0);
-                plan["cases"]["smoke"]["warmupSamples"] = json!(1001);
+                plan["limits"]["maxSamplesPerPhase"] = json!(2);
+                plan["cases"]["smoke"]["warmupSamples"] = json!(3);
                 plan
             },
-            "warmupSamples must not exceed 1000",
+            "warmupSamples must not exceed 2",
         ),
         (
             "too-many-samples",
             {
                 let mut plan = fixture.plan_value(60_000, 0);
-                plan["cases"]["smoke"]["measuredSamples"] = json!(1001);
+                plan["limits"]["maxSamplesPerPhase"] = json!(2);
+                plan["cases"]["smoke"]["measuredSamples"] = json!(3);
                 plan
             },
-            "measuredSamples must be between 1 and 1000",
+            "measuredSamples must be between 1 and 2",
+        ),
+        (
+            "zero-plan-limit",
+            {
+                let mut plan = fixture.plan_value(60_000, 0);
+                plan["limits"]["maxSamplesPerPhase"] = json!(0);
+                plan
+            },
+            "limits.maxSamplesPerPhase must be positive",
         ),
     ];
     for (name, plan, diagnostic) in invalid_plans {
@@ -467,26 +479,26 @@ fn old_interfaces_and_invalid_default_selections_are_rejected_without_fallback()
     let fixture = Fixture::new();
     let cases = [
         (
-            "v2",
-            json!(2),
+            "v3",
+            json!(3),
             None,
-            "benchmark interface version 2 is unsupported; expected 3",
+            "benchmark interface version 3 is unsupported; expected 4",
         ),
         (
             "empty",
-            json!(3),
+            json!(4),
             Some(json!([])),
             "defaultCases must declare at least one case ID",
         ),
         (
             "duplicate",
-            json!(3),
+            json!(4),
             Some(json!(["smoke", "smoke"])),
             "defaultCases contains duplicate case `smoke`",
         ),
         (
             "unknown",
-            json!(3),
+            json!(4),
             Some(json!(["missing"])),
             "defaultCases references unknown case `missing`",
         ),

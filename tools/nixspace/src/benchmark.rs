@@ -16,9 +16,8 @@ use crate::{CliError, Result};
 
 const API_VERSION: &str = "nixspace/v1";
 const PLAN_KIND: &str = "BenchmarkPlan";
-const PLAN_INTERFACE_VERSION: u64 = 3;
+const PLAN_INTERFACE_VERSION: u64 = 4;
 const REPORT_INTERFACE_VERSION: u64 = 3;
-const MAX_SAMPLES_PER_PHASE: u64 = 1000;
 
 #[derive(Debug, Args)]
 pub(crate) struct BenchmarkArgs {
@@ -49,12 +48,19 @@ struct BenchmarkPlan {
     api_version: String,
     kind: String,
     interface_version: u64,
+    limits: BenchmarkLimits,
     id: String,
     reference: ReferenceHost,
     context: BTreeMap<String, String>,
     state_root: PathBuf,
     default_cases: Vec<String>,
     cases: BTreeMap<String, BenchmarkCase>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BenchmarkLimits {
+    max_samples_per_phase: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -326,6 +332,11 @@ fn validate_plan(plan: &BenchmarkPlan) -> Result<()> {
     if plan.id.is_empty() {
         return Err(CliError("benchmark plan id must not be empty".into()));
     }
+    if plan.limits.max_samples_per_phase == 0 {
+        return Err(CliError(
+            "benchmark plan limits.maxSamplesPerPhase must be positive".into(),
+        ));
+    }
     if plan.reference.name.is_empty() || plan.reference.class.is_empty() {
         return Err(CliError(
             "benchmark reference host name and class must not be empty".into(),
@@ -376,14 +387,16 @@ fn validate_plan(plan: &BenchmarkPlan) -> Result<()> {
                 "benchmark case `{id}` measure must declare at least one command"
             )));
         }
-        if case.warmup_samples > MAX_SAMPLES_PER_PHASE {
+        if case.warmup_samples > plan.limits.max_samples_per_phase {
             return Err(CliError(format!(
-                "benchmark case `{id}` warmupSamples must not exceed {MAX_SAMPLES_PER_PHASE}"
+                "benchmark case `{id}` warmupSamples must not exceed {}",
+                plan.limits.max_samples_per_phase
             )));
         }
-        if case.measured_samples == 0 || case.measured_samples > MAX_SAMPLES_PER_PHASE {
+        if case.measured_samples == 0 || case.measured_samples > plan.limits.max_samples_per_phase {
             return Err(CliError(format!(
-                "benchmark case `{id}` measuredSamples must be between 1 and {MAX_SAMPLES_PER_PHASE}"
+                "benchmark case `{id}` measuredSamples must be between 1 and {}",
+                plan.limits.max_samples_per_phase
             )));
         }
         for (phase, commands) in [

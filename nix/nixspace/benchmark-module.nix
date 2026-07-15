@@ -121,31 +121,28 @@ in
       invalidCaseIds = builtins.filter (id: !(safeId id)) (builtins.attrNames cfg.cases);
       duplicateDefaultCaseIds =
         builtins.length cfg.defaultCases != builtins.length (lib.unique cfg.defaultCases);
-      unknownDefaultCaseIds = builtins.filter (
-        id: !(builtins.hasAttr id cfg.cases)
-      ) cfg.defaultCases;
+      unknownDefaultCaseIds = builtins.filter (id: !(builtins.hasAttr id cfg.cases)) cfg.defaultCases;
       commandValid =
         command:
         command.argv != [ ]
         && builtins.head command.argv != ""
         && safePath command.cwd
         && command.expectedExitCodes != [ ]
-        && builtins.length command.expectedExitCodes == builtins.length (lib.unique command.expectedExitCodes)
+        &&
+          builtins.length command.expectedExitCodes == builtins.length (lib.unique command.expectedExitCodes)
         && validEnvironment command.environment;
       invalidCases = lib.filterAttrs (
-        _:
-        case:
+        _: case:
         case.measure == [ ]
-        || !(
-          builtins.all commandValid (
-            case.setup ++ case.beforeEach ++ case.measure ++ case.afterEach ++ case.teardown
-          )
-        )
+        || !(builtins.all commandValid (
+          case.setup ++ case.beforeEach ++ case.measure ++ case.afterEach ++ case.teardown
+        ))
       ) cfg.cases;
       document = {
         apiVersion = "nixspace/v1";
         kind = "BenchmarkPlan";
-        interfaceVersion = 3;
+        interfaceVersion = 4;
+        limits.maxSamplesPerPhase = maxSamples;
         inherit (cfg)
           cases
           context

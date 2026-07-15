@@ -55,6 +55,13 @@ jobs:
           nix profile add
           github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
 
+      # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
+      - name: Register the Devenv Nix compatibility sources
+        run: |
+          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
+          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.perl.drvPath" >/dev/null
+          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.nodejs_24.drvPath" >/dev/null
+
       - name: Synchronize pinned projects
         run: devenv tasks run sources:sync
 

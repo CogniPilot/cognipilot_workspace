@@ -33,7 +33,6 @@
     devenv = {
       url = "github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c";
       inputs.flake-parts.follows = "flake-parts";
-      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     synapse_fbs_source = {

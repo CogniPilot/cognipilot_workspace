@@ -62,9 +62,9 @@ fixtures, exact preset/task payloads, generic/provider interfaces, host policy,
 west, launch rendering, source plans, bootstrap and GitHub workflow policy,
 standalone external definitions, and realized release/promotion isolation.
 Pure contracts evaluate for every supported flake system; Devenv's
-target-independent upstream process-manager integration is evaluated once on
-the `x86_64-linux` reference row because upstream constructs its option types
-with native import-from-derivation.
+task executable is bound explicitly from its own pinned, upstream-cache-aligned
+flake output, so the complete three-system flake evaluates with
+import-from-derivation disabled.
 There is no Python test runner or nested private Nix store. The separate Rust
 package passes all 148 tests with its locked dependency graph, passes clippy
 with warnings denied, and packages as one standalone Cargo crate. The
@@ -1092,10 +1092,10 @@ Nix substituter, including a later self-hosted Attic deployment.
       publisher.
 - [ ] Verify a protected `main` build pushes every system-specific
       `public-cache-root` to the `cognipilot` cache and reports complete
-      coverage. At clean commit `263ecc2`, the realized `x86_64-linux` root had
-      206 paths and 3,643,505,128 NAR bytes. The public union covered 128 paths;
-      78 locally built paths were missing, and the `cognipilot` endpoint had
-      0/206. Publication is therefore correctly not claimed before the
+      coverage. At clean commit `da4254e`, the realized `x86_64-linux` root had
+      214 paths and 3,643,434,392 NAR bytes. The public union covered 128 paths;
+      86 locally built paths were missing, and the `cognipilot` endpoint had
+      0/214. Publication is therefore correctly not claimed before the
       protected workflow runs.
 - [x] Enforce an explicit public-cache closure boundary from source/output
       visibility; FastDyn's separately locked private source and any private
@@ -1134,10 +1134,13 @@ Nix substituter, including a later self-hosted Attic deployment.
       sccache toolchain without firmware or QEMU. The editable default devenv
       shell requires impure `PWD` by upstream design and is deliberately not
       misrepresented as a cross-host immutable root. The complete local
-      `x86_64-linux` root realized successfully at `062b89b`, including the
-      then-current contract root and all 148 Rust tests. The current contract
-      root is Nix-native and has no Python runtime. The two other systems and a
-      successful remote three-system realization are not claimed.
+      `x86_64-linux` root realized successfully at `da4254e`; its clean dry run
+      required only 31 small generated metadata/check derivations after the
+      Devenv task package was realigned with its upstream binary cache. The
+      current contract root is Nix-native and has no Python runtime. The
+      independently locked Rust client passes all 148 tests. The two other
+      systems and a successful remote three-system realization are not
+      claimed.
 - [ ] Push complete build/runtime closures and archive public flake input store
       paths. Every native row runs one blocking `cachix push` of its exact
       visibility-filtered root, whose direct public input links retain the

@@ -19,7 +19,7 @@ let
       ../../../nix/nixspace/host-module.nix
       {
         nixspace.index = {
-          interfaceVersion = 1;
+          interfaceVersion = 2;
           catalog = {
             packages = [ ];
             targets = [ ];
@@ -119,7 +119,7 @@ let
 in
 assert document.apiVersion == "nixspace/v1";
 assert document.kind == "Workspace";
-assert document.interfaceVersion == 1;
+assert document.interfaceVersion == 2;
 assert document.catalog.packages == [ ];
 assert builtins.attrNames system.config.packages == [
   "nixspace"

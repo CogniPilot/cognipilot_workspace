@@ -71,11 +71,11 @@ outputs. If a separately signed in-toto envelope is required for a deployment
 boundary, it must wrap these immutable bytes rather than regenerate
 provenance.
 
-`builder.id` is the exact URN of the Nix derivation that generated the
-statement; the corresponding ResourceDescriptor identifies the nixspace
-output and locked nixpkgs. This truthfully identifies the local attestation
-builder software/configuration, not a separately secured hosted execution
-platform. The statement makes no SLSA level claim. It also omits
+`builder.id` names the Nix build boundary and target system; the corresponding
+ResourceDescriptor identifies the exact nixspace output and locked nixpkgs.
+This truthfully identifies the local attestation builder software/configuration,
+not a separately secured hosted execution platform or an evaluation-time
+derivation path. The statement makes no SLSA level claim. It also omits
 `invocationId`: a reproducible Nix output cannot truthfully invent a globally
 unique invocation identity. The realized closure is retained under the
 vendor-prefixed SLSA metadata extension `cognipilot_nixClosure`.
@@ -104,9 +104,10 @@ scanning, jq, or a second semantic planner.
 
 ## Current schema limits
 
-- `native` and `file` software-version declarations are recorded exactly as
-  declared; interface v1 does not yet expose a separately resolved version
-  value. Their locked source identity remains exact.
+- `native` and `file` software-version declarations remain exact source
+  declarations. A promoted release additionally records and validates the
+  selected provider output version; non-release qualification entries have no
+  fabricated resolved version. Their locked source identity remains exact.
 - The normalized project index intentionally omits definition location. The
   product module can identify it because the selected typed module
   configuration remains available during composition; cached index consumers

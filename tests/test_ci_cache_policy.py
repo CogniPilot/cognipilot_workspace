@@ -110,7 +110,7 @@ class CiCachePolicyTests(unittest.TestCase):
         )
         self.assertNotIn("nix flake archive", workflow.replace("`nix flake archive`", ""))
         self.assertNotIn("cachix watch", workflow)
-        self.assertNotIn("nix flake check", workflow)
+        self.assertIn("nix flake check --accept-flake-config --no-build", workflow)
         self.assertNotIn("run: |", workflow)
 
     def test_blocking_public_root_upload_precedes_coverage_reporting(self) -> None:
@@ -197,6 +197,7 @@ class CiCachePolicyTests(unittest.TestCase):
         self.assertIn("substitution-trust.log", proof)
         self.assertIn("retention-days: 30", proof)
         self.assertNotIn("CACHIX_AUTH_TOKEN", proof)
+        self.assertIn("shell: bash", proof)
 
     def test_sccache_pilot_uses_locked_nix_tools_and_proves_miss_then_hit(self) -> None:
         workflow = self.workflow("ci.yml")
@@ -208,31 +209,34 @@ class CiCachePolicyTests(unittest.TestCase):
         self.assertIn(action, workflow)
         self.assertIn('version: "v0.16.0"', workflow)
         self.assertGreaterEqual(
-            workflow.count("if: matrix.system == 'x86_64-linux'"), 10
+            workflow.count("if: matrix.system == 'x86_64-linux'"), 11
         )
         self.assertEqual(workflow.count('CARGO_INCREMENTAL: "0"'), 2)
         self.assertEqual(workflow.count("sccache-tools/rustc/bin/rustc"), 2)
-        self.assertEqual(workflow.count("sccache-tools/sccache/bin/sccache"), 5)
+        self.assertEqual(workflow.count("sccache-tools/sccache/bin/sccache"), 6)
         self.assertEqual(workflow.count("cargo/bin/cargo clean"), 2)
         self.assertEqual(workflow.count("cargo/bin/cargo build --locked"), 2)
         self.assertIn("SCCACHE_GHA_ENABLED: \"true\"", workflow)
+        self.assertIn("sccache/bin/sccache --stop-server", workflow)
         self.assertIn("sccache-cold.json", workflow)
         self.assertIn("sccache-warm.json", workflow)
-        self.assertIn(".stats.cache_misses.counts[]", workflow)
-        self.assertIn(".stats.cache_hits.counts[]", workflow)
+        self.assertIn(".[0].stats.cache_misses.counts[]", workflow)
+        self.assertIn(".[1].stats.cache_hits.counts[]", workflow)
         self.assertTrue((ROOT / "tests/fixtures/sccache-pilot/src/lib.rs").is_file())
 
-    def test_codeowners_requires_platform_and_credential_review(self) -> None:
+    def test_codeowners_requires_enforceable_platform_review(self) -> None:
         codeowners = (ROOT / ".github" / "CODEOWNERS").read_text(encoding="utf-8")
+        self.assertIn("/.github/CODEOWNERS @CogniPilot/admins", codeowners)
         self.assertIn("/flake.nix @CogniPilot/admins", codeowners)
         self.assertIn("/flake.lock @CogniPilot/admins", codeowners)
         self.assertIn("/nix/cognipilot/ @CogniPilot/admins", codeowners)
         self.assertIn("/nix/project-definitions/ @CogniPilot/admins", codeowners)
         self.assertIn("/tools/nixspace/ @CogniPilot/admins", codeowners)
         self.assertIn(
-            "/.github/workflows/ @CogniPilot/admins @CogniPilot/credentials",
+            "/.github/workflows/ @CogniPilot/admins",
             codeowners,
         )
+        self.assertNotIn("@CogniPilot/credentials", codeowners)
 
     def test_no_legacy_or_non_nix_release_workflow_remains(self) -> None:
         self.assertFalse((WORKFLOWS / "release-cubs2-container.yml").exists())

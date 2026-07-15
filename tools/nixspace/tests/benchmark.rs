@@ -126,6 +126,7 @@ fn report(path: &Path) -> Value {
 }
 
 #[test]
+#[allow(clippy::zombie_processes)] // The parent is intentionally SIGKILLed with this child as a process-tree regression.
 fn benchmark_helper_process() {
     if std::env::var_os("NIXSPACE_BENCHMARK_HELPER").as_deref() != Some("1".as_ref()) {
         return;
@@ -134,6 +135,21 @@ fn benchmark_helper_process() {
         loop {
             std::hint::spin_loop();
         }
+    }
+    if std::env::var("HELPER_MODE").as_deref() == Ok("spawn-child") {
+        let _child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "benchmark_helper_process", "--nocapture"])
+            .env("HELPER_MODE", "delayed-marker")
+            .spawn()
+            .unwrap();
+        loop {
+            std::hint::spin_loop();
+        }
+    }
+    if std::env::var("HELPER_MODE").as_deref() == Ok("delayed-marker") {
+        thread::sleep(Duration::from_millis(250));
+        fs::write(std::env::var_os("CHILD_MARKER").unwrap(), "survived\n").unwrap();
+        return;
     }
     let value = std::env::var("BENCH_VALUE").expect("helper benchmark value");
     if let Some(path) = std::env::var_os("TRACE_PATH") {
@@ -161,7 +177,7 @@ fn benchmark_helper_process() {
 #[test]
 fn records_exact_command_status_timings_logs_and_nearest_rank_percentiles() {
     let fixture = Fixture::new();
-    let output_path = fixture.root.join("successful.json");
+    let output_path = fixture.root.join("reports/successful.json");
     let output = fixture.run(&output_path, &["--json"]);
     assert!(
         output.status.success(),
@@ -172,7 +188,11 @@ fn records_exact_command_status_timings_logs_and_nearest_rank_percentiles() {
     let value = report(&output_path);
     assert_eq!(value["apiVersion"], "nixspace/v1");
     assert_eq!(value["kind"], "BenchmarkReport");
-    assert_eq!(value["interfaceVersion"], 2);
+    assert_eq!(value["interfaceVersion"], 3);
+    assert_eq!(value["pathBase"], "workspace");
+    assert_eq!(value["workspace"], ".");
+    assert_eq!(value["planPath"], "benchmark-plan.json");
+    assert_eq!(value["reportPath"], "reports/successful.json");
     assert_eq!(value["planId"], "fixture");
     assert_eq!(value["context"]["flakeLockSha256"], "test-lock");
     assert_eq!(
@@ -215,8 +235,12 @@ fn records_exact_command_status_timings_logs_and_nearest_rank_percentiles() {
                 sample["measure"][0]["status"],
                 json!({"kind": "exited", "success": true, "code": 0, "expected": true})
             );
-            let stdout = PathBuf::from(sample["measure"][0]["stdoutLog"].as_str().unwrap());
-            let stderr = PathBuf::from(sample["measure"][0]["stderrLog"].as_str().unwrap());
+            let stdout = fixture
+                .root
+                .join(sample["measure"][0]["stdoutLog"].as_str().unwrap());
+            let stderr = fixture
+                .root
+                .join(sample["measure"][0]["stderrLog"].as_str().unwrap());
             assert!(fs::read_to_string(stdout)
                 .unwrap()
                 .contains("from-plan|exact value\n"));
@@ -236,7 +260,7 @@ fn records_exact_command_status_timings_logs_and_nearest_rank_percentiles() {
     let stdout_report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         stdout_report["reportPath"].as_str(),
-        Some(output_path.to_str().unwrap())
+        Some("reports/successful.json")
     );
 }
 
@@ -553,6 +577,28 @@ fn emitted_timeout_terminates_the_sample_and_remains_in_the_report() {
     assert_eq!(
         fs::read_to_string(fixture.root.join("timeout-cleanup.trace")).unwrap(),
         "cleanup-after-timeout-1\ncleanup-after-timeout-2\n"
+    );
+}
+
+#[test]
+fn timeout_terminates_descendants_before_returning() {
+    let fixture = Fixture::new();
+    let marker = fixture.root.join("descendant-survived");
+    let mut plan = fixture.plan_value(60_000, 0);
+    plan["cases"]["smoke"]["measure"][0]["environment"]["HELPER_MODE"] = json!("spawn-child");
+    plan["cases"]["smoke"]["measure"][0]["environment"]["CHILD_MARKER"] = json!(marker);
+    plan["cases"]["smoke"]["warmupSamples"] = json!(0);
+    plan["cases"]["smoke"]["measuredSamples"] = json!(1);
+    plan["cases"]["smoke"]["measure"][0]["timeoutMilliseconds"] = json!(25);
+    fixture.write_plan(&plan);
+
+    let output_path = fixture.root.join("process-tree-timeout.json");
+    let output = fixture.run(&output_path, &[]);
+    assert_eq!(output.status.code(), Some(1));
+    thread::sleep(Duration::from_millis(350));
+    assert!(
+        !marker.exists(),
+        "timed-out benchmark descendant survived process-tree termination"
     );
 }
 

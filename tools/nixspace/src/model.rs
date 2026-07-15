@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Index {
     pub api_version: String,
     pub kind: String,
@@ -16,7 +16,7 @@ pub struct Index {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ActionPlans {
     pub schema_version: u64,
     pub runner: ActionRunner,
@@ -45,12 +45,14 @@ pub struct BootstrapActionRunner {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ActionSelection {
     pub all: Vec<String>,
     pub packages: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Catalog {
     pub packages: Vec<PackageDocument>,
     pub targets: Vec<TargetDocument>,
@@ -61,55 +63,15 @@ pub struct Catalog {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PackageDocument {
     pub id: String,
-    pub package_id: String,
     pub aliases: Vec<String>,
-    pub software_version: SoftwareVersion,
-    pub lifecycle: String,
-    pub deployability: String,
-    pub owner: Option<String>,
-    pub license: License,
-    pub repository_id: String,
-    pub preset: String,
-    pub source: Source,
-    pub targets: BTreeMap<String, Value>,
-    pub resources: BTreeMap<String, Value>,
-    pub executables: BTreeMap<String, Value>,
-    pub launches: BTreeMap<String, Value>,
-    pub compliance: Compliance,
+    pub extensions: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SoftwareVersion {
-    pub source: String,
-    pub value: Option<String>,
-    pub file: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct License {
-    pub spdx: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Source {
-    pub input: String,
-    pub root: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Compliance {
-    pub bespoke_adapter_count: u64,
-    pub warnings: Vec<String>,
-    pub warning_count: u64,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TargetDocument {
     pub coordinate: String,
     pub package_id: String,
@@ -117,6 +79,7 @@ pub struct TargetDocument {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Target {
     pub id: String,
     pub actions: BTreeMap<String, Value>,
@@ -126,13 +89,14 @@ pub struct Target {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TargetArtifacts {
     pub outputs: BTreeMap<String, Value>,
     pub inputs: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ArtifactDocument {
     pub coordinate: String,
     pub package_id: String,
@@ -145,13 +109,14 @@ pub struct ArtifactDocument {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArtifactContract {
     pub name: String,
     pub version: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResourceDocument {
     pub coordinate: String,
     pub package_id: String,
@@ -161,7 +126,7 @@ pub struct ResourceDocument {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExecutableDocument {
     pub coordinate: String,
     pub package_id: String,
@@ -171,7 +136,7 @@ pub struct ExecutableDocument {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchDocument {
     pub coordinate: String,
     pub package_id: String,
@@ -180,19 +145,20 @@ pub struct LaunchDocument {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchSummary {
     pub description: String,
     pub parameters: BTreeMap<String, ParameterDefinition>,
     pub required_artifacts: Vec<String>,
     pub required_resources: Vec<String>,
+    pub session_environment: BTreeMap<String, SessionEnvironmentBinding>,
     pub processes: BTreeMap<String, Value>,
     pub includes: BTreeMap<String, Value>,
     pub capabilities: Value,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StaticGraph {
     pub schema_version: u64,
     pub all: GraphDocument,
@@ -201,12 +167,14 @@ pub struct StaticGraph {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphDocument {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct GraphNode {
     pub id: String,
     #[serde(rename = "type")]
@@ -222,7 +190,7 @@ pub struct GraphNode {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GraphEdge {
     pub from: String,
     pub to: String,
@@ -236,25 +204,49 @@ pub struct GraphEdge {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchPlanTemplate {
     pub launch: String,
     pub parameters: BTreeMap<String, ParameterDefinition>,
     pub required_artifacts: Vec<String>,
     pub required_resources: Vec<String>,
     pub capabilities: Capabilities,
+    pub session_environment: BTreeMap<String, SessionEnvironmentBinding>,
     pub instances: Vec<LaunchInstanceTemplate>,
     pub processes: Vec<LaunchProcessTemplate>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionEnvironmentBinding {
+    pub base: SessionEnvironmentBase,
+    pub path: String,
+    pub create: SessionEnvironmentCreate,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionEnvironmentBase {
+    Session,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionEnvironmentCreate {
+    None,
+    Parent,
+    Directory,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Capabilities {
     pub provides: Vec<String>,
     pub requires: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchInstanceTemplate {
     pub instance_id: String,
     pub launch: String,
@@ -264,7 +256,7 @@ pub struct LaunchInstanceTemplate {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchProcessTemplate {
     pub id: String,
     pub instance: String,
@@ -287,6 +279,7 @@ pub struct LaunchProcessTemplate {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LaunchValue {
     pub literal: Option<String>,
     pub parameter: Option<String>,
@@ -295,7 +288,7 @@ pub struct LaunchValue {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EndpointTemplate {
     pub protocol: String,
     pub host_parameter: Option<String>,
@@ -303,7 +296,7 @@ pub struct EndpointTemplate {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ParameterDefinition {
     #[serde(rename = "type")]
     pub parameter_type: ParameterType,

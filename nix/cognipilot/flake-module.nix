@@ -2835,6 +2835,11 @@ in
       readOnly = true;
       description = "Definition-location-independent, JSON-safe project index.";
     };
+    nixspaceIndex = mkOption {
+      type = types.attrs;
+      readOnly = true;
+      description = "Generic nixspace Workspace v2 projection with provider policy isolated in namespaced extensions.";
+    };
   };
 
   config.cognipilot.validatedIndex =
@@ -2863,4 +2868,7 @@ in
         CogniPilot project contract violations:
         - ${concatStringsSep "\n- " validationErrors}
       '';
+
+  config.cognipilot.nixspaceIndex =
+    import ./nixspace-index.nix { index = config.cognipilot.validatedIndex; };
 }

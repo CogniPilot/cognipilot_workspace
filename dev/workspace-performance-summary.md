@@ -105,7 +105,7 @@ retained timings above are from `x86_64-linux` only and do not claim a completed
 remote cross-platform performance run. The deferred full matrix means real
 native-task performance, not the three-system public-root correctness matrix.
 
-The Cargo case invokes a typed ActionTask v2 twice around a real source edit
+The Cargo case invokes a typed ActionTask v3 twice around a real source edit
 and validates its declared executable artifact and NAR proof. The interface
 and variant cases re-evaluate the actual CogniPilot module authority. The
 launch case uses the generated launch execution plan, the pinned devenv

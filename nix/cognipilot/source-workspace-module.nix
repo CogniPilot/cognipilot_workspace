@@ -17,6 +17,13 @@ let
       && segments != [ ]
       && builtins.all (segment: segment != "." && segment != "..") segments
     );
+  safeRuntimeFilePath =
+    value:
+    value != "."
+    && safeRuntimePath value
+    && !(lib.hasPrefix "/" value)
+    && !(lib.hasInfix "\\" value)
+    && builtins.match "^[A-Za-z]:.*" value == null;
   index = config.cognipilot.validatedIndex;
   projects = builtins.attrValues index.projects;
   packageToProject = builtins.listToAttrs (
@@ -99,6 +106,12 @@ let
       path = pathFor project;
       url = urlFor inputName;
       branch = branchFor inputName;
+      literalArgs = map (value: {
+        kind = "literal";
+        inherit value;
+      });
+      oldHead = { kind = "old-head"; };
+      expectedCurrent = { kind = "expected-current"; };
     in
     {
       id = repositoryId;
@@ -167,6 +180,22 @@ let
             "--porcelain=v1"
             "--untracked-files=normal"
           ];
+          head.argv = [
+            "git"
+            "-C"
+            path
+            "rev-parse"
+            "--verify"
+            "HEAD"
+          ];
+          target.argv = [
+            "git"
+            "-C"
+            path
+            "rev-parse"
+            "--verify"
+            "origin/${branch}"
+          ];
         };
         fetch.argv = [
           "git"
@@ -194,6 +223,44 @@ let
           "--ff-only"
           "origin/${branch}"
         ];
+        rollback = {
+          # Move the branch only when it still names the transaction target.
+          # The separate two-tree restore updates the index/worktree without
+          # moving the ref, so a later concurrent commit is never overwritten.
+          refUpdate.argv = literalArgs [
+            "git"
+            "-C"
+            path
+            "update-ref"
+            "HEAD"
+          ] ++ [
+            oldHead
+            expectedCurrent
+          ];
+          worktreeRestore.argv = literalArgs [
+            "git"
+            "-C"
+            path
+            "read-tree"
+            "-m"
+            "-u"
+          ] ++ [
+            expectedCurrent
+            oldHead
+          ];
+          # If the worktree transition refuses a concurrent edit, restore the
+          # original ref only when no other process has moved it in the interim.
+          refRestore.argv = literalArgs [
+            "git"
+            "-C"
+            path
+            "update-ref"
+            "HEAD"
+          ] ++ [
+            expectedCurrent
+            oldHead
+          ];
+        };
       };
     };
 
@@ -230,12 +297,18 @@ let
       throw ''
         source repositories select duplicate checkout paths: ${lib.concatStringsSep ", " duplicateRepositoryPaths}
       ''
+    else if cfg.mutationLockPath == cfg.transactionJournalPath then
+      throw "source workspace mutation lock and transaction journal paths must be distinct"
     else
       {
         apiVersion = "nixspace/v1";
         kind = "SourceWorkspace";
-        interfaceVersion = 1;
+        interfaceVersion = 3;
         workspaceRoot = cfg.workspaceRoot;
+        transaction = {
+          mutationLock = cfg.mutationLockPath;
+          journal = cfg.transactionJournalPath;
+        };
         inherit repositories;
         plans = {
           default = defaultRepositoryIds;
@@ -252,6 +325,18 @@ in
       type = lib.types.addCheck lib.types.str safeRuntimePath;
       default = ".";
       description = "Runtime root against which repository checkout paths are resolved.";
+    };
+
+    mutationLockPath = lib.mkOption {
+      type = lib.types.addCheck (lib.types.strMatching "[^[:space:]]+") safeRuntimeFilePath;
+      default = ".nixspace/source-mutation.lock";
+      description = "Workspace-relative exclusive mutation lock path consumed by nixspace.";
+    };
+
+    transactionJournalPath = lib.mkOption {
+      type = lib.types.addCheck (lib.types.strMatching "[^[:space:]]+") safeRuntimeFilePath;
+      default = ".nixspace/source-update-transaction.json";
+      description = "Workspace-relative durable update journal path consumed by nixspace.";
     };
 
     defaultBranch = lib.mkOption {

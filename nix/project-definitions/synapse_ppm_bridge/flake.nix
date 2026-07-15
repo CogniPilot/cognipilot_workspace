@@ -20,7 +20,9 @@
       ];
     in
     {
-      flakeModules.default = import ./module.nix;
+      flakeModules.default = import ./module.nix {
+        softwareVersion = manifest.package.version;
+      };
 
       packages = nixpkgs.lib.genAttrs systems (
         system:

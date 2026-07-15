@@ -100,6 +100,33 @@ let
       }
     ];
   };
+  controlSessionLeafResult = builtins.tryEval (
+    (lib.evalModules {
+      modules = [
+        (
+          { lib, ... }:
+          {
+            options = {
+              assertions = lib.mkOption {
+                type = lib.types.listOf lib.types.anything;
+                default = [ ];
+              };
+              cognipilot.validatedIndex = lib.mkOption { type = lib.types.attrs; };
+              perSystem = lib.mkOption { type = lib.types.raw; };
+            };
+          }
+        )
+        ../../../nix/cognipilot/devenv-launch-module.nix
+        {
+          cognipilot.validatedIndex = index;
+          cognipilot.devenvLaunches = {
+            enable = true;
+            sessionLayout.metadata = "record\n.json";
+          };
+        }
+      ];
+    }).config.cognipilot.devenvLaunches.sessionLayout.metadata
+  );
   upstreamConfig = pkgs.writeText "upstream-process-compose.yaml" "version: 0.5";
   upstreamLauncher = pkgs.writeShellScript "upstream-devenv-up" "exit 0";
   upstreamManager = pkgs.writeShellScriptBin "process-compose" "exit 0";
@@ -219,6 +246,7 @@ let
     unsupportedUdpRejected = !udpResult.success;
     unsupportedFinalSignalRejected = !finalSignalResult.success;
     mutableExecutableBindingRejected = !mutableBindingResult.success;
+    controlSessionLeafRejected = !controlSessionLeafResult.success;
     moduleMapsDirectly =
       moduleFragment.devenv.shells."launch-app--router" == {
         process.manager.implementation = "process-compose";
@@ -235,9 +263,15 @@ let
       && moduleFragment.checks."launch-app--router-config" == upstreamConfig;
     moduleExportsExecutionPlan =
       executionPlan.apiVersion == "nixspace/v1"
-      && executionPlan.interfaceVersion == 3
+      && executionPlan.interfaceVersion == 4
       && executionPlan.kind == "LaunchExecution"
       && executionPlan.stateRoot == ".devenv/state/nixspace/sessions"
+      && executionPlan.sessionLayout == {
+        metadata = "session.json";
+        managerSocket = "process-compose.sock";
+        managerLog = "processes.log";
+        portAllocationLock = ".port-allocation.lock";
+      }
       &&
         builtins.attrNames executionPlan.launches == [
           "app/router"
@@ -249,6 +283,7 @@ let
       && executionPlan.launches."app/router".sessionEnvironment == router.runtime.sessionEnvironment
       && executionPlan.launches."app/router".runner.kind == "devenv-process-compose"
       && executionPlan.launches."app/router".runner.workingDirectory == "/workspace"
+      && executionPlan.launches."app/router".runner.sessionRootEnvironment == "NIXSPACE_SESSION_DIR"
       &&
         executionPlan.launches."app/router".runner.commands.up.argv == [
           "${upstreamManager}/bin/process-compose"

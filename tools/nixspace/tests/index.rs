@@ -78,11 +78,13 @@ impl Workspace {
             .expect("fixture lock serializes"),
         )
         .expect("fixture lock is writable");
+        fs::create_dir(root.join(".git")).expect("fake Git directory is writable");
+        fs::write(root.join(".git/index"), "fake-index\n").expect("fake Git index is writable");
 
         let output = root.join("result");
         let generated = output.join("share/nixspace");
         fs::create_dir_all(&generated).expect("generated output directory is writable");
-        fs::write(generated.join("index.json"), workspace_index(1))
+        fs::write(generated.join("index.json"), workspace_index(2))
             .expect("generated index is writable");
 
         let bin = root.join("bin");
@@ -92,8 +94,12 @@ impl Workspace {
             r#"#!/bin/sh
 printf '%s\n' "$*" >>"$GIT_LOG"
 case "$1" in
-  ls-files)
-    [ "${GIT_TRACKED:-1}" = 1 ]
+  clone)
+    source="$6"
+    destination="$7"
+    mkdir -p "$destination"
+    cp "$source/flake.nix" "$destination/flake.nix"
+    cp "$source/flake.lock" "$destination/flake.lock"
     ;;
   status)
     if [ -n "${GIT_DIRTY_DIRECTORY:-}" ] && [ "$PWD" = "$GIT_DIRTY_DIRECTORY" ]; then
@@ -103,7 +109,40 @@ case "$1" in
     fi
     ;;
   rev-parse)
-    printf '%s\n' "${GIT_TOPLEVEL:-$PWD}"
+    if [ "$2" = "--git-path" ] && [ "$3" = index ]; then
+      printf '%s\n' .git/index
+    else
+      printf '%s\n' "${GIT_TOPLEVEL:-$PWD}"
+    fi
+    ;;
+  add)
+    ;;
+  write-tree)
+    printf '%s\n' 1111111111111111111111111111111111111111
+    ;;
+  commit-tree)
+    printf '%s\n' 2222222222222222222222222222222222222222
+    ;;
+  update-ref)
+    ;;
+  ls-tree)
+    [ "${GIT_TRACKED:-1}" = 1 ] || exit 0
+    for path do :; done
+    case "$path" in
+      *flake.nix|*flake.lock)
+        printf '100644 blob 3333333333333333333333333333333333333333\t%s\0' "$path"
+        ;;
+      *)
+        printf '040000 tree 4444444444444444444444444444444444444444\t%s\0' "$path"
+        ;;
+    esac
+    ;;
+  cat-file)
+    case "$3" in
+      *:flake.nix) cat "$GIT_DIR/flake.nix" ;;
+      *:flake.lock) cat "$GIT_DIR/flake.lock" ;;
+      *) printf 'unexpected fake cat-file object: %s\n' "$3" >&2; exit 92 ;;
+    esac
     ;;
   *)
     printf 'unexpected fake git command: %s\n' "$*" >&2
@@ -116,6 +155,19 @@ esac
             &bin.join("nix"),
             r#"#!/bin/sh
 printf '%s\n' "$*" >>"$NIX_LOG"
+if [ -n "${NIX_MUTATE_LOCK:-}" ]; then
+  printf '%s\n' '{"mutated":true}' >"$NIX_MUTATE_LOCK"
+fi
+if [ -n "${NIX_SNAPSHOT_CAPTURE:-}" ]; then
+  for installable do :; done
+  location="${installable#git+file://}"
+  repository="${location%%\?rev=*}"
+  revision="${location#*\?rev=}"
+  revision="${revision%%#*}"
+  advertised="$(git ls-remote "$repository" refs/heads/nixspace-index-snapshot | awk '{print $1}')"
+  [ "$advertised" = "$revision" ] || exit 25
+  git --git-dir="$repository" show "$revision:flake.lock" >"$NIX_SNAPSHOT_CAPTURE" || exit 24
+fi
 if [ "${NIX_FAIL:-0}" = 1 ]; then
   printf 'synthetic nix failure\n' >&2
   exit 23
@@ -193,6 +245,19 @@ printf '%s\n' "$NIX_OUTPUTS"
     fn nix_log(&self) -> PathBuf {
         self.root.join("nix.log")
     }
+
+    fn assert_local_installable(&self, invocation: &str) {
+        assert!(
+            invocation.contains("git+file://") && invocation.contains("/nixspace-index-snapshot."),
+            "{invocation}"
+        );
+        assert!(
+            invocation.contains(
+                "/snapshot.git?rev=2222222222222222222222222222222222222222#nixspace-index"
+            ),
+            "{invocation}"
+        );
+    }
 }
 
 impl Drop for Workspace {
@@ -214,6 +279,14 @@ fn assert_success(output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn real_git(root: &Path, arguments: &[&str]) -> Output {
+    Command::new("git")
+        .current_dir(root)
+        .args(arguments)
+        .output()
+        .expect("real Git starts")
 }
 
 #[test]
@@ -274,7 +347,7 @@ fn refresh_refuses_an_untracked_root_before_nix() {
 }
 
 #[test]
-fn refresh_refuses_untracked_external_path_inputs_before_nix() {
+fn refresh_filters_ignored_and_untracked_files_from_in_tree_path_inputs() {
     let mut workspace = Workspace::new();
     let local_input = workspace.root.join("local-input");
     fs::create_dir(&local_input).expect("local input directory is writable");
@@ -300,9 +373,44 @@ fn refresh_refuses_untracked_external_path_inputs_before_nix() {
 
     let output = workspace.run(&["index", "refresh"]);
 
+    assert_success(&output);
+    let invocation = fs::read_to_string(workspace.nix_log()).unwrap();
+    workspace.assert_local_installable(&invocation);
+    assert!(!invocation.contains("path:"));
+    assert!(!fs::read_to_string(workspace.git_log())
+        .unwrap()
+        .contains("status"));
+}
+
+#[test]
+fn refresh_refuses_path_inputs_outside_the_filtered_worktree() {
+    let workspace = Workspace::new();
+    let external = workspace.root.with_extension("external-input");
+    fs::create_dir(&external).unwrap();
+    fs::write(external.join("flake.nix"), "{ outputs = _: {}; }\n").unwrap();
+    fs::write(
+        workspace.root.join("flake.lock"),
+        serde_json::to_vec(&json!({
+            "version": 7,
+            "root": "root",
+            "nodes": {
+                "root": {"inputs": {"local": "local"}},
+                "local": {
+                    "locked": {"type": "path", "path": external},
+                    "original": {"type": "path", "path": external}
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = workspace.run(&["index", "refresh"]);
+    let _ = fs::remove_dir_all(&external);
+
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("local flake or one of its local path inputs is untracked/ignored"));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("absolute and cannot be bound to the immutable snapshot"));
     assert!(!workspace.nix_log().exists());
 }
 
@@ -314,9 +422,8 @@ fn refresh_builds_exactly_once_validates_and_atomically_installs_exact_bytes() {
     let output = workspace.run(&["index", "refresh"]);
 
     assert_success(&output);
-    assert_eq!(
-        fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
-        "build --no-link --print-out-paths .#nixspace-index\n"
+    workspace.assert_local_installable(
+        &fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
     );
     assert_eq!(
         fs::read(&workspace.index).expect("cached index is readable"),
@@ -349,6 +456,73 @@ fn refresh_builds_exactly_once_validates_and_atomically_installs_exact_bytes() {
     })
     .collect();
     assert!(temporary_files.is_empty());
+}
+
+#[test]
+fn refresh_builds_from_an_immutable_snapshot_without_mutating_git_state() {
+    let mut workspace = Workspace::new();
+    fs::remove_file(workspace.root.join("bin/git")).unwrap();
+    fs::remove_dir_all(workspace.root.join(".git")).unwrap();
+    assert!(real_git(&workspace.root, &["init", "--quiet"])
+        .status
+        .success());
+    assert!(
+        real_git(&workspace.root, &["add", "flake.nix", "flake.lock"])
+            .status
+            .success()
+    );
+    assert!(real_git(
+        &workspace.root,
+        &[
+            "-c",
+            "user.name=Nixspace Test",
+            "-c",
+            "user.email=nixspace@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "fixture",
+        ]
+    )
+    .status
+    .success());
+    let head_before = real_git(&workspace.root, &["rev-parse", "HEAD"]).stdout;
+    let lock_before = fs::read(workspace.root.join("flake.lock")).unwrap();
+    workspace.set(
+        "NIX_MUTATE_LOCK",
+        workspace.root.join("flake.lock").into_os_string(),
+    );
+    let captured_snapshot = workspace.root.join("captured-snapshot-lock");
+    workspace.set(
+        "NIX_SNAPSHOT_CAPTURE",
+        captured_snapshot.clone().into_os_string(),
+    );
+
+    let output = workspace.run(&["index", "refresh"]);
+    assert_success(&output);
+    let invocation = fs::read_to_string(workspace.nix_log()).unwrap();
+    let revision = invocation
+        .split("?rev=")
+        .nth(1)
+        .and_then(|suffix| suffix.split('#').next())
+        .expect("immutable revision is in the installable");
+    assert_eq!(revision.len(), 40);
+    assert!(invocation.contains("/snapshot.git?rev="));
+    assert_eq!(fs::read(captured_snapshot).unwrap(), lock_before);
+    assert_ne!(
+        fs::read(workspace.root.join("flake.lock")).unwrap(),
+        lock_before
+    );
+    assert_eq!(
+        real_git(&workspace.root, &["rev-parse", "HEAD"]).stdout,
+        head_before
+    );
+    assert!(real_git(&workspace.root, &["diff", "--cached", "--quiet"])
+        .status
+        .success());
+    assert!(!real_git(&workspace.root, &["cat-file", "-e", revision])
+        .status
+        .success());
 }
 
 #[test]
@@ -404,9 +578,8 @@ fn invalid_built_index_never_replaces_the_existing_cache() {
         fs::read_to_string(&workspace.index).expect("existing cache is readable"),
         "existing\n"
     );
-    assert_eq!(
-        fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
-        "build --no-link --print-out-paths .#nixspace-index\n"
+    workspace.assert_local_installable(
+        &fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
     );
 }
 
@@ -416,13 +589,13 @@ fn unsupported_interface_never_replaces_the_existing_cache() {
     fs::create_dir_all(workspace.index.parent().expect("index has a parent"))
         .expect("state directory is writable");
     fs::write(&workspace.index, "existing\n").expect("existing cache is writable");
-    fs::write(workspace.generated_index(), workspace_index(2))
+    fs::write(workspace.generated_index(), workspace_index(1))
         .expect("generated index is writable");
 
     let output = workspace.run(&["index", "refresh"]);
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("interface version 2 is unsupported"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("interface version 1 is unsupported"));
     assert_eq!(
         fs::read_to_string(&workspace.index).expect("existing cache is readable"),
         "existing\n"
@@ -432,7 +605,7 @@ fn unsupported_interface_never_replaces_the_existing_cache() {
 #[test]
 fn transport_identity_has_no_compatibility_fallback() {
     let workspace = Workspace::new();
-    let base: Value = serde_json::from_slice(&workspace_index(1)).expect("fixture index is JSON");
+    let base: Value = serde_json::from_slice(&workspace_index(2)).expect("fixture index is JSON");
     for (field, value, diagnostic) in [
         (
             "apiVersion",
@@ -481,9 +654,8 @@ fn failed_build_never_replaces_the_existing_cache() {
         fs::read_to_string(&workspace.index).expect("existing cache is readable"),
         "existing\n"
     );
-    assert_eq!(
-        fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
-        "build --no-link --print-out-paths .#nixspace-index\n"
+    workspace.assert_local_installable(
+        &fs::read_to_string(workspace.nix_log()).expect("nix log is readable"),
     );
 }
 
@@ -530,9 +702,9 @@ fn index_cache_location_honors_explicit_override() {
 }
 
 #[test]
-fn fixture_is_a_valid_v1_document() {
-    let parsed: Value = serde_json::from_slice(&workspace_index(1)).expect("fixture is JSON");
+fn fixture_is_a_valid_v2_document() {
+    let parsed: Value = serde_json::from_slice(&workspace_index(2)).expect("fixture is JSON");
     assert_eq!(parsed["apiVersion"], "nixspace/v1");
     assert_eq!(parsed["kind"], "Workspace");
-    assert_eq!(parsed["interfaceVersion"], 1);
+    assert_eq!(parsed["interfaceVersion"], 2);
 }

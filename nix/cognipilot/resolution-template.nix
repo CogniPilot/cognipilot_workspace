@@ -15,6 +15,7 @@
 }:
 
 let
+  actionGenerationLayout = import ../nixspace/action-generation-layout.nix;
   inherit (lib)
     all
     concatLists
@@ -164,7 +165,6 @@ let
       null;
   lockedReference = packageId: targetId: release: relativePath: {
     kind = "nix-output-reference";
-    deployable = true;
     installable = ".#target-${packageId}--${targetId}";
     inherit (release) package provider;
     inherit relativePath targetId;
@@ -176,7 +176,6 @@ let
   };
   localPackageCandidate = project: {
     kind = "local-worktree";
-    deployable = false;
     prefix = {
       kind = "source-relative";
       sourceInput = project.source.input;
@@ -243,6 +242,7 @@ let
               relativePath = record.artifact.path;
               generation = {
                 inherit producerTask;
+                layout = actionGenerationLayout;
                 store = {
                   kind = "devenv-task-input";
                   field = "generation";
@@ -251,7 +251,6 @@ let
                   apiVersion = "nixspace/v1";
                   kind = "ActionGenerationPointer";
                   interfaceVersion = 1;
-                  file = "current";
                   identity = {
                     kind = "action-task-input";
                     task = producerTask;

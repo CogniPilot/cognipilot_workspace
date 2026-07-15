@@ -7,6 +7,7 @@
   workspaceRoot ? ".",
   sourceBindings ? { },
   environmentPrefix ? "COGNIPILOT_PARAM",
+  sessionRootEnvironment ? "NIXSPACE_SESSION_DIR",
   runtimeClient ? "nixspace",
 }:
 
@@ -390,7 +391,9 @@ let
               (mapAttrs (
                 name: value: renderValue "${context} environment `${name}`" parameterSources value
               ) process.environment)
-              (mapAttrs (_: binding: "$NIXSPACE_SESSION_DIR/${binding.path}") launchRecord.sessionEnvironment);
+              (mapAttrs (
+                _: binding: "${"$"}${sessionRootEnvironment}/${binding.path}"
+              ) launchRecord.sessionEnvironment);
           cwd =
             if process.workingDirectory == null then null else joinPath sourceRoot process.workingDirectory;
           after = map (
@@ -525,6 +528,9 @@ let
   validPrefix = require (
     match "[A-Z_][A-Z0-9_]*" environmentPrefix != null
   ) "environment prefix `${environmentPrefix}` must be an uppercase environment identifier";
+  validSessionRootEnvironment = require (
+    match "[A-Z_][A-Z0-9_]*" sessionRootEnvironment != null
+  ) "session root environment `${sessionRootEnvironment}` must be an uppercase environment identifier";
   invalidExecutableBindings = builtins.filter (
     coordinate: match "/nix/store/.+" executableBindings.${coordinate} == null
   ) (attrNames executableBindings);
@@ -533,7 +539,7 @@ let
       "executable binding overrides must be immutable /nix/store paths: ${concatStringsSep ", " invalidExecutableBindings}";
   rendered = expandLaunch { coordinate = launch; };
 in
-assert validInterface && validPrefix && validExecutableBindings;
+assert validInterface && validPrefix && validSessionRootEnvironment && validExecutableBindings;
 {
   schemaVersion = 1;
   coordinate = launch;

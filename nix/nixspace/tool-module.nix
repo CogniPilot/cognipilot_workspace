@@ -76,6 +76,7 @@ assert standaloneLock;
         cargoLock.lockFile = lockPath;
         strictDeps = true;
         doCheck = true;
+        nativeCheckInputs = [ pkgs.git ];
         meta = {
           description = manifest.package.description;
           license = lib.licenses.asl20;
@@ -83,7 +84,7 @@ assert standaloneLock;
         };
         passthru = {
           sourceScope = "tools/nixspace";
-          normalizedInterfaceVersion = 1;
+          normalizedInterfaceVersion = 2;
         };
       };
       # The module-level assertions above validate the independent manifest

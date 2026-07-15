@@ -10,6 +10,7 @@
 }:
 
 let
+  actionGenerationLayout = import ../nixspace/action-generation-layout.nix;
   inherit (builtins)
     attrValues
     elemAt
@@ -287,12 +288,13 @@ let
       generation = {
         apiVersion = "nixspace/v1";
         kind = "ActionGenerationStore";
-        interfaceVersion = 1;
+        interfaceVersion = 2;
         # The portable namespace is stable for one producer task while the
         # complete declaration identity below changes whenever its contract
-        # changes. Readers can derive the pointer path from the task coordinate
-        # and must still verify the active identity before consuming outputs.
+        # changes. Readers consume the Nix-emitted layout and must still verify
+        # the active identity before consuming outputs.
         root = joinPath portableTaskStateRoot "devel/${builtins.hashString "sha256" coordinate}";
+        layout = actionGenerationLayout;
         identity = generationIdentity;
       };
       # Devenv hashes the normalized declaration and the exact publication
@@ -307,7 +309,7 @@ let
       plan = {
         apiVersion = "nixspace/v1";
         kind = "ActionTask";
-        interfaceVersion = 2;
+        interfaceVersion = 3;
         inherit cwd argv environment environmentPaths generation locks outputs pathPrefixes result;
       };
     in

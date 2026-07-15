@@ -14,10 +14,12 @@ use crate::{write_json, CliError, Result};
 
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
 const SUPPORTED_KIND: &str = "WorkspaceResolution";
-const SUPPORTED_INTERFACE_VERSION: u64 = 1;
+const SUPPORTED_INTERFACE_VERSION: u64 = 2;
 const GENERATION_POINTER_KIND: &str = "ActionGenerationPointer";
 const GENERATION_KIND: &str = "ActionGeneration";
 const GENERATION_INTERFACE_VERSION: u64 = 1;
+const GENERATION_LAYOUT_KIND: &str = "ActionGenerationLayout";
+const GENERATION_LAYOUT_INTERFACE_VERSION: u64 = 1;
 
 #[derive(Debug, Args)]
 pub(crate) struct EnvArgs {
@@ -164,7 +166,6 @@ struct Candidates<L, R> {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LocalPackageCandidate {
     kind: String,
-    deployable: bool,
     prefix: SourcePrefix,
     provenance: LocalProvenance,
 }
@@ -214,7 +215,6 @@ struct RevisionInspection {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct LockedCandidate {
     kind: String,
-    deployable: bool,
     installable: String,
     provider: String,
     package: String,
@@ -259,8 +259,21 @@ struct LocalArtifactCandidate {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GenerationSelection {
     producer_task: String,
+    layout: ActionGenerationLayout,
     store: GenerationStore,
     pointer: ExpectedGenerationPointer,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ActionGenerationLayout {
+    api_version: String,
+    kind: String,
+    interface_version: u64,
+    publication_lock: PathBuf,
+    generations: PathBuf,
+    pointer: PathBuf,
+    manifest: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -276,7 +289,6 @@ struct ExpectedGenerationPointer {
     api_version: String,
     kind: String,
     interface_version: u64,
-    file: String,
     identity: ActionTaskIdentity,
 }
 
@@ -1363,18 +1375,17 @@ fn validate_package_candidate(
 ) -> Result<()> {
     if let Some(local) = &package.candidates.local {
         if local.kind != "local-worktree"
-            || local.deployable
             || local.prefix.kind != "source-relative"
             || local.prefix.source_input.is_empty()
             || local.prefix.repository_id.is_empty()
             || local.prefix.source_root.is_empty()
             || local.provenance.kind != "local-git"
-            || local.provenance.clean_label != "LOCAL commit"
-            || local.provenance.dirty_label != "LOCAL dirty"
+            || !valid_opaque_label(&local.provenance.clean_label)
+            || !valid_opaque_label(&local.provenance.dirty_label)
             || local.provenance.source_input != local.prefix.source_input
         {
             return Err(CliError(format!(
-                "local package candidate `{coordinate}` must be a non-deployable source-relative local-worktree with exact local-git provenance"
+                "local package candidate `{coordinate}` must be a source-relative local-worktree with valid local-git provenance labels"
             )));
         }
         validate_runtime_path(&local.prefix.workspace_path, "local package workspacePath")?;
@@ -1428,19 +1439,18 @@ fn validate_package_candidate(
 
 fn validate_locked_candidate(candidate: &LockedCandidate, coordinate: &str) -> Result<()> {
     if candidate.kind != "nix-store"
-        || !candidate.deployable
         || candidate.installable.is_empty()
         || candidate.provider.is_empty()
         || candidate.package.is_empty()
         || candidate.target_id.is_empty()
         || !candidate.store_path.is_absolute()
         || candidate.provenance.kind != "locked-output"
-        || candidate.provenance.label != "LOCKED"
+        || !valid_opaque_label(&candidate.provenance.label)
         || candidate.provenance.provider != candidate.provider
         || candidate.provenance.package != candidate.package
     {
         return Err(CliError(format!(
-            "locked candidate `{coordinate}` must be a deployable nix-store with an absolute storePath and exact locked-output provenance"
+            "locked candidate `{coordinate}` must be a nix-store with an absolute storePath and valid locked-output provenance"
         )));
     }
     validate_portable_relative(
@@ -1448,6 +1458,10 @@ fn validate_locked_candidate(candidate: &LockedCandidate, coordinate: &str) -> R
         "locked candidate relativePath",
         true,
     )
+}
+
+fn valid_opaque_label(value: &str) -> bool {
+    !value.is_empty() && value.trim() == value && !value.chars().any(char::is_control)
 }
 
 fn validate_artifact_candidates(
@@ -1486,13 +1500,13 @@ fn validate_artifact_candidates(
         if pointer.api_version != SUPPORTED_API_VERSION
             || pointer.kind != GENERATION_POINTER_KIND
             || pointer.interface_version != GENERATION_INTERFACE_VERSION
-            || pointer.file != "current"
             || !valid_action_identity(&pointer.identity)
         {
             return Err(CliError(format!(
-                "local artifact `{coordinate}` must declare the exact nonempty ActionGenerationPointer v1 identity at `current`"
+                "local artifact `{coordinate}` must declare an exact nonempty ActionGenerationPointer v1 identity"
             )));
         }
+        validate_generation_layout(&local.generation.layout, coordinate)?;
     }
     if let Some(locked) = &artifact.candidates.locked {
         validate_locked_candidate(locked, coordinate)?;
@@ -1501,6 +1515,56 @@ fn validate_artifact_candidates(
         return Err(CliError(format!(
             "artifact `{coordinate}` must declare at least one candidate"
         )));
+    }
+    Ok(())
+}
+
+fn validate_generation_layout(layout: &ActionGenerationLayout, coordinate: &str) -> Result<()> {
+    if layout.api_version != SUPPORTED_API_VERSION
+        || layout.kind != GENERATION_LAYOUT_KIND
+        || layout.interface_version != GENERATION_LAYOUT_INTERFACE_VERSION
+    {
+        return Err(CliError(format!(
+            "local artifact `{coordinate}` has an unsupported ActionGenerationLayout interface"
+        )));
+    }
+    for (name, path) in [
+        ("publicationLock", &layout.publication_lock),
+        ("generations", &layout.generations),
+        ("pointer", &layout.pointer),
+        ("manifest", &layout.manifest),
+    ] {
+        validate_portable_relative(
+            path,
+            &format!("local artifact `{coordinate}` generation layout {name}"),
+            false,
+        )?;
+    }
+    for (left_name, left, right_name, right) in [
+        (
+            "publicationLock",
+            &layout.publication_lock,
+            "generations",
+            &layout.generations,
+        ),
+        (
+            "publicationLock",
+            &layout.publication_lock,
+            "pointer",
+            &layout.pointer,
+        ),
+        (
+            "generations",
+            &layout.generations,
+            "pointer",
+            &layout.pointer,
+        ),
+    ] {
+        if left.starts_with(right) || right.starts_with(left) {
+            return Err(CliError(format!(
+                "local artifact `{coordinate}` generation layout {left_name} and {right_name} paths must be distinct and non-overlapping"
+            )));
+        }
     }
     Ok(())
 }
@@ -1637,7 +1701,9 @@ fn resolve_local_artifact(
     )?;
     let lock = OpenOptions::new()
         .read(true)
-        .open(generation_root.join(".publish.lock"))
+        .open(
+            generation_root.join(&candidate.generation.layout.publication_lock),
+        )
         .map_err(|error| {
             CliError(format!(
                 "selected local artifact `{coordinate}` generation lock is unavailable: {error}; locked fallback is forbidden"
@@ -1649,7 +1715,7 @@ fn resolve_local_artifact(
         ))
     })?;
     let lease = GenerationLease(lock);
-    let pointer_path = generation_root.join(&candidate.generation.pointer.file);
+    let pointer_path = generation_root.join(&candidate.generation.layout.pointer);
     let bytes = fs::read(&pointer_path).map_err(|error| {
         CliError(format!(
             "selected local artifact `{coordinate}` has no readable atomic generation pointer at {}: {error}; locked fallback is forbidden",
@@ -1671,9 +1737,12 @@ fn resolve_local_artifact(
             "selected local artifact `{coordinate}` generation pointer does not match the exact Nix-selected version, kind, generation, and identity; locked fallback is forbidden"
         )));
     }
-    let expected_manifest = PathBuf::from("generations")
+    let expected_manifest = candidate
+        .generation
+        .layout
+        .generations
         .join(&pointer.generation)
-        .join("manifest.json");
+        .join(&candidate.generation.layout.manifest);
     if pointer.manifest != expected_manifest {
         return Err(CliError(format!(
             "selected local artifact `{coordinate}` generation pointer manifest is not the exact immutable generation path"

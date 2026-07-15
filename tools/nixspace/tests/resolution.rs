@@ -50,9 +50,26 @@ impl Fixture {
 
         let generation_root = root.join(".state/devel/app");
         let generation = "1-2-3";
-        fs::create_dir_all(generation_root.join(format!("generations/{generation}")))
-            .expect("generation exists");
-        fs::write(generation_root.join(".publish.lock"), "").expect("generation lock exists");
+        let layout = json!({
+            "apiVersion": "nixspace/v1",
+            "kind": "ActionGenerationLayout",
+            "interfaceVersion": 1,
+            "publicationLock": "locks/publication.lock",
+            "generations": "records",
+            "pointer": "selected.json",
+            "manifest": "record.json"
+        });
+        fs::create_dir_all(generation_root.join(format!(
+            "{}/{generation}",
+            layout["generations"].as_str().unwrap()
+        )))
+        .expect("generation exists");
+        fs::create_dir_all(generation_root.join("locks")).expect("lock parent exists");
+        fs::write(
+            generation_root.join(layout["publicationLock"].as_str().unwrap()),
+            "",
+        )
+        .expect("generation lock exists");
         let identity = json!({
             "apiVersion": "nixspace/v1",
             "kind": "ActionTaskIdentity",
@@ -108,7 +125,11 @@ impl Fixture {
             "result": {"outputs": [resolved_output]}
         });
         fs::write(
-            generation_root.join(format!("generations/{generation}/manifest.json")),
+            generation_root.join(format!(
+                "{}/{generation}/{}",
+                layout["generations"].as_str().unwrap(),
+                layout["manifest"].as_str().unwrap()
+            )),
             serde_json::to_vec(&manifest).expect("manifest serializes"),
         )
         .expect("manifest exists");
@@ -117,11 +138,15 @@ impl Fixture {
             "kind": "ActionGenerationPointer",
             "interfaceVersion": 1,
             "generation": generation,
-            "manifest": format!("generations/{generation}/manifest.json"),
+            "manifest": format!(
+                "{}/{generation}/{}",
+                layout["generations"].as_str().unwrap(),
+                layout["manifest"].as_str().unwrap()
+            ),
             "identity": identity
         });
         fs::write(
-            generation_root.join("current"),
+            generation_root.join(layout["pointer"].as_str().unwrap()),
             serde_json::to_vec(&pointer).expect("pointer serializes"),
         )
         .expect("pointer exists");
@@ -129,7 +154,6 @@ impl Fixture {
         let locked = |relative_path: &str| {
             json!({
                 "kind": "nix-store",
-                "deployable": true,
                 "installable": ".#target-app--default",
                 "provider": "app_release",
                 "package": "default",
@@ -138,7 +162,7 @@ impl Fixture {
                 "relativePath": relative_path,
                 "provenance": {
                     "kind": "locked-output",
-                    "label": "LOCKED",
+                    "label": "immutable output",
                     "provider": "app_release",
                     "package": "default"
                 }
@@ -160,7 +184,7 @@ impl Fixture {
         let plan_document = json!({
             "apiVersion": "nixspace/v1",
             "kind": "WorkspaceResolution",
-            "interfaceVersion": 1,
+            "interfaceVersion": 2,
             "roots": {"workspace": ".", "taskState": ".state"},
             "packagePlans": {
                 "app": {
@@ -178,7 +202,6 @@ impl Fixture {
                     "candidates": {
                         "local": {
                             "kind": "local-worktree",
-                            "deployable": false,
                             "prefix": {
                                 "kind": "source-relative",
                                 "sourceInput": "app_source",
@@ -188,8 +211,8 @@ impl Fixture {
                             },
                             "provenance": {
                                 "kind": "local-git",
-                                "cleanLabel": "LOCAL commit",
-                                "dirtyLabel": "LOCAL dirty",
+                                "cleanLabel": "working tree clean",
+                                "dirtyLabel": "working tree modified",
                                 "sourceInput": "app_source",
                                 "inspection": {
                                     "workingDirectory": "src/app",
@@ -217,12 +240,12 @@ impl Fixture {
                             "workspacePath": "src/app/bin/app",
                             "generation": {
                                 "producerTask": "app:default:build",
+                                "layout": layout,
                                 "store": {"kind": "workspace-relative", "workspacePath": ".state/devel/app"},
                                 "pointer": {
                                     "apiVersion": "nixspace/v1",
                                     "kind": "ActionGenerationPointer",
                                     "interfaceVersion": 1,
-                                    "file": "current",
                                     "identity": identity
                                 }
                             }
@@ -344,7 +367,7 @@ fn every_command_consumes_one_exact_local_plan() {
     let explanation = parse_json(&fixture.command(&["env", "app", "--explain", "--json"]));
     assert_eq!(
         explanation["selections"][0]["provenance"]["label"],
-        "LOCAL commit"
+        "working tree clean"
     );
     assert_eq!(
         explanation["selections"][0]["provenance"]["revision"],
@@ -390,7 +413,7 @@ fn every_command_consumes_one_exact_local_plan() {
 #[test]
 fn selected_local_failure_never_uses_available_locked_candidate() {
     let fixture = Fixture::new();
-    fs::remove_file(fixture.root.join(".state/devel/app/current"))
+    fs::remove_file(fixture.root.join(".state/devel/app/selected.json"))
         .expect("current pointer removed");
     let output = fixture.command(&["run", "app/app"]);
     assert!(!output.status.success());
@@ -408,7 +431,7 @@ fn locked_scope_resolves_only_concrete_store_candidates() {
 
     let prefix = parse_json(&fixture.command(&["package", "prefix", "app", "--json"]));
     assert_eq!(prefix["selectedCandidate"], "locked");
-    assert_eq!(prefix["provenance"]["label"], "LOCKED");
+    assert_eq!(prefix["provenance"]["label"], "immutable output");
     assert_eq!(
         prefix["path"],
         fixture.root.join("locked-app").display().to_string()
@@ -464,7 +487,7 @@ fn locked_selection_accepts_an_intentionally_absent_local_artifact() {
     document["artifacts"]["app:default:cli"]["candidates"]["local"] = Value::Null;
     document["executables"]["app/app"]["candidates"]["local"] = Value::Null;
     fixture.write_document(&document);
-    fs::remove_file(fixture.root.join(".state/devel/app/current")).unwrap();
+    fs::remove_file(fixture.root.join(".state/devel/app/selected.json")).unwrap();
 
     let explanation = fixture.command(&["env", "app", "--explain", "--json"]);
     assert!(
@@ -497,7 +520,7 @@ fn explicit_selection_root_controls_cross_package_candidate_choice() {
         json!({"app": "locked", "bundle": "locked"});
     document["packagePlans"]["bundle"] = bundle_plan;
     fixture.write_document(&document);
-    fs::remove_file(fixture.root.join(".state/devel/app/current")).unwrap();
+    fs::remove_file(fixture.root.join(".state/devel/app/selected.json")).unwrap();
 
     let direct = fixture.command(&["run", "app/app"]);
     assert!(!direct.status.success(), "owner plan still selects local");
@@ -572,6 +595,22 @@ fn resolution_plan_environment_and_exact_kind_are_required() {
     let output = fixture.command(&["resource", "app/config"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("kind"));
+
+    let mut legacy = fixture.document();
+    legacy["kind"] = json!("WorkspaceResolution");
+    legacy["interfaceVersion"] = json!(1);
+    fixture.write_document(&legacy);
+    let output = fixture.command(&["resource", "app/config"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("supports version 2"));
+
+    let mut empty_label = fixture.document();
+    empty_label["interfaceVersion"] = json!(2);
+    empty_label["packages"]["app"]["candidates"]["local"]["provenance"]["cleanLabel"] = json!("");
+    fixture.write_document(&empty_label);
+    let output = fixture.command(&["resource", "app/config"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("provenance labels"));
 }
 
 #[test]

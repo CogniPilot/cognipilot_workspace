@@ -257,6 +257,97 @@ fn host_plan() -> Value {
     })
 }
 
+#[test]
+fn credential_bearing_nix_settings_are_rejected_before_host_commands_run() {
+    let fixture = Fixture::new();
+    for name in [
+        "access-tokens",
+        "netrc-file",
+        "secret-key-files",
+        "registry-credential",
+        "mytokenized-setting",
+        "PASSWORD_HELPER",
+    ] {
+        let mut plan = host_plan();
+        plan["nix"]["settings"][name] = json!("must-never-enter-managed-configuration");
+        fixture.write_plan(&plan);
+        let output = fixture.run("setup", &["--check"]);
+        assert!(!output.status.success(), "setting `{name}` was accepted");
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("must not be embedded in a Nix-generated host plan"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!fixture.config.exists());
+        assert!(!fixture.command_log.exists());
+    }
+}
+
+#[test]
+fn substituter_settings_reject_credentials_and_non_public_uris() {
+    let fixture = Fixture::new();
+    for value in [
+        "https://user:must-never-leak@cache.example.test",
+        "https://cache.example.test?token=secret",
+        "https://cache.example.test#private",
+        "http://cache.example.test",
+        "https://cache.example.test other",
+        "https://cache.example.test\nhttps://other.example.test",
+    ] {
+        let mut plan = host_plan();
+        plan["nix"]["settings"]["extra-substituters"] = json!([value]);
+        fixture.write_plan(&plan);
+        let output = fixture.run("setup", &["--check"]);
+        assert!(
+            !output.status.success(),
+            "substituter `{value}` was accepted"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("credential-free HTTPS caches"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(!String::from_utf8_lossy(&output.stdout).contains(value));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(value));
+        assert!(!fixture.config.exists());
+        assert!(!fixture.command_log.exists());
+    }
+}
+
+#[test]
+fn cache_stores_use_the_deduplicated_union_of_both_substituter_settings() {
+    let fixture = Fixture::new();
+    fs::write(&fixture.tool_state, "current").unwrap();
+    let mut plan = host_plan();
+    plan["nix"]["settings"]["substituters"] = json!([
+        "https://cache-primary.example.test",
+        "https://cache-primary.example.test"
+    ]);
+    plan["nix"]["settings"]["extra-substituters"] = json!([
+        "https://cache-secondary.example.test",
+        "https://cache-secondary.example.test"
+    ]);
+    plan["readiness"]["cache"]["stores"][0]["uri"] = json!("https://cache-primary.example.test");
+    fixture.write_plan(&plan);
+    let mut active = active_config(true);
+    active["substituters"]["value"] = json!([
+        "https://cache.nixos.org/",
+        "https://cache-primary.example.test",
+        "https://cache-secondary.example.test"
+    ]);
+    fs::write(&fixture.active, serde_json::to_vec(&active).unwrap()).unwrap();
+
+    let output = fixture.run("setup", &[]);
+    assert_success(&output);
+    let configured = fs::read_to_string(&fixture.config).unwrap();
+    assert!(configured.contains("substituters = https://cache-primary.example.test"));
+    assert!(configured.contains("extra-substituters = https://cache-secondary.example.test"));
+
+    let output = fixture.run("setup", &["--check"]);
+    assert_success(&output);
+}
+
 fn active_config(compliant: bool) -> Value {
     json!({
         "accept-flake-config": {"value": compliant},
@@ -278,8 +369,9 @@ fn source_plan() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "SourceWorkspace",
-        "interfaceVersion": 1,
+            "interfaceVersion": 3,
         "workspaceRoot": ".",
+        "transaction": {"mutationLock": "state/source.lock", "journal": "state/source.json"},
         "repositories": {
             "alpha": {
                 "id": "alpha",
@@ -295,11 +387,30 @@ fn source_plan() -> Value {
                         "worktree": git(vec!["git", "worktree"]),
                         "origin": git(vec!["git", "origin"]),
                         "branch": git(vec!["git", "branch"]),
-                        "clean": git(vec!["git", "conflicts"])
+                        "clean": git(vec!["git", "conflicts"]),
+                        "head": git(vec!["git", "head"]),
+                        "target": git(vec!["git", "target"])
                     },
                     "fetch": git(vec!["git", "fetch"]),
                     "fastForwardCheck": git(vec!["git", "ff-check"]),
-                    "fastForward": git(vec!["git", "ff"])
+                    "fastForward": git(vec!["git", "ff"]),
+                        "rollback": {
+                            "refUpdate": {"argv": [
+                                {"kind": "literal", "value": "git"},
+                                {"kind": "old-head"},
+                                {"kind": "expected-current"}
+                            ]},
+                            "worktreeRestore": {"argv": [
+                                {"kind": "literal", "value": "git"},
+                                {"kind": "expected-current"},
+                                {"kind": "old-head"}
+                            ]},
+                            "refRestore": {"argv": [
+                                {"kind": "literal", "value": "git"},
+                                {"kind": "expected-current"},
+                                {"kind": "old-head"}
+                            ]}
+                        }
                 }
             }
         },
@@ -312,8 +423,14 @@ fn launch_plan(port: u16) -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "LaunchExecution",
-        "interfaceVersion": 3,
+        "interfaceVersion": 4,
         "stateRoot": "state/sessions",
+        "sessionLayout": {
+            "metadata": "session.json",
+            "managerSocket": "process-compose.sock",
+            "managerLog": "processes.log",
+            "portAllocationLock": ".port-allocation.lock"
+        },
         "launches": {
             "app/stack": {
                 "coordinate": "app:stack",
@@ -335,6 +452,7 @@ fn launch_plan(port: u16) -> Value {
                 "runner": {
                     "kind": "devenv-process-compose",
                     "workingDirectory": ".",
+                    "sessionRootEnvironment": "NIXSPACE_SESSION_DIR",
                     "commands": {
                         "up": command, "start": command, "attach": command,
                         "status": command, "logs": command, "down": command
@@ -350,7 +468,7 @@ fn session_record(root: &Path, port: u16) -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "LaunchSession",
-        "interfaceVersion": 3,
+        "interfaceVersion": 4,
         "id": "demo",
         "coordinate": "app/stack",
         "schemaCoordinate": "app:stack",
@@ -1201,7 +1319,7 @@ fn doctor_validates_the_configured_workspace_resolution_document() {
     let document = json!({
         "apiVersion": "nixspace/v1",
         "kind": "WorkspaceResolution",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "roots": {"workspace": ".", "taskState": ".state"},
         "packagePlans": {},
         "packages": {},

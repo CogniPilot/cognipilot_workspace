@@ -27,6 +27,7 @@ class CognipilotReleaseProductTests(unittest.TestCase):
             "action-presets.nix",
             "action-tool-profiles.nix",
             "flake-module.nix",
+            "nixspace-index.nix",
             "nixspace-module.nix",
             "product-flake-module.nix",
             "resolution-module.nix",
@@ -35,7 +36,11 @@ class CognipilotReleaseProductTests(unittest.TestCase):
             shutil.copy2(ROOT / "nix" / "cognipilot" / name, modules / name)
         nixspace_modules = self.root / "nix" / "nixspace"
         nixspace_modules.mkdir(parents=True)
-        for name in ("index-module.nix", "tool-module.nix"):
+        for name in (
+            "action-generation-layout.nix",
+            "index-module.nix",
+            "tool-module.nix",
+        ):
             shutil.copy2(ROOT / "nix" / "nixspace" / name, nixspace_modules / name)
         shutil.copytree(
             ROOT / "tools" / "nixspace",
@@ -214,7 +219,7 @@ class CognipilotReleaseProductTests(unittest.TestCase):
     def test_release_refs_normalize_without_conflating_source_authority(self) -> None:
         self.prepare()
 
-        projects = self.evaluate("nixspaceIndex")["projects"]
+        projects = self.evaluate("cognipilotIndex")["projects"]
 
         self.assertEqual(
             projects["alpha"]["targets"]["default"]["release"],
@@ -287,20 +292,15 @@ class CognipilotReleaseProductTests(unittest.TestCase):
         )
         self.assertTrue(record["product"]["sourceIdentity"]["immutable"])
         self.assertRegex(record["selectionDigest"], r"^[0-9a-f]{64}$")
+        self.assertEqual(f"urn:nix:builder:{SYSTEM}", record["builderIdentity"]["id"])
+        builder_dependencies = record["builderIdentity"]["builderDependencies"]
+        self.assertEqual(["nixspace"], [item["name"] for item in builder_dependencies])
         self.assertTrue(
-            record["builderIdentity"]["id"].startswith("urn:nix:derivation:")
-        )
-        self.assertTrue(
-            record["builderIdentity"]["builderDependencies"][0]["annotations"][
-                "nixOutput"
-            ][
-                "drvPath"
-            ].endswith(".drv")
-        )
-        self.assertTrue(
-            record["builderIdentity"]["builderDependencies"][0]["annotations"][
-                "nixpkgs"
-            ]["immutable"]
+            all(
+                item["annotations"]["nixOutput"]["drvPath"].endswith(".drv")
+                and item["annotations"]["nixpkgs"]["immutable"]
+                for item in builder_dependencies
+            )
         )
         self.assertEqual([], record["allowedExternalSourceExceptions"])
 
@@ -342,6 +342,7 @@ class CognipilotReleaseProductTests(unittest.TestCase):
             release["release"],
         )
         self.assertEqual(SYSTEM, release["system"])
+        self.assertEqual("1.2.3", release["version"])
         self.assertTrue(release["providerIdentity"]["immutable"])
         self.assertTrue(release["output"]["drvPath"].startswith("/nix/store/"))
         self.assertTrue(release["output"]["storePath"].startswith("/nix/store/"))
@@ -360,11 +361,9 @@ class CognipilotReleaseProductTests(unittest.TestCase):
         self.assertEqual(
             record["documents"]["sbom"]["output"], roots[1]
         )
-        self.assertEqual(
-            record["builderIdentity"]["builderDependencies"][0]["annotations"][
-                "nixOutput"
-            ],
-            roots[2],
+        self.assertCountEqual(
+            [item["annotations"]["nixOutput"] for item in builder_dependencies],
+            roots[2:],
         )
         self.assertEqual("SPDX-2.3", record["documents"]["sbom"]["format"])
         self.assertEqual(
@@ -511,24 +510,17 @@ class CognipilotReleaseProductTests(unittest.TestCase):
             promotion["builderIdentity"]["version"], builder["version"]
         )
         self.assertEqual(
-            promotion["builderIdentity"]["builderDependencies"][0]["uri"],
-            builder["builderDependencies"][0]["uri"],
+            [item["uri"] for item in promotion["builderIdentity"]["builderDependencies"]],
+            [item["uri"] for item in builder["builderDependencies"]],
         )
-        self.assertRegex(
-            builder["builderDependencies"][0]["digest"]["sha256"],
-            r"^[0-9a-f]{64}$",
-        )
-        self.assertIn(
-            "narHash",
-            builder["builderDependencies"][0]["annotations"]["nixOutput"],
-        )
-        builder_output = builder["builderDependencies"][0]["annotations"][
-            "nixOutput"
-        ]
-        self.assertEqual(
-            self.hex_hash(builder_output["narHash"]),
-            builder["builderDependencies"][0]["digest"]["sha256"],
-        )
+        for dependency in builder["builderDependencies"]:
+            self.assertRegex(dependency["digest"]["sha256"], r"^[0-9a-f]{64}$")
+            builder_output = dependency["annotations"]["nixOutput"]
+            self.assertIn("narHash", builder_output)
+            self.assertEqual(
+                self.hex_hash(builder_output["narHash"]),
+                dependency["digest"]["sha256"],
+            )
         self.assertEqual(
             promotion["selectionDigest"],
             predicate["buildDefinition"]["externalParameters"]["selectionDigest"],
@@ -746,7 +738,9 @@ class CognipilotReleaseProductTests(unittest.TestCase):
             "plan",
             "alpha/release",
             "--json",
+            check=False,
         )
+        self.assertEqual(0, launch_result.returncode, launch_result.stderr)
         launch = json.loads(launch_result.stdout)
         self.assertEqual(["alpha:default:runtime"], launch["requiredArtifacts"])
         self.assertEqual(["alpha/config"], launch["requiredResources"])
@@ -785,7 +779,7 @@ class CognipilotReleaseProductTests(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn(
-            "has no ActionTask v2 generation for `alpha:default:build`",
+            "has no ActionTask v3 generation for `alpha:default:build`",
             result.stderr,
         )
 
@@ -823,6 +817,56 @@ class CognipilotReleaseProductTests(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("CogniPilot promotion record violations", result.stderr)
                 self.assertIn(diagnostic, result.stderr)
+
+    def test_public_projection_excludes_private_projects_before_identity_resolution(self) -> None:
+        self.prepare(
+            (
+                '        name = "release-fixture";\n',
+                '        name = "release-fixture";\n'
+                '        promotionVisibilities = [ "public" ];\n',
+            )
+        )
+
+        record = self.evaluate(f"packages.{SYSTEM}.promotion-record.normalizedRecord")
+        self.assertEqual(["alpha"], [package["packageId"] for package in record["packages"]])
+        self.assertEqual(
+            ["alpha:default"],
+            [target["coordinate"] for target in record["outputs"]["targets"]],
+        )
+
+    def test_promotion_rejects_declared_and_provider_version_drift(self) -> None:
+        self.prepare(('value = "1.2.3";', 'value = "9.9.9";'))
+
+        result = self.run_command(
+            "nix",
+            "eval",
+            "--offline",
+            "--raw",
+            f".#packages.{SYSTEM}.promotion-record.drvPath",
+            check=False,
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("CogniPilot promotion record violations", result.stderr)
+        self.assertIn(
+            "release `alpha:default` declares software version `9.9.9` "
+            "but provider output version is `1.2.3`",
+            result.stderr,
+        )
+
+    def test_attestation_resolves_available_qualification_sources(self) -> None:
+        self.prepare(('input = "observer_source";', 'input = "alpha_source";'))
+
+        statement = self.evaluate(
+            f"packages.{SYSTEM}.promotion-attestation.statement"
+        )
+        dependencies = statement["predicate"]["buildDefinition"][
+            "resolvedDependencies"
+        ]
+        names = {dependency["name"] for dependency in dependencies}
+
+        self.assertIn("observer:source", names)
+        self.assertIn("observer:definition", names)
 
     def test_dirty_product_source_cannot_emit_deployable_promotion(self) -> None:
         self.prepare()

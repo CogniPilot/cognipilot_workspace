@@ -10,6 +10,7 @@ mod resolution;
 mod source;
 mod west;
 
+use std::collections::BTreeSet;
 use std::env;
 use std::error::Error;
 use std::fmt::{self, Display};
@@ -24,7 +25,7 @@ use model::{GraphDocument, Index, PackageDocument};
 use serde::Serialize;
 use serde_json::json;
 
-const SUPPORTED_INTERFACE_VERSION: u64 = 1;
+const SUPPORTED_INTERFACE_VERSION: u64 = 2;
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
 const SUPPORTED_KIND: &str = "Workspace";
 const TOP_LEVEL_COMPLETIONS: &[&str] = &[
@@ -308,9 +309,7 @@ fn run(cli: Cli) -> Result<action::Outcome> {
             let index = load_index(required_index_path(&index_path)?)?;
             let package = arguments
                 .package()
-                .map(|name| {
-                    canonical_package(&index, name).map(|package| package.package_id.as_str())
-                })
+                .map(|name| canonical_package(&index, name).map(|package| package.id.as_str()))
                 .transpose()?;
             resolution::authorize_command(&root, resolution_plan, "build", package)?;
             return action::run_action(&root, &index, "build", arguments);
@@ -319,9 +318,7 @@ fn run(cli: Cli) -> Result<action::Outcome> {
             let index = load_index(required_index_path(&index_path)?)?;
             let package = arguments
                 .package()
-                .map(|name| {
-                    canonical_package(&index, name).map(|package| package.package_id.as_str())
-                })
+                .map(|name| canonical_package(&index, name).map(|package| package.id.as_str()))
                 .transpose()?;
             resolution::authorize_command(&root, resolution_plan, "test", package)?;
             return action::run_action(&root, &index, "test", arguments);
@@ -490,7 +487,376 @@ fn decode_index(contents: &[u8], source: &str) -> Result<Index> {
             index.action_plans.schema_version
         )));
     }
+    validate_index_relationships(&index)?;
     Ok(index)
+}
+
+fn validate_index_relationships(index: &Index) -> Result<()> {
+    let mut package_ids = BTreeSet::new();
+    let mut identities = BTreeSet::new();
+    for package in &index.catalog.packages {
+        if package.id.is_empty() || !package_ids.insert(package.id.as_str()) {
+            return Err(CliError(format!(
+                "workspace catalog contains an empty or duplicate package identity `{}`",
+                package.id
+            )));
+        }
+        for identity in
+            std::iter::once(package.id.as_str()).chain(package.aliases.iter().map(String::as_str))
+        {
+            if identity.is_empty() || !identities.insert(identity) {
+                return Err(CliError(format!(
+                    "workspace package identity or alias `{identity}` is empty or ambiguous"
+                )));
+            }
+        }
+        if package
+            .extensions
+            .keys()
+            .any(|namespace| !valid_extension_namespace(namespace))
+        {
+            return Err(CliError(format!(
+                "workspace package `{}` extension keys must be nonempty provider namespaces in `reverse.domain/name` form",
+                package.id
+            )));
+        }
+    }
+
+    let target_coordinates = unique_coordinates(
+        "target",
+        index
+            .catalog
+            .targets
+            .iter()
+            .map(|document| document.coordinate.as_str()),
+    )?;
+    let artifact_coordinates = unique_coordinates(
+        "artifact",
+        index
+            .catalog
+            .artifacts
+            .iter()
+            .map(|document| document.coordinate.as_str()),
+    )?;
+    let resource_coordinates = unique_coordinates(
+        "resource",
+        index
+            .catalog
+            .resources
+            .iter()
+            .map(|document| document.coordinate.as_str()),
+    )?;
+    let executable_coordinates = unique_coordinates(
+        "executable",
+        index
+            .catalog
+            .executables
+            .iter()
+            .map(|document| document.coordinate.as_str()),
+    )?;
+    let launch_coordinates = unique_coordinates(
+        "launch",
+        index
+            .catalog
+            .launches
+            .iter()
+            .map(|document| document.coordinate.as_str()),
+    )?;
+
+    for (kind, coordinate, package) in index
+        .catalog
+        .targets
+        .iter()
+        .map(|document| {
+            (
+                "target",
+                document.coordinate.as_str(),
+                document.package_id.as_str(),
+            )
+        })
+        .chain(index.catalog.artifacts.iter().map(|document| {
+            (
+                "artifact",
+                document.coordinate.as_str(),
+                document.package_id.as_str(),
+            )
+        }))
+        .chain(index.catalog.resources.iter().map(|document| {
+            (
+                "resource",
+                document.coordinate.as_str(),
+                document.package_id.as_str(),
+            )
+        }))
+        .chain(index.catalog.executables.iter().map(|document| {
+            (
+                "executable",
+                document.coordinate.as_str(),
+                document.package_id.as_str(),
+            )
+        }))
+        .chain(index.catalog.launches.iter().map(|document| {
+            (
+                "launch",
+                document.coordinate.as_str(),
+                document.package_id.as_str(),
+            )
+        }))
+    {
+        if package.is_empty() || !package_ids.contains(package) {
+            return Err(CliError(format!(
+                "workspace {kind} `{coordinate}` references missing package `{package}`"
+            )));
+        }
+    }
+
+    for executable in &index.catalog.executables {
+        if !artifact_coordinates.contains(executable.from.as_str()) {
+            return Err(CliError(format!(
+                "workspace executable `{}` references missing artifact `{}`",
+                executable.coordinate, executable.from
+            )));
+        }
+    }
+    for artifact in &index.catalog.artifacts {
+        let target_coordinate = format!("{}/{}", artifact.package_id, artifact.target_id);
+        if !target_coordinates.contains(target_coordinate.as_str()) {
+            return Err(CliError(format!(
+                "workspace artifact `{}` references missing target `{target_coordinate}`",
+                artifact.coordinate
+            )));
+        }
+        if let Some(action) = artifact.produced_by.as_deref() {
+            let target = index
+                .catalog
+                .targets
+                .iter()
+                .find(|target| target.coordinate == target_coordinate)
+                .expect("coordinate set came from target catalog");
+            if !target.target.actions.contains_key(action) {
+                return Err(CliError(format!(
+                    "workspace artifact `{}` names missing producer action `{action}`",
+                    artifact.coordinate
+                )));
+            }
+        }
+    }
+
+    validate_graph("graph.all", &index.graph.all)?;
+    for (package, graph) in &index.graph.packages {
+        if !package_ids.contains(package.as_str()) {
+            return Err(CliError(format!(
+                "workspace graph.packages references missing package `{package}`"
+            )));
+        }
+        validate_graph(&format!("graph.packages.{package}"), graph)?;
+    }
+    for (package, graph) in &index.graph.reverse {
+        if !package_ids.contains(package.as_str()) {
+            return Err(CliError(format!(
+                "workspace graph.reverse references missing package `{package}`"
+            )));
+        }
+        validate_graph(&format!("graph.reverse.{package}"), graph)?;
+    }
+
+    for (action, selection) in &index.action_plans.actions {
+        unique_values(&format!("action plan `{action}` all"), &selection.all)?;
+        for (package, roots) in &selection.packages {
+            if !package_ids.contains(package.as_str()) {
+                return Err(CliError(format!(
+                    "action plan `{action}` references missing package `{package}`"
+                )));
+            }
+            unique_values(
+                &format!("action plan `{action}` package `{package}`"),
+                roots,
+            )?;
+        }
+    }
+    validate_runner(index)?;
+
+    for (coordinate, plan) in &index.launch_plans {
+        if coordinate.is_empty() || plan.launch != *coordinate {
+            return Err(CliError(format!(
+                "workspace launch plan key `{coordinate}` must equal its nonempty launch coordinate `{}`",
+                plan.launch
+            )));
+        }
+        if !launch_coordinates.contains(coordinate.as_str()) {
+            return Err(CliError(format!(
+                "workspace launch plan `{coordinate}` has no catalog launch"
+            )));
+        }
+        for (name, binding) in &plan.session_environment {
+            let _ = (&binding.base, &binding.create);
+            let path = Path::new(&binding.path);
+            if name.is_empty()
+                || binding.path.contains('\\')
+                || binding.path.contains('\0')
+                || binding.path.is_empty()
+                || path.is_absolute()
+                || path.components().any(|component| {
+                    !matches!(
+                        component,
+                        std::path::Component::Normal(_) | std::path::Component::CurDir
+                    )
+                })
+            {
+                return Err(CliError(format!(
+                    "workspace launch plan `{coordinate}` has invalid session environment binding `{name}`"
+                )));
+            }
+        }
+        for artifact in &plan.required_artifacts {
+            if !artifact_coordinates.contains(artifact.as_str()) {
+                return Err(CliError(format!(
+                    "workspace launch plan `{coordinate}` requires missing artifact `{artifact}`"
+                )));
+            }
+        }
+        for resource in &plan.required_resources {
+            if !resource_coordinates.contains(resource.as_str()) {
+                return Err(CliError(format!(
+                    "workspace launch plan `{coordinate}` requires missing resource `{resource}`"
+                )));
+            }
+        }
+        let instances = unique_coordinates(
+            &format!("launch plan `{coordinate}` instance"),
+            plan.instances
+                .iter()
+                .map(|instance| instance.instance_id.as_str()),
+        )?;
+        unique_coordinates(
+            &format!("launch plan `{coordinate}` process"),
+            plan.processes.iter().map(|process| process.id.as_str()),
+        )?;
+        for process in &plan.processes {
+            if !instances.contains(process.instance.as_str()) {
+                return Err(CliError(format!(
+                    "workspace launch process `{}` references missing instance `{}`",
+                    process.id, process.instance
+                )));
+            }
+            let executable = index
+                .catalog
+                .executables
+                .iter()
+                .find(|executable| coordinate_matches(&executable.coordinate, &process.executable))
+                .ok_or_else(|| {
+                    CliError(format!(
+                        "workspace launch process `{}` references missing executable `{}`",
+                        process.id, process.executable
+                    ))
+                })?;
+            if process.artifact != executable.from {
+                return Err(CliError(format!(
+                    "workspace launch process `{}` artifact `{}` does not equal executable `{}` source `{}`",
+                    process.id, process.artifact, process.executable, executable.from
+                )));
+            }
+            if process.executable_argv != executable.argv {
+                return Err(CliError(format!(
+                    "workspace launch process `{}` executableArgv does not equal executable `{}` argv",
+                    process.id, process.executable
+                )));
+            }
+        }
+    }
+    let _ = executable_coordinates;
+    Ok(())
+}
+
+fn coordinate_matches(catalog_coordinate: &str, value: &str) -> bool {
+    catalog_coordinate == value
+        || value.split_once(':').is_some_and(|(package, trailing)| {
+            catalog_coordinate == format!("{package}/{trailing}")
+        })
+}
+
+fn unique_coordinates<'a>(
+    description: &str,
+    values: impl IntoIterator<Item = &'a str>,
+) -> Result<BTreeSet<&'a str>> {
+    let mut seen = BTreeSet::new();
+    for value in values {
+        if value.is_empty() || !seen.insert(value) {
+            return Err(CliError(format!(
+                "workspace {description} coordinate `{value}` is empty or duplicated"
+            )));
+        }
+    }
+    Ok(seen)
+}
+
+fn unique_values(description: &str, values: &[String]) -> Result<()> {
+    let mut seen = BTreeSet::new();
+    if values
+        .iter()
+        .any(|value| value.is_empty() || !seen.insert(value.as_str()))
+    {
+        return Err(CliError(format!(
+            "workspace {description} contains an empty or duplicate root"
+        )));
+    }
+    Ok(())
+}
+
+fn valid_extension_namespace(value: &str) -> bool {
+    let Some((namespace, name)) = value.split_once('/') else {
+        return false;
+    };
+    namespace.contains('.')
+        && namespace.split('.').all(valid_namespace_segment)
+        && valid_namespace_segment(name)
+}
+
+fn valid_namespace_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+}
+
+fn validate_graph(description: &str, graph: &GraphDocument) -> Result<()> {
+    let nodes = unique_coordinates(
+        &format!("{description} node"),
+        graph.nodes.iter().map(|node| node.id.as_str()),
+    )?;
+    for edge in &graph.edges {
+        if !nodes.contains(edge.from.as_str()) || !nodes.contains(edge.to.as_str()) {
+            return Err(CliError(format!(
+                "workspace {description} edge `{}` -> `{}` references a missing node",
+                edge.from, edge.to
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_runner(index: &Index) -> Result<()> {
+    let runner = &index.action_plans.runner;
+    if runner.kind.is_empty()
+        || runner.direct.argv.first().is_none_or(String::is_empty)
+        || runner.bootstrap.argv.first().is_none_or(String::is_empty)
+        || runner
+            .direct
+            .argv
+            .iter()
+            .chain(runner.bootstrap.argv.iter())
+            .chain(runner.direct.required_environment.iter())
+            .any(|value| value.is_empty() || value.contains('\0'))
+    {
+        return Err(CliError(
+            "workspace action runner must have a nonempty kind, executable argv, and environment names without NUL bytes"
+                .into(),
+        ));
+    }
+    unique_values(
+        "action runner requiredEnvironment",
+        &runner.direct.required_environment,
+    )
 }
 
 fn canonical_package<'a>(index: &'a Index, name: &str) -> Result<&'a PackageDocument> {
@@ -498,9 +864,7 @@ fn canonical_package<'a>(index: &'a Index, name: &str) -> Result<&'a PackageDocu
         .catalog
         .packages
         .iter()
-        .find(|package| {
-            package.package_id == name || package.aliases.iter().any(|alias| alias == name)
-        })
+        .find(|package| package.id == name || package.aliases.iter().any(|alias| alias == name))
         .ok_or_else(|| {
             CliError(format!(
                 "package `{name}` is not in the cached workspace index"
@@ -519,20 +883,13 @@ fn package(index: &Index, command: PackageCommand) -> Result<()> {
             "packages": index.catalog.packages,
         })),
         PackageCommand::List { json: false } => {
-            println!(
-                "PACKAGE\tALIASES\tVERSION\tLIFECYCLE\tDEPLOYABILITY\tOWNER\tLICENSE\tWARNINGS"
-            );
+            println!("PACKAGE\tALIASES\tEXTENSIONS");
             for package in &index.catalog.packages {
                 println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                    package.package_id,
+                    "{}\t{}\t{}",
+                    package.id,
                     display_list(&package.aliases),
-                    software_version(package),
-                    package.lifecycle,
-                    package.deployability,
-                    package.owner.as_deref().unwrap_or("-"),
-                    package.license.spdx.as_deref().unwrap_or("-"),
-                    display_list(&package.compliance.warnings),
+                    display_list(&package.extensions.keys().cloned().collect::<Vec<_>>()),
                 );
             }
             Ok(())
@@ -542,23 +899,11 @@ fn package(index: &Index, command: PackageCommand) -> Result<()> {
             if json {
                 return write_json(package);
             }
-            println!("Package: {}", package.package_id);
+            println!("Package: {}", package.id);
             println!("Aliases: {}", display_words(&package.aliases));
-            println!("Version: {}", software_version(package));
-            println!("Lifecycle: {}", package.lifecycle);
-            println!("Deployability: {}", package.deployability);
-            println!("Owner: {}", package.owner.as_deref().unwrap_or("none"));
             println!(
-                "License: {}",
-                package.license.spdx.as_deref().unwrap_or("none")
-            );
-            println!("Project: {}", package.id);
-            println!("Repository: {}", package.repository_id);
-            println!("Preset: {}", package.preset);
-            println!("Source: {}:{}", package.source.input, package.source.root);
-            println!(
-                "Bespoke adapters: {}",
-                package.compliance.bespoke_adapter_count
+                "Extensions: {}",
+                display_words(&package.extensions.keys().cloned().collect::<Vec<_>>())
             );
             Ok(())
         }
@@ -813,7 +1158,7 @@ fn graph(index: &Index, arguments: GraphArgs) -> Result<()> {
         ));
     }
     let document = if let Some(package) = arguments.package.as_deref() {
-        let canonical = &canonical_package(index, package)?.package_id;
+        let canonical = &canonical_package(index, package)?.id;
         let collection = if arguments.reverse {
             &index.graph.reverse
         } else {
@@ -1082,7 +1427,7 @@ fn complete(index_path: &Path, words: &[String]) -> Result<()> {
 
 fn canonical_filter<'a>(index: &'a Index, package: Option<&str>) -> Result<Option<&'a str>> {
     package
-        .map(|name| canonical_package(index, name).map(|package| package.package_id.as_str()))
+        .map(|name| canonical_package(index, name).map(|package| package.id.as_str()))
         .transpose()
 }
 
@@ -1092,23 +1437,12 @@ fn package_identities(index: &Index) -> Vec<String> {
         .packages
         .iter()
         .flat_map(|package| {
-            std::iter::once(package.package_id.clone()).chain(package.aliases.iter().cloned())
+            std::iter::once(package.id.clone()).chain(package.aliases.iter().cloned())
         })
         .collect();
     identities.sort();
     identities.dedup();
     identities
-}
-
-fn software_version(package: &PackageDocument) -> String {
-    match package.software_version.source.as_str() {
-        "literal" => package.software_version.value.clone().unwrap_or_default(),
-        "file" => format!(
-            "file:{}",
-            package.software_version.file.as_deref().unwrap_or_default()
-        ),
-        _ => "native".into(),
-    }
 }
 
 fn display_list(values: &[String]) -> String {

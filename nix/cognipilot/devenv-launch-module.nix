@@ -18,6 +18,10 @@ let
     && builtins.all (segment: segment != "" && segment != "." && segment != "..") (
       lib.splitString "/" value
     );
+  safeLeaf = value:
+    safeRelativePath value
+    && builtins.length (lib.splitString "/" value) == 1
+    && builtins.match "[A-Za-z0-9._-]+" value != null;
 in
 {
   options.cognipilot.devenvLaunches = {
@@ -61,6 +65,12 @@ in
       description = "Prefix for generated runtime-parameter environment references.";
     };
 
+    sessionRootEnvironment = lib.mkOption {
+      type = lib.types.strMatching "[A-Z_][A-Z0-9_]*";
+      default = "NIXSPACE_SESSION_DIR";
+      description = "Environment name through which the runner receives the selected session root.";
+    };
+
     runtimeClient = lib.mkOption {
       type = lib.types.str;
       default = "nixspace";
@@ -82,6 +92,31 @@ in
         conventions itself.
       '';
     };
+
+    sessionLayout = lib.mkOption {
+      type = lib.types.submodule {
+        options = {
+          metadata = lib.mkOption {
+            type = lib.types.addCheck lib.types.str safeLeaf;
+            default = "session.json";
+          };
+          managerSocket = lib.mkOption {
+            type = lib.types.addCheck lib.types.str safeLeaf;
+            default = "process-compose.sock";
+          };
+          managerLog = lib.mkOption {
+            type = lib.types.addCheck lib.types.str safeLeaf;
+            default = "processes.log";
+          };
+          portAllocationLock = lib.mkOption {
+            type = lib.types.addCheck lib.types.str safeLeaf;
+            default = ".port-allocation.lock";
+          };
+        };
+      };
+      default = { };
+      description = "Safe leaf names for all persistent launch-session state.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -91,6 +126,8 @@ in
         throw "cognipilot.devenvLaunches.launches must not contain duplicate coordinates"
       else if unknownLaunches != [ ] then
         throw "cognipilot.devenvLaunches.launches contains unknown coordinates: ${lib.concatStringsSep ", " unknownLaunches}"
+      else if builtins.length (lib.unique (builtins.attrValues cfg.sessionLayout)) != 4 then
+        throw "cognipilot.devenvLaunches.sessionLayout leaf names must be distinct"
       else
         let
           renderedLaunches = builtins.listToAttrs (
@@ -104,6 +141,7 @@ in
                     environmentPrefix
                     executableBindings
                     runtimeClient
+                    sessionRootEnvironment
                     sourceBindings
                     workspaceRoot
                     ;
@@ -116,8 +154,9 @@ in
             builtins.toJSON {
               apiVersion = "nixspace/v1";
               kind = "LaunchExecution";
-              interfaceVersion = 3;
+              interfaceVersion = 4;
               stateRoot = cfg.sessionStateRoot;
+              sessionLayout = cfg.sessionLayout;
               launches = builtins.listToAttrs (
                 map (
                   rendered:
@@ -154,6 +193,7 @@ in
                     runner = {
                       kind = "devenv-process-compose";
                       workingDirectory = cfg.workspaceRoot;
+                      sessionRootEnvironment = cfg.sessionRootEnvironment;
                       commands = {
                         up.argv = upPrefix ++ [
                           "-t=true"
@@ -186,7 +226,7 @@ in
           devenv.shells = lib.mapAttrs (_: rendered: {
             process.manager.implementation = "process-compose";
             process.managers.process-compose.settings.log_location =
-              "$NIXSPACE_SESSION_DIR/processes.log";
+              "${"$"}${cfg.sessionRootEnvironment}/${cfg.sessionLayout.managerLog}";
             processes = rendered.processes;
           }) renderedLaunches;
 

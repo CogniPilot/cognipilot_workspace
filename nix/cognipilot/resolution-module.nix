@@ -230,7 +230,7 @@ in
               lib.filter (output: output.coordinate == artifact.coordinate) (task.input.outputs or [ ]);
         in
         if generation == null && localRequired then
-          throw "resolution artifact `${artifact.coordinate}` has no ActionTask v2 generation for `${taskName}`"
+          throw "resolution artifact `${artifact.coordinate}` has no ActionTask v3 generation for `${taskName}`"
         else if generation != null && builtins.length matchingOutputs != 1 then
           throw "resolution artifact `${artifact.coordinate}` requires exactly one matching ActionTask output"
         else
@@ -246,6 +246,7 @@ in
                     workspacePath = (builtins.head matchingOutputs).path;
                     generation = {
                       producerTask = taskName;
+                      layout = generation.layout;
                       store = {
                         kind = "workspace-relative";
                         workspacePath = generation.root;
@@ -254,7 +255,6 @@ in
                         apiVersion = "nixspace/v1";
                         kind = "ActionGenerationPointer";
                         interfaceVersion = 1;
-                        file = "current";
                         identity = generation.identity;
                       };
                     };
@@ -390,7 +390,7 @@ in
       document = {
         apiVersion = "nixspace/v1";
         kind = "WorkspaceResolution";
-        interfaceVersion = 1;
+        interfaceVersion = 2;
         roots = {
           workspace = workspaceRoot;
           taskState = taskStateRoot;

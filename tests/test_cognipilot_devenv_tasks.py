@@ -451,7 +451,7 @@ class CognipilotDevenvTaskTests(unittest.TestCase):
                 plan = parse_action_plan(script)
                 self.assertEqual(plan["apiVersion"], "nixspace/v1")
                 self.assertEqual(plan["kind"], "ActionTask")
-                self.assertEqual(plan["interfaceVersion"], 2)
+                self.assertEqual(plan["interfaceVersion"], 3)
                 self.assertEqual(plan["argv"], argv)
                 self.assertEqual(plan["result"]["task"], task_name)
                 self.assertEqual(plan["cwd"], self.tasks[task_name]["cwd"])
@@ -483,6 +483,18 @@ class CognipilotDevenvTaskTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     generation, self.tasks[task_name]["input"]["generation"]
+                )
+                self.assertEqual(
+                    generation["layout"],
+                    {
+                        "apiVersion": "nixspace/v1",
+                        "kind": "ActionGenerationLayout",
+                        "interfaceVersion": 1,
+                        "publicationLock": ".publish.lock",
+                        "generations": "generations",
+                        "pointer": "current",
+                        "manifest": "manifest.json",
+                    },
                 )
                 declaration = dict(self.tasks[task_name]["input"])
                 declaration.pop("generation")

@@ -9,8 +9,9 @@ process-compose Unix socket; it never supervises a process.
 
 ## Flake integration
 
-Import the exact pinned devenv flake-parts module, the CogniPilot contract
-module, and `nix/cognipilot/devenv-launch-module.nix`. A product root normally
+Import the checked-in flake-parts adapter over the pinned devenv `lib.mkEval`
+API, the CogniPilot contract module, and
+`nix/cognipilot/devenv-launch-module.nix`. A product root normally
 imports `nix/cognipilot/devenv-workspace-module.nix`, which enables all launches
 and installs the standalone client into every generated shell without project
 boilerplate. A lower-level composition can instead enable one option directly:

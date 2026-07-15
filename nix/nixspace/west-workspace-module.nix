@@ -95,11 +95,12 @@ let
           inherit manifestSha256 sourceIdentity;
           inherit (cfg.workspace.manifest) relativePath resource;
         });
+        localPolicyId = hashString "sha256" (toJSON overrideRecords);
       in
       {
         apiVersion = "nixspace/v1";
         kind = "WestWorkspace";
-        interfaceVersion = 1;
+        interfaceVersion = 2;
         product = {
           id = cfg.product.id;
           interfaceVersion = cfg.product.interfaceVersion;
@@ -121,7 +122,7 @@ let
           inherit contentKey;
         };
         cache = {
-          layoutVersion = 1;
+          layoutVersion = 2;
           namespace = cfg.cacheNamespace;
           root = {
             base = "platform-cache";
@@ -129,6 +130,12 @@ let
           };
           nativePathCache = cfg.nativePathCache;
           narrowUpdate = cfg.narrowUpdate;
+          paths = {
+            generations = "${cfg.cacheNamespace}/west/workspaces/${contentKey}/generations";
+            generationGcRoot = "locked";
+            current = "${cfg.cacheNamespace}/west/workspaces/${contentKey}/current.json";
+            publicationLock = "${cfg.cacheNamespace}/west/locks/${contentKey}.lock";
+          };
         };
         localView = {
           root = {
@@ -136,7 +143,11 @@ let
             path = cfg.localViewRootPath;
           };
           overrides = overrideRecords;
-          policyId = hashString "sha256" (toJSON overrideRecords);
+          policyId = localPolicyId;
+          paths = {
+            generations = "${cfg.product.id}/${contentKey}/${localPolicyId}/generations";
+            executionLock = "${cfg.product.id}/${contentKey}/${localPolicyId}/execution.lock";
+          };
         };
       };
 in
@@ -218,13 +229,13 @@ in
 
     cacheRootPath = mkOption {
       type = types.addCheck types.str validRootRelativePath;
-      default = "nixspace/${cfg.cacheNamespace}";
+      default = "nixspace";
       description = "Platform-cache-relative root selected for immutable native West workspaces.";
     };
 
     localViewRootPath = mkOption {
       type = types.addCheck types.str validRootRelativePath;
-      default = ".devenv/state/nixspace/west/views";
+      default = ".nixspace/state/west/views";
       description = "Workspace-relative root selected for editable West views.";
     };
 
@@ -274,11 +285,55 @@ in
     flake.nixspaceWestPlan = plan;
 
     perSystem =
-      { pkgs, ... }:
+      { pkgs, system, ... }:
       let
         westEnvironment = pkgs.python3.withPackages (pythonPackages: [ pythonPackages.west ]);
+        sealExpression = pkgs.writeText "nixspace-west-seal.nix" ''
+          { source }:
+          let
+            builderPackage = builtins.storePath "${pkgs.coreutils}";
+            imported = builtins.path {
+              path = /. + source;
+              name = "nixspace-west-${plan.workspace.id}-source";
+            };
+          in
+          builtins.derivation {
+            name = "nixspace-west-${plan.workspace.id}";
+            system = "${system}";
+            builder = "''${builderPackage}/bin/cp";
+            args = [ "-a" imported (builtins.placeholder "out") ];
+          }
+        '';
         systemPlan = plan // {
-          tools.west = "${westEnvironment}/bin/west";
+          tools = {
+            west = "${westEnvironment}/bin/west";
+            store = {
+              interfaceVersion = 2;
+              seal = {
+                argv = [
+                  { literal = "${pkgs.nix}/bin/nix"; }
+                  { literal = "build"; }
+                  { literal = "--impure"; }
+                  { literal = "--file"; }
+                  { literal = "${sealExpression}"; }
+                  { literal = "--argstr"; }
+                  { literal = "source"; }
+                  { parameter = "source"; }
+                  { literal = "--out-link"; }
+                  { parameter = "gc-root"; }
+                  { literal = "--print-out-paths"; }
+                ];
+                output = "store-path";
+              };
+            };
+            projectPathEnvironment = {
+              interfaceVersion = 1;
+              countVariable = "GIT_CONFIG_COUNT";
+              keyVariablePrefix = "GIT_CONFIG_KEY_";
+              valueVariablePrefix = "GIT_CONFIG_VALUE_";
+              key = "safe.directory";
+            };
+          };
         };
         planPackage = pkgs.writeTextDir "share/nixspace/west-plan.json" (toJSON systemPlan);
       in
@@ -293,12 +348,20 @@ in
               jq -e '
                 .apiVersion == "nixspace/v1"
                 and .kind == "WestWorkspace"
-                and .interfaceVersion == 1
-                and .cache.layoutVersion == 1
+                and .interfaceVersion == 2
+                and .cache.layoutVersion == 2
                 and (.workspace.contentKey | test("^[0-9a-f]{64}$"))
                 and (.workspace.manifest.sha256 | test("^[0-9a-f]{64}$"))
                 and (.workspace.manifest.storePath | startswith("/nix/store/"))
                 and (.tools.west | startswith("/nix/store/"))
+                and .tools.store.interfaceVersion == 2
+                and .tools.store.seal.output == "store-path"
+                and ([.tools.store.seal.argv[].parameter // empty] == ["source", "gc-root"])
+                and (.tools.store.seal.argv[0].literal | startswith("/nix/store/"))
+                and .tools.projectPathEnvironment.interfaceVersion == 1
+                and .tools.projectPathEnvironment.countVariable == "GIT_CONFIG_COUNT"
+                and ((.cache.paths.generations | split("/")[0]) == .cache.namespace)
+                and (.localView.paths.generations | endswith("/generations"))
               ' ${planPackage}/share/nixspace/west-plan.json >/dev/null
               touch "$out"
             '';

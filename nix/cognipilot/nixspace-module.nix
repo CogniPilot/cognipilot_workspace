@@ -3,7 +3,7 @@
 {
   imports = [ ../nixspace/index-module.nix ];
 
-  nixspace.index = config.cognipilot.validatedIndex;
+  nixspace.index = config.cognipilot.nixspaceIndex;
 
   perSystem =
     { config, pkgs, ... }:

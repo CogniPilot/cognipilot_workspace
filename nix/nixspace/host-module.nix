@@ -7,17 +7,20 @@
 let
   cfg = config.nixspace.host;
   document = cfg.plan;
-  validObservationName = value:
+  validObservationName =
+    value:
     builtins.isString value
     && builtins.stringLength value <= 128
     && builtins.match "[A-Za-z0-9._-]+" value != null;
-  safeCachePath = value:
+  safeCachePath =
+    value:
     builtins.isString value
     && value != ""
     && !(lib.hasInfix "\n" value)
     && !(lib.hasInfix "\r" value)
     && !(lib.hasInfix "/../" "/${value}/");
-  publicCacheUri = value:
+  publicCacheUri =
+    value:
     let
       remainder = lib.removePrefix "https://" value;
     in
@@ -34,6 +37,35 @@ let
       "?"
       "#"
     ]);
+  secretSettingFragments = [
+    "credential"
+    "netrc"
+    "password"
+    "secret"
+    "token"
+  ];
+  secretSettingNames =
+    settings:
+    builtins.filter (
+      name:
+      let
+        normalized = lib.toLower name;
+      in
+      builtins.elem normalized [
+        "access-tokens"
+        "netrc-file"
+        "secret-key-files"
+      ]
+      || lib.any (fragment: lib.hasInfix fragment normalized) secretSettingFragments
+    ) (builtins.attrNames settings);
+  configuredSubstituters =
+    settings: (settings.substituters or [ ]) ++ (settings."extra-substituters" or [ ]);
+  safeConfiguredSubstituters =
+    settings:
+    let
+      values = configuredSubstituters settings;
+    in
+    builtins.isList values && builtins.all publicCacheUri values;
   validatedDocument =
     if document == null then
       throw "nixspace.host.plan must be set by the workspace root"
@@ -43,12 +75,14 @@ let
       throw "nixspace.host.plan.kind must be `Host`"
     else if (document.interfaceVersion or null) != 4 then
       throw "nixspace.host.plan.interfaceVersion must be 4"
-    else if
-      !(document ? nix)
-      || !(document.nix ? minimumVersion)
-      || !(document.nix ? settings)
-    then
+    else if !(document ? nix) || !(document.nix ? minimumVersion) || !(document.nix ? settings) then
       throw "nixspace.host.plan must declare nix.minimumVersion and nix.settings"
+    else if !(builtins.isAttrs document.nix.settings) then
+      throw "nixspace.host.plan.nix.settings must be an attribute set"
+    else if secretSettingNames document.nix.settings != [ ] then
+      throw "nixspace.host.plan.nix.settings must not contain secret-bearing settings: ${lib.concatStringsSep ", " (secretSettingNames document.nix.settings)}"
+    else if !(safeConfiguredSubstituters document.nix.settings) then
+      throw "nixspace.host.plan Nix substituters must contain only credential-free public HTTPS URLs"
     else if
       !(document ? readiness)
       || !(document.readiness ? storage)
@@ -74,10 +108,7 @@ let
       || document.readiness.storage.minimumAvailableBytes < 0
       || !(builtins.isList document.readiness.daemon.probeArgv)
       || !(builtins.all builtins.isString document.readiness.daemon.probeArgv)
-      || (
-        document.readiness.daemon.when != "never"
-        && document.readiness.daemon.probeArgv == [ ]
-      )
+      || (document.readiness.daemon.when != "never" && document.readiness.daemon.probeArgv == [ ])
       || !(builtins.isString document.readiness.sourceSelection)
       || document.readiness.sourceSelection == ""
       || !(document.readiness.launch ? allowActiveSessions)
@@ -102,7 +133,8 @@ let
         && root ? path
         && safeCachePath root.path
       ) document.readiness.cache.roots)
-      || builtins.length (map (root: root.name) document.readiness.cache.roots)
+      ||
+        builtins.length (map (root: root.name) document.readiness.cache.roots)
         != builtins.length (lib.unique (map (root: root.name) document.readiness.cache.roots))
       || !(builtins.isList document.readiness.cache.stores)
       || document.readiness.cache.stores == [ ]
@@ -114,19 +146,18 @@ let
         && store ? uri
         && publicCacheUri store.uri
       ) document.readiness.cache.stores)
-      || builtins.length (map (store: store.name) document.readiness.cache.stores)
+      ||
+        builtins.length (map (store: store.name) document.readiness.cache.stores)
         != builtins.length (lib.unique (map (store: store.name) document.readiness.cache.stores))
     then
       throw "nixspace.host.plan readiness.cache must use union coverage with uniquely named safe roots and at least one credential-free public HTTPS store"
     else if
       let
         settings = document.nix.settings;
-        configuredSubstituters =
-          settings."extra-substituters" or (settings.substituters or [ ]);
+        declaredSubstituters = configuredSubstituters settings;
       in
-      !(builtins.isList configuredSubstituters)
-      || !(builtins.all (
-        store: builtins.elem store.uri configuredSubstituters
+      !(builtins.all (
+        store: builtins.elem store.uri declaredSubstituters
       ) document.readiness.cache.stores)
     then
       throw "nixspace.host.plan readiness.cache stores must also be expected Nix substituters"
@@ -141,14 +172,16 @@ let
     else if
       !(builtins.isList document.readiness.requiredDocuments)
       || !(builtins.all (
-        kind: builtins.elem kind [
+        kind:
+        builtins.elem kind [
           "index"
           "source"
           "launch"
           "resolution"
         ]
       ) document.readiness.requiredDocuments)
-      || builtins.length document.readiness.requiredDocuments
+      ||
+        builtins.length document.readiness.requiredDocuments
         != builtins.length (lib.unique document.readiness.requiredDocuments)
     then
       throw "nixspace.host.plan readiness.requiredDocuments must contain unique supported document kinds"
@@ -175,9 +208,7 @@ in
     perSystem =
       { config, pkgs, ... }:
       let
-        planPackage = pkgs.writeTextDir "share/nixspace/host-plan.json" (
-          builtins.toJSON validatedDocument
-        );
+        planPackage = pkgs.writeTextDir "share/nixspace/host-plan.json" (builtins.toJSON validatedDocument);
         hostClient = pkgs.writeShellScriptBin "nixspace-host" ''
           export NIXSPACE_HOST_PLAN=${planPackage}/share/nixspace/host-plan.json
           ${lib.optionalString (config.packages ? nixspace-resolution-plan) ''

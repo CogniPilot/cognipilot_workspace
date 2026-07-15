@@ -54,22 +54,14 @@ fn workspace_index() -> Value {
         "allocationTransport": "tcp"
     });
     let package = json!({
-        "id": "app-project",
-        "packageId": "app",
+        "id": "app",
         "aliases": ["application"],
-        "softwareVersion": {"source": "literal", "value": "1.2.3", "file": null},
-        "lifecycle": "stable",
-        "deployability": "local-only",
-        "owner": "Example Robotics",
-        "license": {"spdx": "Apache-2.0"},
-        "repositoryId": "app-repo",
-        "preset": "cargo-v1",
-        "source": {"input": "app-source", "root": "."},
-        "targets": {},
-        "resources": {},
-        "executables": {},
-        "launches": {},
-        "compliance": {"bespokeAdapterCount": 0, "warnings": [], "warningCount": 0}
+        "extensions": {
+            "test.example/package-v1": {
+                "title": "Example application",
+                "arbitraryProviderData": {"nested": [true, 7]}
+            }
+        }
     });
     let target = json!({
         "coordinate": "app/default",
@@ -92,7 +84,7 @@ fn workspace_index() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "Workspace",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "catalog": {
             "packages": [package],
             "targets": [target],
@@ -133,6 +125,9 @@ fn workspace_index() -> Value {
                     },
                     "requiredArtifacts": ["app:default:app-bin"],
                     "requiredResources": ["app/config"],
+                    "sessionEnvironment": {
+                        "STACK_STATE": {"base": "session", "path": "stack/state", "create": "directory"}
+                    },
                     "processes": {},
                     "includes": {"service": {"launch": "app:service", "parameters": {}}},
                     "capabilities": {"provides": ["stack"], "requires": []}
@@ -171,6 +166,9 @@ fn workspace_index() -> Value {
                 "requiredArtifacts": ["app:default:app-bin"],
                 "requiredResources": ["app/config"],
                 "capabilities": {"provides": ["stack"], "requires": []},
+                "sessionEnvironment": {
+                    "STACK_STATE": {"base": "session", "path": "stack/state", "create": "directory"}
+                },
                 "instances": [
                     {
                         "instanceId": "app/stack",
@@ -286,13 +284,140 @@ fn json_output(arguments: &[&str]) -> Value {
 }
 
 #[test]
+fn cached_index_rejects_unknown_fields_and_ambiguous_package_aliases() {
+    let base = workspace_index();
+    for (path, diagnostic) in [
+        (vec!["unexpected"], "unknown field `unexpected`"),
+        (
+            vec!["catalog", "packages", "0", "unexpected"],
+            "unknown field `unexpected`",
+        ),
+    ] {
+        let mut invalid = base.clone();
+        let mut value = &mut invalid;
+        for component in &path[..path.len() - 1] {
+            value = if let Ok(index) = component.parse::<usize>() {
+                &mut value.as_array_mut().unwrap()[index]
+            } else {
+                &mut value[*component]
+            };
+        }
+        value[path[path.len() - 1]] = json!(true);
+        let index = IndexFile::from_value(&invalid);
+        let output = nixspace_with_index(&index, &["package", "list"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic));
+    }
+
+    let mut ambiguous = base.clone();
+    let mut second = ambiguous["catalog"]["packages"][0].clone();
+    second["id"] = json!("other");
+    second["aliases"] = json!(["application"]);
+    ambiguous["catalog"]["packages"]
+        .as_array_mut()
+        .unwrap()
+        .push(second);
+    let index = IndexFile::from_value(&ambiguous);
+    let output = nixspace_with_index(&index, &["package", "list"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("ambiguous"));
+
+    let mut legacy = base.clone();
+    legacy["interfaceVersion"] = json!(1);
+    let index = IndexFile::from_value(&legacy);
+    let output = nixspace_with_index(&index, &["package", "list"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("supports version 2"));
+
+    let mut unnamespaced = base;
+    let value = unnamespaced["catalog"]["packages"][0]["extensions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("test.example/package-v1")
+        .unwrap();
+    unnamespaced["catalog"]["packages"][0]["extensions"]["legacy"] = value;
+    let index = IndexFile::from_value(&unnamespaced);
+    let output = nixspace_with_index(&index, &["package", "list"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("provider namespaces"));
+}
+
+#[test]
+fn cached_index_rejects_dangling_graph_edges() {
+    let mut invalid = workspace_index();
+    invalid["graph"]["all"]["edges"] = json!([{
+        "from": "app/default",
+        "to": "app/default/missing",
+        "kind": "depends-on"
+    }]);
+    let index = IndexFile::from_value(&invalid);
+    let output = nixspace_with_index(&index, &["graph", "--json"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("references a missing node"));
+}
+
+#[test]
+fn cached_index_rejects_incomplete_catalog_and_launch_relationships() {
+    type RelationshipCase = (fn(&mut Value), &'static str);
+    let cases: [RelationshipCase; 5] = [
+        (
+            |index: &mut Value| index["catalog"]["packages"] = json!([]),
+            "references missing package `app`",
+        ),
+        (
+            |index: &mut Value| index["catalog"]["targets"] = json!([]),
+            "references missing target `app/default`",
+        ),
+        (
+            |index: &mut Value| index["catalog"]["launches"] = json!([]),
+            "has no catalog launch",
+        ),
+        (
+            |index: &mut Value| {
+                index["launchPlans"]["app/stack"]["processes"][0]["artifact"] =
+                    json!("app:default:other")
+            },
+            "does not equal executable",
+        ),
+        (
+            |index: &mut Value| {
+                index["launchPlans"]["app/stack"]["processes"][0]["executableArgv"] =
+                    json!(["--different"])
+            },
+            "executableArgv does not equal",
+        ),
+    ];
+    for (mutate, diagnostic) in cases {
+        let mut invalid = workspace_index();
+        mutate(&mut invalid);
+        let index = IndexFile::from_value(&invalid);
+        let output = nixspace_with_index(&index, &["package", "list"]);
+        assert!(
+            !output.status.success(),
+            "invalid relationship was accepted"
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(diagnostic),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn package_and_collection_queries_project_emitted_documents() {
     let packages = json_output(&["package", "list", "--json"]);
     assert_eq!(packages["count"], 1);
-    assert_eq!(packages["packages"][0]["packageId"], "app");
+    assert_eq!(packages["interfaceVersion"], 2);
+    assert_eq!(packages["packages"][0]["id"], "app");
+    assert_eq!(
+        packages["packages"][0]["extensions"]["test.example/package-v1"]["arbitraryProviderData"]
+            ["nested"],
+        json!([true, 7])
+    );
 
     let package = json_output(&["package", "show", "application", "--json"]);
-    assert_eq!(package["packageId"], "app");
+    assert_eq!(package["id"], "app");
 
     let target = json_output(&["target", "show", "app/default", "--json"]);
     assert_eq!(target["target"]["id"], "default");

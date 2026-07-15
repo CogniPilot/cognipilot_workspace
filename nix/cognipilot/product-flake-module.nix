@@ -9,7 +9,11 @@ let
   rootConfig = config;
   cfg = rootConfig.cognipilot.product;
   normalizedIndex = rootConfig.cognipilot.validatedIndex;
+  nixspaceIndex = rootConfig.cognipilot.nixspaceIndex;
   selectedProjects = rootConfig.cognipilot.projects;
+  promotedProjects = lib.filterAttrs (
+    _: project: builtins.elem project.source.visibility cfg.promotionVisibilities
+  ) normalizedIndex.projects;
 
   productSourcePath =
     if !(inputs ? self) then
@@ -152,7 +156,7 @@ let
           targetId: target:
           lib.optional (target.release != null) {
             inherit targetId;
-            inherit (project) packageId;
+            inherit (project) packageId softwareVersion;
             visibility = project.source.visibility;
             inherit (target) release;
             coordinate = "${project.packageId}:${targetId}";
@@ -162,7 +166,7 @@ let
           }
         ) project.targets
       )
-    ) normalizedIndex.projects
+    ) promotedProjects
   );
 
   selectedDefault =
@@ -214,10 +218,31 @@ in
         CI and aggregate workspace roots are never implicit defaults.
       '';
     };
+
+    promotionVisibilities = lib.mkOption {
+      type = lib.types.nonEmptyListOf (
+        lib.types.enum [
+          "public"
+          "private"
+        ]
+      );
+      default = [
+        "public"
+        "private"
+      ];
+      apply = value: lib.unique value;
+      description = ''
+        Source visibility classes included in immutable product roots,
+        promotion metadata, SBOMs and attestations. Projects outside this
+        projection remain available to editable development tooling without
+        becoming public release dependencies.
+      '';
+    };
   };
 
   config = {
-    nixspace.index = normalizedIndex;
+    nixspace.index = nixspaceIndex;
+    flake.cognipilotIndex = normalizedIndex;
 
     perSystem =
       {
@@ -248,7 +273,29 @@ in
           else
             throw "release provider input `${providerName}` for target `${record.coordinate}` does not export packages.${system}.${outputName}";
 
-        resolvedRecords = map (record: record // { derivation = resolveRelease record; }) releaseRecords;
+        resolvedRecords = map (
+          record:
+          let
+            derivation = resolveRelease record;
+            providerVersion = derivation.version or null;
+            declaredVersion = record.softwareVersion.value;
+          in
+          record
+          // {
+            inherit derivation declaredVersion providerVersion;
+          }
+        ) releaseRecords;
+
+        releaseVersionErrors = lib.concatMap (
+          record:
+          lib.optional (record.providerVersion == null) (
+            "release `${record.coordinate}` provider output does not declare a `version`"
+          )
+          ++
+            lib.optional
+              (record.softwareVersion.source == "literal" && record.declaredVersion != record.providerVersion)
+              "release `${record.coordinate}` declares software version `${toString record.declaredVersion}` but provider output version is `${toString record.providerVersion}`"
+        ) resolvedRecords;
 
         outputIdentity = derivation: {
           drvPath = derivation.drvPath;
@@ -290,6 +337,7 @@ in
                     {
                       inherit (target) release;
                       providerIdentity = selectedInputIdentity target.release.provider;
+                      version = resolvedRelease.providerVersion;
                       output = outputIdentity resolvedRelease.derivation;
                       system = system;
                     };
@@ -334,7 +382,7 @@ in
             };
             targets = targetRecords;
           }
-        ) normalizedIndex.projects;
+        ) promotedProjects;
 
         deployablePromotionProjects = builtins.filter (
           project: project.deployability == "deployable"
@@ -350,6 +398,7 @@ in
           lib.optional (productLock == null) (
             "product `${cfg.name}` has no committed flake.lock in its selected flake source"
           )
+          ++ releaseVersionErrors
           ++ lib.optionals (deployablePromotionProjects != [ ]) (
             immutableIdentityErrors "product `${cfg.name}`" (selectedInputIdentity "self")
           )
@@ -388,25 +437,22 @@ in
           name = "${record.packageId}--${record.targetId}";
           path = record.derivation;
         }) (builtins.filter (record: record.visibility == "public") resolvedRecords);
-        allReleaseOutputsArePublic =
-          builtins.length publicReleaseLinks == builtins.length releaseLinks;
+        allReleaseOutputsArePublic = builtins.length publicReleaseLinks == builtins.length releaseLinks;
         publicSelectedInputLinks =
           lib.optional (inputs ? self) {
             name = "input-product-root";
             path = inputs.self;
           }
-          ++ lib.concatMap (
-            project: [
-              {
-                name = "input-${project.packageId}--source";
-                path = project.source.identity.storePath;
-              }
-              {
-                name = "input-${project.packageId}--definition";
-                path = project.definition.identity.storePath;
-              }
-            ]
-          ) (builtins.filter (project: project.source.visibility == "public") promotionProjects);
+          ++ lib.concatMap (project: [
+            {
+              name = "input-${project.packageId}--source";
+              path = project.source.identity.storePath;
+            }
+            {
+              name = "input-${project.packageId}--definition";
+              path = project.definition.identity.storePath;
+            }
+          ]) (builtins.filter (project: project.source.visibility == "public") promotionProjects);
 
         productName = cfg.name;
         productPackageName = "product-${productName}";
@@ -429,6 +475,10 @@ in
         publicCheckNames = builtins.filter (name: builtins.hasAttr name config.checks) (
           [
             "cognipilot-compliance"
+            "cognipilot-contract-tests"
+            "cognipilot-promotion-attestation"
+            "cognipilot-promotion-record"
+            "cognipilot-promotion-sbom"
             "cognipilot-workspace-policy"
             "nixspace-interface"
             "nixspace-standalone"
@@ -564,15 +614,17 @@ in
           packages = promotionProjects;
           outputs = promotionOutputs;
         };
-        selectionDigest = builtins.hashString "sha256" (
-          builtins.toJSON promotionSelection
-        );
+        selectionDigest = builtins.hashString "sha256" (builtins.toJSON promotionSelection);
         builderIdentity = {
-          # A derivation path is content addressed by Nix's derivation model;
-          # embedding it in the URI makes the builder identity exact without
-          # depending on a mutable runner or CI job name.
-          id = "urn:nix:derivation:${builtins.baseNameOf nixspace.drvPath}";
-          version.nixspace = nixspace.version or "unknown";
+          # SLSA builder.id identifies the generic build platform trust
+          # boundary, not one helper executed by it. Evaluation and realization
+          # may use different host Nix versions, so the pure statement does not
+          # invent a daemon version. The exact materializer remains a separately
+          # proven builder dependency.
+          id = "urn:nix:builder:${system}";
+          version = {
+            materializer = nixspace.version or "unknown";
+          };
           builderDependencies = [
             {
               name = nixspace.pname or "nixspace";
@@ -596,13 +648,15 @@ in
             # A deterministic timestamp is preferable to introducing the
             # build clock into an otherwise reproducible software inventory.
             "1970-01-01T00:00:00Z";
-        narHashHex = narHash:
+        narHashHex =
+          narHash:
           builtins.convertHash {
             hash = narHash;
             hashAlgo = "sha256";
             toHashFormat = "base16";
           };
-        sourceLocator = identity:
+        sourceLocator =
+          identity:
           if (identity.lock.type or null) == "path" then
             "urn:nix:input:${identity.input}:sha256:${narHashHex identity.narHash}"
           else if identity.canonical != null then
@@ -639,8 +693,7 @@ in
             downloadLocation = sourceLocator project.source.identity;
             filesAnalyzed = false;
             licenseConcluded = "NOASSERTION";
-            licenseDeclared =
-              if project.license.spdx == null then "NOASSERTION" else project.license.spdx;
+            licenseDeclared = if project.license.spdx == null then "NOASSERTION" else project.license.spdx;
             copyrightText = "NOASSERTION";
             supplier = if project.owner == null then "NOASSERTION" else "Organization: ${project.owner}";
             externalRefs = [
@@ -662,7 +715,7 @@ in
           documentNamespace = spdxDocumentNamespace;
           creationInfo = {
             created = spdxTimestamp (productSourceIdentity.sourceInfo.lastModifiedDate or null);
-            creators = [ "Tool: nixspace-${builderIdentity.version.nixspace}" ];
+            creators = [ "Tool: nixspace-${builderIdentity.version.materializer}" ];
           };
           documentDescribes = [ productSpdxId ];
           packages = [
@@ -737,21 +790,21 @@ in
           # selected explicitly through exportReferencesGraph; retaining Nix
           # string context here could accidentally add a private source to a
           # public build merely because its path is mentioned in JSON.
-          builtins.unsafeDiscardStringContext (builtins.toJSON {
-            apiVersion = "nixspace/v1";
-            kind = "ClosureMaterialization";
-            interfaceVersion = 2;
-            proofBindings = [
-              {
-                sourceOutputPointer = "/builderIdentity/builderDependencies/0/annotations/nixOutput";
-                destinationDigestPointer = "/builderIdentity/builderDependencies/0/digest/sha256";
+          builtins.unsafeDiscardStringContext (
+            builtins.toJSON {
+              apiVersion = "nixspace/v1";
+              kind = "ClosureMaterialization";
+              interfaceVersion = 2;
+              proofBindings = lib.imap0 (index: _: {
+                sourceOutputPointer = "/builderIdentity/builderDependencies/${toString index}/annotations/nixOutput";
+                destinationDigestPointer = "/builderIdentity/builderDependencies/${toString index}/digest/sha256";
                 transform = "nix-nar-sha256-to-hex";
-              }
-            ];
-            closureAttribute = "productClosure";
-            closureRecordsPointer = "/immutableDependencyClosure/storePaths";
-            document = promotionRecordData;
-          })
+              }) builderIdentity.builderDependencies;
+              closureAttribute = "productClosure";
+              closureRecordsPointer = "/immutableDependencyClosure/storePaths";
+              document = promotionRecordData;
+            }
+          )
         );
 
         promotionRecordPackage =
@@ -782,62 +835,41 @@ in
           digest.sha256 = null;
           annotations.nixOutput = output;
         };
-        attestedSubjects =
-          [ (attestedResource "${productName}:workspace" promotionOutputs.workspace) ]
-          ++ lib.optional (promotionOutputs.product != null) (
-            attestedResource "${productName}:product" promotionOutputs.product
-          )
-          ++ map (output: attestedResource output.coordinate output) targetOutputRecords;
+        attestedSubjects = [
+          (attestedResource "${productName}:workspace" promotionOutputs.workspace)
+        ]
+        ++ lib.optional (promotionOutputs.product != null) (
+          attestedResource "${productName}:product" promotionOutputs.product
+        )
+        ++ map (output: attestedResource output.coordinate output) targetOutputRecords;
+        resolvedInputDependency = name: identity:
+          lib.optional (identity.narHash != null && identity.revision != null) {
+            inherit name;
+            uri = sourceLocator identity;
+            digest = {
+              nixNarSha256 = narHashHex identity.narHash;
+            }
+            // lib.optionalAttrs (identity.revision.kind == "git-commit") {
+              gitCommit = identity.revision.value;
+            };
+            annotations.nix = {
+              narHashSRI = identity.narHash;
+              revision = identity.revision;
+            };
+          };
         resolvedSourceDependencies = lib.concatMap (
           project:
-          [
-            {
-              name = "${project.packageId}:source";
-              uri = sourceLocator project.source.identity;
-              digest = {
-                nixNarSha256 = narHashHex project.source.identity.narHash;
-              }
-              // lib.optionalAttrs (project.source.identity.revision.kind == "git-commit") {
-                gitCommit = project.source.identity.revision.value;
-              };
-              annotations.nix = {
-                narHashSRI = project.source.identity.narHash;
-                revision = project.source.identity.revision;
-              };
-            }
-            {
-              name = "${project.packageId}:definition";
-              uri = sourceLocator project.definition.identity;
-              digest = {
-                nixNarSha256 = narHashHex project.definition.identity.narHash;
-              }
-              // lib.optionalAttrs (project.definition.identity.revision.kind == "git-commit") {
-                gitCommit = project.definition.identity.revision.value;
-              };
-              annotations.nix = {
-                narHashSRI = project.definition.identity.narHash;
-                revision = project.definition.identity.revision;
-              };
-            }
-          ]
+          resolvedInputDependency "${project.packageId}:source" project.source.identity
+          ++ resolvedInputDependency "${project.packageId}:definition" project.definition.identity
           ++ lib.concatMap (
             target:
-            lib.optional (target.release != null) {
-              name = "${project.packageId}:${target.id}:release-provider";
-              uri = sourceLocator target.release.providerIdentity;
-              digest = {
-                nixNarSha256 = narHashHex target.release.providerIdentity.narHash;
-              }
-              // lib.optionalAttrs (target.release.providerIdentity.revision.kind == "git-commit") {
-                gitCommit = target.release.providerIdentity.revision.value;
-              };
-              annotations.nix = {
-                narHashSRI = target.release.providerIdentity.narHash;
-                revision = target.release.providerIdentity.revision;
-              };
-            }
+            lib.optionals (target.release != null) (
+              resolvedInputDependency
+                "${project.packageId}:${target.id}:release-provider"
+                target.release.providerIdentity
+            )
           ) project.targets
-        ) deployablePromotionProjects;
+        ) promotionProjects;
         promotionAttestationRoots = [
           workspace
           promotionSbomPackage
@@ -878,32 +910,32 @@ in
           };
         };
         promotionAttestationPlan = pkgs.writeText "${productName}-promotion-attestation-plan.json" (
-          builtins.unsafeDiscardStringContext (builtins.toJSON {
-            apiVersion = "nixspace/v1";
-            kind = "ClosureMaterialization";
-            interfaceVersion = 2;
-            proofBindings =
-              [
-                {
-                  sourceOutputPointer = "/predicate/runDetails/builder/builderDependencies/0/annotations/nixOutput";
-                  destinationDigestPointer = "/predicate/runDetails/builder/builderDependencies/0/digest/sha256";
+          builtins.unsafeDiscardStringContext (
+            builtins.toJSON {
+              apiVersion = "nixspace/v1";
+              kind = "ClosureMaterialization";
+              interfaceVersion = 2;
+              proofBindings =
+                (lib.imap0 (index: _: {
+                  sourceOutputPointer = "/predicate/runDetails/builder/builderDependencies/${toString index}/annotations/nixOutput";
+                  destinationDigestPointer = "/predicate/runDetails/builder/builderDependencies/${toString index}/digest/sha256";
                   transform = "nix-nar-sha256-to-hex";
-                }
-              ]
-              ++ lib.imap0 (index: _: {
-                sourceOutputPointer = "/subject/${toString index}/annotations/nixOutput";
-                destinationDigestPointer = "/subject/${toString index}/digest/sha256";
-                transform = "nix-nar-sha256-to-hex";
-              }) attestedSubjects
-              ++ lib.imap0 (index: _: {
-                sourceOutputPointer = "/predicate/runDetails/byproducts/${toString index}/annotations/nixOutput";
-                destinationDigestPointer = "/predicate/runDetails/byproducts/${toString index}/digest/sha256";
-                transform = "nix-nar-sha256-to-hex";
-              }) promotionAttestationByproducts;
-            closureAttribute = "attestedClosure";
-            closureRecordsPointer = "/predicate/runDetails/metadata/cognipilot_nixClosure";
-            document = promotionAttestationData;
-          })
+                }) builderIdentity.builderDependencies)
+                ++ lib.imap0 (index: _: {
+                  sourceOutputPointer = "/subject/${toString index}/annotations/nixOutput";
+                  destinationDigestPointer = "/subject/${toString index}/digest/sha256";
+                  transform = "nix-nar-sha256-to-hex";
+                }) attestedSubjects
+                ++ lib.imap0 (index: _: {
+                  sourceOutputPointer = "/predicate/runDetails/byproducts/${toString index}/annotations/nixOutput";
+                  destinationDigestPointer = "/predicate/runDetails/byproducts/${toString index}/digest/sha256";
+                  transform = "nix-nar-sha256-to-hex";
+                }) promotionAttestationByproducts;
+              closureAttribute = "attestedClosure";
+              closureRecordsPointer = "/predicate/runDetails/metadata/cognipilot_nixClosure";
+              document = promotionAttestationData;
+            }
+          )
         );
         promotionAttestationPackage = pkgs.stdenvNoCC.mkDerivation {
           name = "${productName}-promotion-attestation";

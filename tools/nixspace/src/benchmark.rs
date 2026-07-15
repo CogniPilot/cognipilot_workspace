@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::fs::File;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -17,7 +17,7 @@ use crate::{CliError, Result};
 const API_VERSION: &str = "nixspace/v1";
 const PLAN_KIND: &str = "BenchmarkPlan";
 const PLAN_INTERFACE_VERSION: u64 = 3;
-const REPORT_INTERFACE_VERSION: u64 = 2;
+const REPORT_INTERFACE_VERSION: u64 = 3;
 const MAX_SAMPLES_PER_PHASE: u64 = 1000;
 
 #[derive(Debug, Args)]
@@ -103,6 +103,7 @@ struct BenchmarkReport {
     api_version: &'static str,
     kind: &'static str,
     interface_version: u64,
+    path_base: &'static str,
     plan_id: String,
     plan_path: PathBuf,
     report_path: PathBuf,
@@ -242,14 +243,16 @@ pub(crate) fn run(
         case_reports.push(run_case(workspace_root, &log_root, &id, case));
     }
     let passed = case_reports.iter().all(|case| case.passed);
+    make_log_paths_portable(&mut case_reports, workspace_root);
     let report = BenchmarkReport {
         api_version: API_VERSION,
         kind: "BenchmarkReport",
         interface_version: REPORT_INTERFACE_VERSION,
+        path_base: "workspace",
         plan_id: plan.id,
-        plan_path,
-        report_path: report_path.clone(),
-        workspace: workspace_root.to_path_buf(),
+        plan_path: portable_path(&plan_path, workspace_root),
+        report_path: portable_path(&report_path, workspace_root),
+        workspace: PathBuf::from("."),
         reference,
         context: plan.context,
         started_at_unix_milliseconds,
@@ -714,6 +717,7 @@ fn run_command(
         command.env_clear();
     }
     command.envs(&spec.environment);
+    configure_process_tree(&mut command);
     let started = Instant::now();
     let status = match command.spawn() {
         Ok(mut child) => loop {
@@ -729,30 +733,18 @@ fn run_command(
                 Ok(None)
                     if started.elapsed() >= Duration::from_millis(spec.timeout_milliseconds) =>
                 {
-                    if let Err(error) = child.kill() {
-                        infrastructure_errors
-                            .push(format!("cannot kill timed-out command: {error}"));
-                    }
-                    if let Err(error) = child.wait() {
-                        infrastructure_errors
-                            .push(format!("cannot reap timed-out command: {error}"));
-                    }
+                    terminate_process_tree(&mut child, &mut infrastructure_errors, "timed-out");
                     break SampleStatus::TimedOut {
                         timeout_milliseconds: spec.timeout_milliseconds,
                     };
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(1)),
                 Err(error) => {
-                    if let Err(kill_error) = child.kill() {
-                        infrastructure_errors.push(format!(
-                            "cannot kill command after wait failure: {kill_error}"
-                        ));
-                    }
-                    if let Err(wait_error) = child.wait() {
-                        infrastructure_errors.push(format!(
-                            "cannot reap command after wait failure: {wait_error}"
-                        ));
-                    }
+                    terminate_process_tree(
+                        &mut child,
+                        &mut infrastructure_errors,
+                        "command after wait failure",
+                    );
                     break SampleStatus::SpawnError {
                         message: format!("cannot wait for command: {error}"),
                     };
@@ -771,6 +763,108 @@ fn run_command(
         stderr_log,
         infrastructure_errors,
     }
+}
+
+#[cfg(unix)]
+fn configure_process_tree(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(windows)]
+fn configure_process_tree(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+}
+
+#[cfg(not(any(unix, windows)))]
+fn configure_process_tree(_command: &mut Command) {}
+
+fn terminate_process_tree(child: &mut Child, errors: &mut Vec<String>, description: &str) {
+    if let Err(error) = kill_process_tree(child) {
+        errors.push(format!("cannot kill {description} process tree: {error}"));
+        if let Err(error) = child.kill() {
+            errors.push(format!("cannot kill {description} command: {error}"));
+        }
+    }
+    if let Err(error) = child.wait() {
+        errors.push(format!("cannot reap {description} command: {error}"));
+    }
+}
+
+#[cfg(unix)]
+fn kill_process_tree(child: &mut Child) -> io::Result<()> {
+    unsafe extern "C" {
+        fn kill(pid: i32, signal: i32) -> i32;
+    }
+    const SIGKILL: i32 = 9;
+    let pid = i32::try_from(child.id())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "child PID exceeds i32"))?;
+    // Every benchmark command is its own process group. A negative PID kills
+    // the whole group, including descendants that have not deliberately
+    // detached themselves.
+    if unsafe { kill(-pid, SIGKILL) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+fn kill_process_tree(child: &mut Child) -> io::Result<()> {
+    // taskkill terminates the process tree visible at invocation time. A child
+    // that deliberately detaches before that snapshot can escape; callers
+    // needing containment against hostile commands must use an OS sandbox or
+    // a Windows Job Object outside this portable client.
+    let status = Command::new("taskkill")
+        .args(["/PID", &child.id().to_string(), "/T", "/F"])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "taskkill failed with status {status}"
+        )))
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn kill_process_tree(child: &mut Child) -> io::Result<()> {
+    child.kill()
+}
+
+fn make_log_paths_portable(cases: &mut [CaseReport], workspace_root: &Path) {
+    for case in cases {
+        for execution in case
+            .setup
+            .iter_mut()
+            .chain(case.teardown.iter_mut())
+            .chain(case.warmups.iter_mut().flat_map(sample_executions_mut))
+            .chain(case.samples.iter_mut().flat_map(sample_executions_mut))
+        {
+            execution.stdout_log = portable_path(&execution.stdout_log, workspace_root);
+            execution.stderr_log = portable_path(&execution.stderr_log, workspace_root);
+        }
+    }
+}
+
+fn sample_executions_mut(sample: &mut SampleRecord) -> impl Iterator<Item = &mut CommandExecution> {
+    sample
+        .before_each
+        .iter_mut()
+        .chain(sample.measure.iter_mut())
+        .chain(sample.after_each.iter_mut())
+}
+
+fn portable_path(path: &Path, base: &Path) -> PathBuf {
+    path.strip_prefix(base)
+        .ok()
+        .filter(|relative| !relative.as_os_str().is_empty())
+        .unwrap_or(path)
+        .to_path_buf()
 }
 
 fn resolve_program(cwd: &Path, program: &str) -> PathBuf {

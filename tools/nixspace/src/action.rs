@@ -18,9 +18,12 @@ use crate::{canonical_package, write_json, CliError, Result};
 
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
 const SUPPORTED_TASK_KIND: &str = "ActionTask";
-const SUPPORTED_TASK_INTERFACE_VERSION: u64 = 2;
+const SUPPORTED_TASK_INTERFACE_VERSION: u64 = 3;
 const SUPPORTED_GENERATION_STORE_KIND: &str = "ActionGenerationStore";
+const SUPPORTED_GENERATION_STORE_INTERFACE_VERSION: u64 = 2;
 const SUPPORTED_GENERATION_INTERFACE_VERSION: u64 = 1;
+const SUPPORTED_GENERATION_LAYOUT_KIND: &str = "ActionGenerationLayout";
+const SUPPORTED_GENERATION_LAYOUT_INTERFACE_VERSION: u64 = 1;
 const SUPPORTED_TASK_IDENTITY_KIND: &str = "ActionTaskIdentity";
 const SUPPORTED_TASK_IDENTITY_INTERFACE_VERSION: u64 = 1;
 const SUPPORTED_ACTION_PLAN_VERSION: u64 = 1;
@@ -156,7 +159,20 @@ struct ActionGenerationStore {
     kind: String,
     interface_version: u64,
     root: PathBuf,
+    layout: ActionGenerationLayout,
     identity: ActionTaskIdentity,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ActionGenerationLayout {
+    api_version: String,
+    kind: String,
+    interface_version: u64,
+    publication_lock: PathBuf,
+    generations: PathBuf,
+    pointer: PathBuf,
+    manifest: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -248,7 +264,7 @@ pub(crate) fn run_action(
     let canonical = arguments
         .package
         .as_deref()
-        .map(|package| canonical_package(index, package).map(|entry| entry.package_id.as_str()))
+        .map(|package| canonical_package(index, package).map(|entry| entry.id.as_str()))
         .transpose()?;
     let tasks = if let Some(package) = canonical {
         selection.packages.get(package).ok_or_else(|| {
@@ -359,7 +375,7 @@ pub(crate) fn run_task(root: &Path, arguments: RunTaskArgs) -> Result<Outcome> {
     };
     let generation_root = resolve_path(root, &task.generation.root);
     let mut lock_paths = task.locks.clone();
-    lock_paths.push(generation_root.join(".publish.lock"));
+    lock_paths.push(generation_root.join(&task.generation.layout.publication_lock));
     let _locks = ActionLocks::acquire(root, &lock_paths)?;
     let argv: Vec<_> = task
         .argv
@@ -541,12 +557,13 @@ fn validate_task(root: &Path, task: &ActionTask) -> Result<()> {
             task.generation.kind
         )));
     }
-    if task.generation.interface_version != SUPPORTED_GENERATION_INTERFACE_VERSION {
+    if task.generation.interface_version != SUPPORTED_GENERATION_STORE_INTERFACE_VERSION {
         return Err(CliError(format!(
             "ActionGenerationStore interface version {} is unsupported; this nixspace supports version {}",
-            task.generation.interface_version, SUPPORTED_GENERATION_INTERFACE_VERSION
+            task.generation.interface_version, SUPPORTED_GENERATION_STORE_INTERFACE_VERSION
         )));
     }
+    validate_generation_layout(&task.generation.layout)?;
     let generation_root = task
         .generation
         .root
@@ -736,6 +753,66 @@ fn validate_task(root: &Path, task: &ActionTask) -> Result<()> {
             return Err(CliError(format!(
                 "ActionTask output path `{}` is declared more than once",
                 output.path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_generation_layout(layout: &ActionGenerationLayout) -> Result<()> {
+    if layout.api_version != SUPPORTED_API_VERSION {
+        return Err(CliError(format!(
+            "ActionGenerationLayout API `{}` is unsupported; this nixspace requires `{SUPPORTED_API_VERSION}`",
+            layout.api_version
+        )));
+    }
+    if layout.kind != SUPPORTED_GENERATION_LAYOUT_KIND {
+        return Err(CliError(format!(
+            "generation layout kind `{}` is unsupported; this nixspace requires `{SUPPORTED_GENERATION_LAYOUT_KIND}`",
+            layout.kind
+        )));
+    }
+    if layout.interface_version != SUPPORTED_GENERATION_LAYOUT_INTERFACE_VERSION {
+        return Err(CliError(format!(
+            "ActionGenerationLayout interface version {} is unsupported; this nixspace supports version {SUPPORTED_GENERATION_LAYOUT_INTERFACE_VERSION}",
+            layout.interface_version
+        )));
+    }
+    for (name, path) in [
+        ("publicationLock", &layout.publication_lock),
+        ("generations", &layout.generations),
+        ("pointer", &layout.pointer),
+        ("manifest", &layout.manifest),
+    ] {
+        if !portable_relative_path(path) {
+            return Err(CliError(format!(
+                "ActionGenerationLayout {name} must be a portable relative path with no empty, `.` or `..` components"
+            )));
+        }
+    }
+    for (left_name, left, right_name, right) in [
+        (
+            "publicationLock",
+            &layout.publication_lock,
+            "generations",
+            &layout.generations,
+        ),
+        (
+            "publicationLock",
+            &layout.publication_lock,
+            "pointer",
+            &layout.pointer,
+        ),
+        (
+            "generations",
+            &layout.generations,
+            "pointer",
+            &layout.pointer,
+        ),
+    ] {
+        if left.starts_with(right) || right.starts_with(left) {
+            return Err(CliError(format!(
+                "ActionGenerationLayout {left_name} and {right_name} paths must be distinct and non-overlapping"
             )));
         }
     }
@@ -1060,8 +1137,8 @@ impl ActionArgument {
 }
 
 struct StagedGeneration {
-    root: PathBuf,
     generations: PathBuf,
+    pointer: PathBuf,
     staging: Option<PathBuf>,
     installed: PathBuf,
     current: Vec<u8>,
@@ -1081,7 +1158,8 @@ impl StagedGeneration {
                 root.display()
             ))
         })?;
-        let generations = root.join("generations");
+        let layout = &task.generation.layout;
+        let generations = root.join(&layout.generations);
         fs::create_dir_all(&generations).map_err(|error| {
             CliError(format!(
                 "cannot create ActionGenerationStore generations directory {}: {error}",
@@ -1123,9 +1201,7 @@ impl StagedGeneration {
                     )))
                 }
             }
-            let relative_manifest = PathBuf::from("generations")
-                .join(&generation)
-                .join("manifest.json");
+            let relative_manifest = layout.generations.join(&generation).join(&layout.manifest);
             let manifest = ActionGenerationManifest {
                 api_version: SUPPORTED_API_VERSION,
                 kind: "ActionGeneration",
@@ -1151,7 +1227,18 @@ impl StagedGeneration {
                 ))
             })?;
             manifest_bytes.push(b'\n');
-            write_new_synced(&staging.join("manifest.json"), &manifest_bytes)?;
+            let staged_manifest = staging.join(&layout.manifest);
+            fs::create_dir_all(
+                staged_manifest
+                    .parent()
+                    .expect("validated generation manifest has a parent"),
+            )
+            .map_err(|error| {
+                CliError(format!(
+                    "cannot create ActionGeneration manifest directory: {error}"
+                ))
+            })?;
+            write_new_synced(&staged_manifest, &manifest_bytes)?;
             sync_directory(&staging)?;
 
             let pointer = ActionGenerationPointer {
@@ -1168,8 +1255,8 @@ impl StagedGeneration {
             current.push(b'\n');
             guard.0 = None;
             return Ok(Self {
-                root: root.to_owned(),
                 generations,
+                pointer: root.join(&layout.pointer),
                 staging: Some(staging),
                 installed,
                 current,
@@ -1197,7 +1284,17 @@ impl StagedGeneration {
             let _ = fs::remove_dir_all(&self.installed);
             return Err(error);
         }
-        if let Err(error) = atomic_write(&self.root.join("current"), &self.current) {
+        if let Some(parent) = self.pointer.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                let _ = fs::remove_dir_all(&self.installed);
+                let _ = sync_directory(&self.generations);
+                return Err(CliError(format!(
+                    "cannot create ActionGeneration pointer directory {}: {error}",
+                    parent.display()
+                )));
+            }
+        }
+        if let Err(error) = atomic_write(&self.pointer, &self.current) {
             let _ = fs::remove_dir_all(&self.installed);
             let _ = sync_directory(&self.generations);
             return Err(error);

@@ -1,0 +1,71 @@
+{
+  flake-parts-lib,
+  inputs,
+  lib,
+  ...
+}:
+
+let
+  # Devenv's flake-parts module currently exports every process/test helper
+  # and both implicit container derivations as packages.  Those outputs are
+  # deprecated or require optional inputs even when no container was
+  # requested.  Devenv does not expose an option to disable them, so compose
+  # its supported mkEval API directly and export only the devShell contract.
+  devenv = inputs.devenv;
+in
+{
+  options.perSystem = flake-parts-lib.mkPerSystemOption (
+    {
+      config,
+      pkgs,
+      ...
+    }:
+    let
+      evaluatedShellType =
+        (devenv.lib.mkEval {
+          inherit inputs lib pkgs;
+          inherit (config.devenv) modules;
+        }).type;
+
+      # A checked-in flake must evaluate without an impure host path.  Pure
+      # consumers use the immutable selected source; direnv overrides the
+      # tiny root file with the editable checkout's absolute path.
+      configuredRoot =
+        if inputs ? devenv-root then
+          lib.removeSuffix "\n" (builtins.readFile inputs.devenv-root.outPath)
+        else
+          "";
+      workspaceRoot =
+        if configuredRoot != "" then
+          configuredRoot
+        else if inputs ? self then
+          toString inputs.self.outPath
+        else
+          throw "the Devenv flake integration requires either `devenv-root` or `self`";
+    in
+    {
+      options.devenv = {
+        modules = lib.mkOption {
+          type = lib.types.listOf lib.types.deferredModule;
+          default = [ ];
+          description = "Modules imported into every Devenv shell.";
+        };
+
+        shells = lib.mkOption {
+          type = lib.types.lazyAttrsOf evaluatedShellType;
+          default = { };
+          description = "Named Devenv configurations exported only as devShells.";
+        };
+      };
+
+      config = {
+        devenv.modules = lib.mkBefore [
+          {
+            devenv.root = workspaceRoot;
+          }
+        ];
+        devShells = lib.mapAttrs (_: evaluated: evaluated.shell) config.devenv.shells;
+      };
+    }
+  );
+}

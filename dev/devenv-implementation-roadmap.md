@@ -57,7 +57,7 @@ substitution remain evidence gates.
 At the user's direction, the cold QEMU and complete post-cutover warm-build
 matrix are explicitly deferred; no passing result is inferred for an unrun
 build. A clean post-integration run of the workspace's explicit `tests/`
-boundary passes all 118 tests. The separate Rust package passes all 123 tests
+boundary passes all 125 tests. The separate Rust package passes all 147 tests
 with its locked dependency graph, passes clippy with warnings denied, and
 packages as one standalone Cargo crate. The Nix-emitted lightweight matrix
 passes all eight default cases plus both explicit evaluator cases (20/20
@@ -179,8 +179,8 @@ Resolution requirements:
 - [x] Add a regression fixture proving the selected resolution's dependency
       ordering and state behavior before removing conflict markers.
 - [x] Run the complete current unit-test suite cleanly after the final
-      correction. The explicit workspace suite passes all 118 tests; the
-      independently locked Rust package passes all 123 tests.
+      correction. The explicit workspace suite passes all 125 tests; the
+      independently locked Rust package passes all 147 tests.
 - [ ] Restore a passing full-workspace warm-build budget check against the
       selected repository revisions. The corrected Nix-file-backed Devenv
       runner now records `synapse_fbs` unchanged samples of 0.62s, 0.61s, and
@@ -1096,9 +1096,10 @@ Nix substituter, including a later self-hosted Attic deployment.
       the pinned workflow exposes `CACHIX_AUTH_TOKEN` only to a `push` on
       `main`, while pull requests remain credential-free and read-only. All
       three native system rows publish their own closure. Tags remain disabled
-      because this repository has no established release-tag convention. Main
-      must still be branch-protected before this is an enforced protected
-      publisher policy rather than only a workflow guard.
+      because this repository has no established release-tag convention.
+      Protected `main` now requires the strict native check matrix from the
+      GitHub Actions app, CODEOWNER approval, resolved conversations, and
+      linear history.
 - [ ] Build `packages.<system>.workspace`, every promoted product/variant root,
       contract check, and shareable development-tool closure on each
       supported system. The flake and native-runner CI matrix now select exactly
@@ -1134,8 +1135,9 @@ Nix substituter, including a later self-hosted Attic deployment.
       `nix path-info` JSON; it skips absent roots without evaluation or network
       access. Pull requests retain a read-only report; main repeats the report
       after publication, requires complete coverage, writes the GitHub step
-      summary, and retains the JSON artifact for 30 days. Branch protection is
-      still an open governance gate. Nix's stable JSON does not expose bytes
+      summary, and retains the JSON artifact for 30 days. Protected-main
+      governance is enforced; a successful main publication remains an
+      independent evidence gate. Nix's stable JSON does not expose bytes
       actually transferred by a prior
       build, so the versioned report records `transferredBytes: null` and the
       text/CI summary says unavailable instead of fabricating a byte count.
@@ -1210,11 +1212,13 @@ complete replacement.
       Private FastDyn remains outside public compliance until its owner
       supplies an approved license declaration.
 - [x] Lifecycle is one of experimental, stable, deprecated, or retired.
-- [ ] Namespace, owner, deployability, capability, dependency-scope, and release
+- [x] Namespace, owner, deployability, capability, dependency-scope, and release
       changes receive enforced platform/release review. `.github/CODEOWNERS`
-      assigns the relevant Nix/interface/workflow paths to organization teams,
-      but the current `main` branch is not protected, so an actual required
-      approval cannot be claimed from this tree.
+      assigns the relevant Nix/interface/workflow paths to the organization
+      admins team. Protected `main` requires one CODEOWNER approval, dismisses
+      stale approvals, requires resolved conversations and linear history,
+      enforces the strict three-system check matrix from the GitHub Actions app,
+      and applies the rules to administrators.
 - [x] Bespoke impure adapters require an exact root-approved action coordinate
       before deployment.
 - [x] Root and project definitions support one interface major at a time; a

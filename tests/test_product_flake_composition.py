@@ -35,10 +35,12 @@ PROOF_FILES = (
     "nix/cognipilot/compliance-flake-module.nix",
     "nix/cognipilot/devenv-launch-module.nix",
     "nix/cognipilot/devenv-launch-renderer.nix",
+    "nix/cognipilot/devenv-flake-module.nix",
     "nix/cognipilot/devenv-task-generator.nix",
     "nix/cognipilot/devenv-task-module.nix",
     "nix/cognipilot/devenv-workspace-module.nix",
     "nix/cognipilot/flake-module.nix",
+    "nix/cognipilot/nixspace-index.nix",
     "nix/cognipilot/nixspace-module.nix",
     "nix/cognipilot/product-flake-module.nix",
     "nix/cognipilot/project-flake-module.nix",
@@ -47,6 +49,7 @@ PROOF_FILES = (
     "nix/cognipilot/source-workspace-module.nix",
     "nix/cognipilot/workspace-policy-module.nix",
     "nix/nixspace/host-module.nix",
+    "nix/nixspace/action-generation-layout.nix",
     "nix/nixspace/benchmark-module.nix",
     "nix/nixspace/index-module.nix",
     "nix/nixspace/tool-module.nix",
@@ -178,7 +181,8 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         )
 
     def test_product_selects_the_complete_typed_registry_catalog(self) -> None:
-        index = self.nix_eval("nixspaceIndex")
+        index = self.nix_eval("cognipilotIndex")
+        generic = self.nix_eval("nixspaceIndex")
 
         self.assertEqual("nixspace/v1", index["apiVersion"])
         self.assertEqual("Workspace", index["kind"])
@@ -186,6 +190,24 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         self.assertEqual(2, index["compliance"]["bespokeAdapterCount"])
         self.assertEqual(1, index["compliance"]["warningCount"])
         self.assertEqual(set(ALL_PROJECTS), set(index["projects"]))
+        self.assertEqual(2, generic["interfaceVersion"])
+        self.assertEqual(
+            2,
+            self.nix_eval(
+                "packages.x86_64-linux.nixspace.normalizedInterfaceVersion"
+            ),
+        )
+        self.assertEqual(
+            {project["packageId"] for project in index["projects"].values()},
+            {package["id"] for package in generic["catalog"]["packages"]},
+        )
+        self.assertTrue(
+            all(
+                set(package) == {"id", "aliases", "extensions"}
+                and "org.cognipilot/package-v1" in package["extensions"]
+                for package in generic["catalog"]["packages"]
+            )
+        )
         for project_id, project in index["projects"].items():
             if project_id == "fastdyn":
                 self.assertEqual("local-only", project["deployability"])
@@ -281,7 +303,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             self.assertEqual([project], json.loads(result.stdout))
 
     def test_pilot_targets_variants_and_artifact_edges_compose(self) -> None:
-        projects = self.nix_eval("nixspaceIndex")["projects"]
+        projects = self.nix_eval("cognipilotIndex")["projects"]
         self.assertTrue(set(PILOTS).issubset(projects))
 
         synapse = projects["synapse_fbs"]["targets"]["default"]
@@ -334,7 +356,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             )
 
     def test_electrode_ground_station_is_declarative_launch_ir(self) -> None:
-        project = self.nix_eval("nixspaceIndex")["projects"]["electrode_web"]
+        project = self.nix_eval("cognipilotIndex")["projects"]["electrode_web"]
         launch = project["launches"]["ground-station"]
 
         self.assertEqual(
@@ -358,7 +380,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         )
 
     def test_mocap_is_an_explicit_simulation_stack_variant(self) -> None:
-        projects = self.nix_eval("nixspaceIndex")["projects"]
+        projects = self.nix_eval("cognipilotIndex")["projects"]
         mocap = projects["synapse_qualisys_bridge"]["launches"]["mocap"]
         self.assertEqual(
             ["synapse_qualisys_bridge:default:bridge"],
@@ -456,7 +478,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         )
 
     def test_catalog_presets_delegate_to_exact_native_interfaces(self) -> None:
-        projects = self.nix_eval("nixspaceIndex")["projects"]
+        projects = self.nix_eval("cognipilotIndex")["projects"]
         expected_presets = {
             "rumoca": "rumoca-v1",
             "modelica_models": "nix-flake-app-v1",
@@ -611,7 +633,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         )
 
     def test_pilot_index_preserves_native_artifact_and_west_semantics(self) -> None:
-        projects = self.nix_eval("nixspaceIndex")["projects"]
+        projects = self.nix_eval("cognipilotIndex")["projects"]
 
         synapse_paths = {
             artifact["path"]
@@ -688,6 +710,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
                 "compliance",
                 "contract",
                 "default",
+                "devenv",
                 "devenvLaunches",
                 "devenvTasks",
                 "devenvWorkspace",
@@ -773,6 +796,7 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         self.assertEqual(
             [
                 "cognipilot-compliance",
+                "cognipilot-contract-tests",
                 "cognipilot-promotion-attestation",
                 "cognipilot-promotion-record",
                 "cognipilot-promotion-sbom",
@@ -1026,6 +1050,14 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         record = self.nix_eval(
             "packages.x86_64-linux.promotion-record.normalizedRecord"
         )
+        self.assertTrue(record["packages"])
+        self.assertTrue(
+            all(
+                package["source"]["visibility"] == "public"
+                for package in record["packages"]
+            )
+        )
+        self.assertNotIn("fastdyn", {package["packageId"] for package in record["packages"]})
         public_inputs = {
             identity["storePath"]
             for package in record["packages"]
@@ -1033,13 +1065,41 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             for identity in (package["source"]["identity"], package["definition"]["identity"])
         }
         public_inputs.add(record["product"]["sourceIdentity"]["storePath"])
-        private_inputs = {
-            identity["storePath"]
-            for package in record["packages"]
-            if package["source"]["visibility"] == "private"
-            for identity in (package["source"]["identity"], package["definition"]["identity"])
-        }
+        private_input_names = self.nix_eval(
+            "cognipilotIndex",
+            "--apply",
+            """
+              index: builtins.concatLists (builtins.map
+                (project:
+                  if project.source.visibility != "private" then [] else
+                  [ project.source.input ])
+                (builtins.attrValues index.projects))
+            """,
+        )
+        self.assertTrue(private_input_names)
+        private_input_name_list = " ".join(
+            json.dumps(name) for name in private_input_names
+        )
+        private_inputs = set(
+            json.loads(
+                self.run_command(
+                    "nix",
+                    "eval",
+                    "--impure",
+                    "--offline",
+                    "--json",
+                    "--expr",
+                    f"""
+                      let flake = builtins.getFlake (toString ./.);
+                      in map (name: toString flake.inputs.${{name}}.outPath)
+                        [ {private_input_name_list} ]
+                    """,
+                ).stdout
+            )
+        )
+        self.assertTrue(private_inputs)
         private_only_inputs = private_inputs - public_inputs
+        self.assertTrue(private_only_inputs)
 
         drv_path = self.nix_eval(
             "packages.x86_64-linux.public-cache-root.drvPath",
@@ -1068,6 +1128,44 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             "the aggregate root, selected shell, and contract checks must not retain a private source transitively",
         )
 
+    def test_public_contract_check_declares_every_non_private_flake_source(self) -> None:
+        check = "checks.x86_64-linux.cognipilot-contract-tests"
+        declared_names = set(self.nix_eval(f"{check}.contractFlakeInputNames"))
+        excluded_names = set(self.nix_eval(f"{check}.contractExcludedInputNames"))
+        declared_sources = set(self.nix_eval(f"{check}.contractFlakeInputSources"))
+        private_names = set(
+            self.nix_eval(
+                "cognipilotIndex",
+                "--apply",
+                """
+                  index: builtins.concatLists (builtins.map
+                    (project:
+                      if project.source.visibility != "private" then [] else
+                      [ project.source.input ])
+                    (builtins.attrValues index.projects))
+                """,
+            )
+        )
+
+        self.assertTrue(private_names)
+        self.assertTrue(private_names.issubset(excluded_names))
+        self.assertTrue(private_names.isdisjoint(declared_names))
+        self.assertTrue(declared_sources)
+
+        drv_path = self.nix_eval(f"{check}.drvPath")
+        derivations = json.loads(
+            self.run_command("nix", "derivation", "show", drv_path).stdout
+        )
+        if derivations.get("version") == 4:
+            derivation = next(iter(derivations["derivations"].values()))
+            actual_sources = {
+                f"/nix/store/{source}" for source in derivation["inputs"]["srcs"]
+            }
+        else:
+            derivation = next(iter(derivations.values()))
+            actual_sources = set(derivation["inputSrcs"])
+        self.assertTrue(declared_sources.issubset(actual_sources))
+
     def test_public_cache_root_contains_first_run_tools_and_generated_plans(self) -> None:
         package_names = [
             "nixspace",
@@ -1080,6 +1178,9 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             "nixspace-resolution-plan",
             "nixspace-source-plan",
             "nixspace-west-plan",
+            "promotion-attestation",
+            "promotion-record",
+            "promotion-sbom",
             "public-workspace",
             "sccache-tools",
             "workspace",
@@ -1112,6 +1213,10 @@ class ProductFlakeCompositionTests(unittest.TestCase):
         )
         selected_check_names = [
             "cognipilot-compliance",
+            "cognipilot-contract-tests",
+            "cognipilot-promotion-attestation",
+            "cognipilot-promotion-record",
+            "cognipilot-promotion-sbom",
             "cognipilot-workspace-policy",
             "launch-electrode_web--ground-station-config",
             "launch-electrode_web--simulation-config",

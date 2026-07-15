@@ -1,18 +1,26 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
-use std::fs;
+use std::ffi::OsString;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Subcommand, ValueEnum};
+use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 
 use super::{CliError, Result};
 
-const WEST_PLAN_INTERFACE_VERSION: u64 = 1;
-const WEST_CACHE_LAYOUT_VERSION: u64 = 1;
+const WEST_PLAN_INTERFACE_VERSION: u64 = 2;
+const WEST_CACHE_LAYOUT_VERSION: u64 = 2;
+const STORE_TOOL_INTERFACE_VERSION: u64 = 2;
+const PROJECT_PATH_ENVIRONMENT_INTERFACE_VERSION: u64 = 1;
 const WEST_API_VERSION: &str = "nixspace/v1";
 const WEST_KIND: &str = "WestWorkspace";
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum WestCommand {
@@ -129,6 +137,16 @@ struct CachePolicy {
     root: RootPolicy,
     native_path_cache: bool,
     narrow_update: bool,
+    paths: CachePaths,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CachePaths {
+    generations: PathBuf,
+    generation_gc_root: PathBuf,
+    current: PathBuf,
+    publication_lock: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -137,6 +155,14 @@ struct LocalViewPolicy {
     root: RootPolicy,
     overrides: Vec<LocalOverride>,
     policy_id: String,
+    paths: LocalViewPaths,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LocalViewPaths {
+    generations: PathBuf,
+    execution_lock: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -162,16 +188,72 @@ struct LocalOverride {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Tools {
     west: PathBuf,
+    store: StoreTools,
+    project_path_environment: ProjectPathEnvironment,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProjectPathEnvironment {
+    interface_version: u64,
+    count_variable: String,
+    key_variable_prefix: String,
+    value_variable_prefix: String,
+    key: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoreTools {
+    interface_version: u64,
+    seal: ToolCommand,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ToolCommand {
+    argv: Vec<ToolArgument>,
+    output: ToolOutput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ToolArgument {
+    literal: Option<String>,
+    parameter: Option<ToolParameter>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+enum ToolParameter {
+    Source,
+    GcRoot,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum ToolOutput {
+    StorePath,
 }
 
 #[derive(Debug)]
 struct WestPaths {
-    cache: PathBuf,
+    generations: PathBuf,
+    generation_gc_root: PathBuf,
+    local_generations: PathBuf,
+    current: PathBuf,
+    lock: PathBuf,
+    view_lock: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct ActiveWorkspace {
+    generation: String,
     locked: PathBuf,
     local: PathBuf,
-    lock: PathBuf,
 }
 
 #[derive(Debug, Serialize)]
@@ -182,8 +264,9 @@ struct WestStatus<'a> {
     workspace: &'a str,
     manifest_resource: &'a str,
     content_key: &'a str,
-    locked: &'a Path,
-    local: &'a Path,
+    generation: Option<String>,
+    locked: PathBuf,
+    local: PathBuf,
     path_cache_seed: Option<PathBuf>,
     ready: bool,
 }
@@ -207,6 +290,35 @@ struct LocalMarker {
     manifest_sha256: String,
     policy_id: String,
     overrides: BTreeMap<String, String>,
+    projects: BTreeMap<String, LocalProjectMarker>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalProjectMarker {
+    path: String,
+    source: String,
+}
+
+#[derive(Clone, Debug)]
+struct LocalProject {
+    name: String,
+    relative: PathBuf,
+    source: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+struct LocalProjection {
+    projects: Vec<LocalProject>,
+    overrides: BTreeMap<String, String>,
+    markers: BTreeMap<String, LocalProjectMarker>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CurrentGeneration {
+    interface_version: u64,
+    generation: String,
 }
 
 pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestCommand) -> Result<()> {
@@ -218,7 +330,7 @@ pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestComm
 
     match command {
         WestCommand::Validate { json } => {
-            let status = status_document(&plan, &paths);
+            let status = status_document(&workspace_root, &plan, &paths);
             if json {
                 super::write_json(&status)
             } else {
@@ -231,22 +343,21 @@ pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestComm
         }
         WestCommand::Ensure { json } => {
             materialize(&workspace_root, &plan, &paths, false)?;
-            emit_status(&plan, &paths, json)
+            emit_status(&workspace_root, &plan, &paths, json)
         }
         WestCommand::Sync { json } => {
             materialize(&workspace_root, &plan, &paths, true)?;
-            emit_status(&plan, &paths, json)
+            emit_status(&workspace_root, &plan, &paths, json)
         }
-        WestCommand::Status { json } => emit_status(&plan, &paths, json),
+        WestCommand::Status { json } => emit_status(&workspace_root, &plan, &paths, json),
         WestCommand::Path { mode } => {
-            println!(
-                "{}",
-                match mode {
-                    WestMode::Local => &paths.local,
-                    WestMode::Release => &paths.locked,
-                }
-                .display()
-            );
+            if !paths.current.is_file() {
+                return Err(CliError(
+                    "West workspace is not materialized; run `nixspace west ensure`".into(),
+                ));
+            }
+            let selected = selected_workspace_path(&workspace_root, &plan, &paths, mode)?;
+            println!("{}", selected.display());
             Ok(())
         }
         WestCommand::ExtraModules { mode } => {
@@ -267,7 +378,19 @@ pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestComm
         }
         WestCommand::Exec { arguments } => {
             materialize(&workspace_root, &plan, &paths, false)?;
-            run_inherited(&plan.tools.west, &arguments, &paths.local)
+            let _publication_lease = PublicationLease::acquire_shared(&paths.lock)?;
+            let active = require_ready_workspace(&plan, &paths)?;
+            let _view_lease = ViewLease::acquire(&paths.view_lock)?;
+            let projection = ensure_local_projection(&workspace_root, &plan, &active)?;
+            let environment =
+                project_path_environment(&plan, &active.locked, &projection.projects)?;
+            run_inherited_with_environment(
+                &plan.tools.west,
+                &arguments,
+                &active.local,
+                &environment,
+                "Nix-selected native West",
+            )
         }
         WestCommand::Run { cwd, argv } => {
             materialize(&workspace_root, &plan, &paths, false)?;
@@ -278,8 +401,20 @@ pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestComm
                         .into(),
                 ));
             }
-            let cwd = external_run_directory(&paths.local, &cwd)?;
-            run_inherited(Path::new(program), arguments, &cwd)
+            let _publication_lease = PublicationLease::acquire_shared(&paths.lock)?;
+            let active = require_ready_workspace(&plan, &paths)?;
+            let _view_lease = ViewLease::acquire(&paths.view_lock)?;
+            let projection = ensure_local_projection(&workspace_root, &plan, &active)?;
+            let environment =
+                project_path_environment(&plan, &active.locked, &projection.projects)?;
+            let cwd = external_run_directory(&active.local, &cwd)?;
+            run_inherited_with_environment(
+                Path::new(program),
+                arguments,
+                &cwd,
+                &environment,
+                "West external",
+            )
         }
     }
 }
@@ -389,7 +524,9 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
             "West plan has an empty locked source identity field".into(),
         ));
     }
-    if !plan.workspace.manifest.store_path.is_file() {
+    if !plan.workspace.manifest.store_path.is_absolute()
+        || !plan.workspace.manifest.store_path.is_file()
+    {
         return Err(CliError(format!(
             "Nix-selected West manifest {} from {} does not exist",
             plan.workspace.manifest.store_path.display(),
@@ -398,7 +535,9 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
     }
     let manifest_repository =
         Path::new(&plan.workspace.source.identity.store_path).join(&plan.workspace.source.root);
-    if !manifest_repository.is_dir() {
+    if !Path::new(&plan.workspace.source.identity.store_path).is_absolute()
+        || !manifest_repository.is_dir()
+    {
         return Err(CliError(format!(
             "Nix-selected West manifest repository does not exist: {}",
             manifest_repository.display()
@@ -411,12 +550,14 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
             repository_manifest.display()
         )));
     }
-    if !plan.tools.west.is_file() {
+    if !plan.tools.west.is_absolute() || !plan.tools.west.is_file() {
         return Err(CliError(format!(
             "Nix-selected native West executable does not exist: {}",
             plan.tools.west.display()
         )));
     }
+    validate_store_tools(&plan.tools.store)?;
+    validate_project_path_environment(&plan.tools.project_path_environment)?;
     if !valid_sha256(&plan.local_view.policy_id) {
         return Err(CliError(
             "West plan local-view policy ID is not a lowercase SHA-256 value".into(),
@@ -426,10 +567,40 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
         || plan.local_view.root.base != RootBase::Workspace
         || !strict_safe_relative(&plan.cache.root.path)
         || !strict_safe_relative(&plan.local_view.root.path)
+        || !strict_safe_relative(&plan.cache.paths.generations)
+        || !strict_safe_relative(&plan.cache.paths.generation_gc_root)
+        || plan.cache.paths.generation_gc_root.components().count() != 1
+        || !strict_safe_relative(&plan.cache.paths.current)
+        || !strict_safe_relative(&plan.cache.paths.publication_lock)
+        || !strict_safe_relative(&plan.local_view.paths.generations)
+        || !strict_safe_relative(&plan.local_view.paths.execution_lock)
+        || !starts_with_component(&plan.cache.paths.generations, &plan.cache.namespace)
+        || !starts_with_component(&plan.cache.paths.current, &plan.cache.namespace)
+        || !starts_with_component(&plan.cache.paths.publication_lock, &plan.cache.namespace)
+        || !starts_with_component(&plan.local_view.paths.generations, &plan.product.id)
+        || !starts_with_component(&plan.local_view.paths.execution_lock, &plan.product.id)
     {
         return Err(CliError(
             "West plan cache.root must be a safe platform-cache-relative path and localView.root must be a safe workspace-relative path"
                 .into(),
+        ));
+    }
+    if paths_overlap(&plan.cache.paths.generations, &plan.cache.paths.current)
+        || paths_overlap(
+            &plan.cache.paths.generations,
+            &plan.cache.paths.publication_lock,
+        )
+        || paths_overlap(
+            &plan.cache.paths.current,
+            &plan.cache.paths.publication_lock,
+        )
+        || paths_overlap(
+            &plan.local_view.paths.generations,
+            &plan.local_view.paths.execution_lock,
+        )
+    {
+        return Err(CliError(
+            "Nix-generated West persistent paths must not be equal or ancestor-overlapping".into(),
         ));
     }
     let mut projects = BTreeSet::new();
@@ -450,6 +621,124 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
     Ok(())
 }
 
+fn validate_project_path_environment(environment: &ProjectPathEnvironment) -> Result<()> {
+    if environment.interface_version != PROJECT_PATH_ENVIRONMENT_INTERFACE_VERSION {
+        return Err(CliError(format!(
+            "West project-path environment interface version {} is unsupported; nixspace supports version {}",
+            environment.interface_version, PROJECT_PATH_ENVIRONMENT_INTERFACE_VERSION
+        )));
+    }
+    if !valid_environment_name(&environment.count_variable)
+        || !valid_environment_name(&environment.key_variable_prefix)
+        || !valid_environment_name(&environment.value_variable_prefix)
+        || environment.key.is_empty()
+        || environment.key.contains('\0')
+        || environment
+            .key_variable_prefix
+            .eq_ignore_ascii_case(&environment.value_variable_prefix)
+        || environment
+            .count_variable
+            .to_ascii_lowercase()
+            .starts_with(&environment.key_variable_prefix.to_ascii_lowercase())
+        || environment
+            .count_variable
+            .to_ascii_lowercase()
+            .starts_with(&environment.value_variable_prefix.to_ascii_lowercase())
+    {
+        return Err(CliError(
+            "Nix-generated West project-path environment contract is invalid".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_store_tools(tools: &StoreTools) -> Result<()> {
+    if tools.interface_version != STORE_TOOL_INTERFACE_VERSION {
+        return Err(CliError(format!(
+            "West store-tool interface version {} is unsupported; nixspace supports version {}",
+            tools.interface_version, STORE_TOOL_INTERFACE_VERSION
+        )));
+    }
+    validate_tool_command(
+        "store seal",
+        &tools.seal,
+        &[ToolParameter::Source, ToolParameter::GcRoot],
+        ToolOutput::StorePath,
+    )
+}
+
+fn validate_tool_command(
+    label: &str,
+    command: &ToolCommand,
+    expected_parameters: &[ToolParameter],
+    expected_output: ToolOutput,
+) -> Result<()> {
+    if command.output != expected_output || command.argv.is_empty() {
+        return Err(CliError(format!(
+            "Nix-generated West {label} command has an invalid output or empty argv contract"
+        )));
+    }
+    let mut parameters = Vec::new();
+    for argument in &command.argv {
+        match (&argument.literal, argument.parameter) {
+            (Some(literal), None) if !literal.is_empty() && !literal.contains('\0') => {}
+            (None, Some(parameter)) => parameters.push(parameter),
+            _ => {
+                return Err(CliError(format!(
+                    "Nix-generated West {label} argv entries must contain exactly one nonempty literal or typed parameter"
+                )))
+            }
+        }
+    }
+    let executable = command.argv[0].literal.as_deref().ok_or_else(|| {
+        CliError(format!(
+            "Nix-generated West {label} argv must begin with a literal executable"
+        ))
+    })?;
+    if !Path::new(executable).is_absolute() || !Path::new(executable).is_file() {
+        return Err(CliError(format!(
+            "Nix-generated West {label} executable does not exist: {executable}"
+        )));
+    }
+    parameters.sort_unstable();
+    let mut expected = expected_parameters.to_vec();
+    expected.sort_unstable();
+    if parameters != expected {
+        return Err(CliError(format!(
+            "Nix-generated West {label} command has the wrong typed parameter contract"
+        )));
+    }
+    Ok(())
+}
+
+fn render_tool_command(
+    command: &ToolCommand,
+    parameters: &BTreeMap<ToolParameter, &Path>,
+) -> Result<(PathBuf, Vec<OsString>)> {
+    let mut rendered = Vec::with_capacity(command.argv.len());
+    for argument in &command.argv {
+        match (&argument.literal, argument.parameter) {
+            (Some(literal), None) => rendered.push(OsString::from(literal)),
+            (None, Some(parameter)) => {
+                let value = parameters.get(&parameter).ok_or_else(|| {
+                    CliError("Nix-generated West tool command is missing a typed parameter".into())
+                })?;
+                rendered.push(value.as_os_str().to_owned());
+            }
+            _ => {
+                return Err(CliError(
+                    "Nix-generated West tool command contains an invalid argv entry".into(),
+                ))
+            }
+        }
+    }
+    let program = rendered
+        .first()
+        .map(PathBuf::from)
+        .ok_or_else(|| CliError("Nix-generated West tool command has an empty argv".into()))?;
+    Ok((program, rendered.into_iter().skip(1).collect()))
+}
+
 fn resolve_workspace_root(default_root: &Path, configured: &str) -> Result<PathBuf> {
     let root = env::var_os("NIXSPACE_WORKSPACE_ROOT")
         .map(PathBuf::from)
@@ -465,25 +754,22 @@ fn resolve_workspace_root(default_root: &Path, configured: &str) -> Result<PathB
 }
 
 fn west_paths(root: &Path, plan: &WestPlan) -> Result<WestPaths> {
-    let cache = if let Some(configured) = env::var_os("NIXSPACE_WEST_CACHE") {
+    let cache_root = if let Some(configured) = env::var_os("NIXSPACE_WEST_CACHE") {
         absolute_path(Path::new(&configured))?
     } else {
-        platform_cache_root()?.join(&plan.cache.root.path)
+        absolute_path(&platform_cache_root()?.join(&plan.cache.root.path))?
     };
-    let product_root = cache.join("workspaces").join(&plan.workspace.content_key);
-    let local = env::var_os("NIXSPACE_WEST_VIEW_ROOT")
+    let configured_local_root = env::var_os("NIXSPACE_WEST_VIEW_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| root.join(&plan.local_view.root.path))
-        .join(&plan.product.id)
-        .join(&plan.workspace.content_key)
-        .join(&plan.local_view.policy_id);
+        .unwrap_or_else(|| root.join(&plan.local_view.root.path));
+    let local_root = absolute_path(&configured_local_root)?;
     Ok(WestPaths {
-        locked: product_root.join("locked"),
-        lock: cache
-            .join("locks")
-            .join(format!("{}.lock", plan.workspace.content_key)),
-        cache,
-        local,
+        generations: cache_root.join(&plan.cache.paths.generations),
+        generation_gc_root: plan.cache.paths.generation_gc_root.clone(),
+        current: cache_root.join(&plan.cache.paths.current),
+        lock: cache_root.join(&plan.cache.paths.publication_lock),
+        local_generations: local_root.join(&plan.local_view.paths.generations),
+        view_lock: local_root.join(&plan.local_view.paths.execution_lock),
     })
 }
 
@@ -513,58 +799,215 @@ fn platform_cache_root() -> Result<PathBuf> {
 }
 
 fn materialize(root: &Path, plan: &WestPlan, paths: &WestPaths, force: bool) -> Result<()> {
-    fs::create_dir_all(
-        paths
-            .lock
-            .parent()
-            .expect("content-addressed lock always has a parent"),
-    )
-    .map_err(|error| CliError(format!("cannot create West lock directory: {error}")))?;
-    let _guard = ProductLock::acquire(&paths.lock)?;
-
-    let marker_ready = locked_ready(plan, &paths.locked);
-    if force || !marker_ready {
-        initialize_locked(plan, paths, force)?;
-    } else if !native_checkout_ready(plan, &paths.locked) {
-        initialize_locked(plan, paths, true)?;
+    let _lease = PublicationLease::acquire_exclusive(&paths.lock)?;
+    if !force && ready_workspace(plan, paths).is_some() {
+        return Ok(());
     }
-    if force || !local_ready(plan, &paths.local) {
-        create_local_view(root, plan, paths)?;
-    }
+    publish_generation(root, plan, paths)?;
     Ok(())
 }
 
-fn initialize_locked(plan: &WestPlan, paths: &WestPaths, force: bool) -> Result<()> {
-    let already_initialized = paths.locked.join(".west/config").is_file();
-    if !already_initialized {
-        remove_if_exists(&paths.locked)?;
-        fs::create_dir_all(&paths.locked).map_err(|error| {
-            CliError(format!(
-                "cannot create immutable West workspace {}: {error}",
-                paths.locked.display()
-            ))
-        })?;
-        let manifest = paths.locked.join("manifest");
-        let manifest_source =
-            Path::new(&plan.workspace.source.identity.store_path).join(&plan.workspace.source.root);
-        symlink_directory(&manifest_source, &manifest)?;
-        write_west_config(
-            &paths.locked,
-            "manifest",
-            &plan.workspace.manifest.relative_path,
-        )?;
-    } else if !force && !locked_ready(plan, &paths.locked) {
-        remove_if_exists(&paths.locked)?;
-        return initialize_locked(plan, paths, false);
+fn publish_generation(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<ActiveWorkspace> {
+    fs::create_dir_all(&paths.generations).map_err(|error| {
+        CliError(format!(
+            "cannot create immutable West generation root {}: {error}",
+            paths.generations.display()
+        ))
+    })?;
+    fs::create_dir_all(&paths.local_generations).map_err(|error| {
+        CliError(format!(
+            "cannot create local West generation root {}: {error}",
+            paths.local_generations.display()
+        ))
+    })?;
+
+    let (generation, staged_generation) = create_generation_staging(&paths.generations)?;
+    let staged_locked = staged_generation.join("checkout");
+    let seed = path_cache_seed(plan, paths);
+    if let Err(error) = initialize_locked(plan, &staged_locked, seed.as_deref()) {
+        let _ = remove_if_exists(&staged_generation);
+        return Err(error);
     }
 
-    let seed = plan
-        .cache
-        .native_path_cache
-        .then(|| path_cache_seed(&paths.cache, &paths.locked))
-        .flatten();
-    let arguments = west_update_arguments(plan.cache.narrow_update, seed.as_deref());
-    run_inherited(&plan.tools.west, &arguments, &paths.locked)?;
+    let published_generation = paths.generations.join(&generation);
+    if let Err(error) = fs::create_dir(&published_generation) {
+        let _ = remove_if_exists(&staged_generation);
+        return Err(CliError(format!(
+            "cannot reserve immutable West generation {}: {error}",
+            published_generation.display()
+        )));
+    }
+    let gc_root = published_generation.join(&paths.generation_gc_root);
+    let sealed = match seal_checkout(plan, &staged_locked, &gc_root) {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = remove_if_exists(&staged_generation);
+            let _ = remove_if_exists(&published_generation);
+            return Err(error);
+        }
+    };
+    if let Err(error) = remove_if_exists(&staged_generation) {
+        let _ = remove_if_exists(&published_generation);
+        return Err(error);
+    }
+    if !fs::symlink_metadata(&gc_root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        let _ = remove_if_exists(&published_generation);
+        return Err(CliError(format!(
+            "Nix store seal command did not create a GC-root link at {}",
+            gc_root.display()
+        )));
+    }
+    let retained = match fs::canonicalize(&gc_root) {
+        Ok(path) if path == sealed => path,
+        Ok(path) => {
+            let _ = remove_if_exists(&published_generation);
+            return Err(CliError(format!(
+                "Nix store seal command linked {} to {}, expected {}",
+                gc_root.display(),
+                path.display(),
+                sealed.display()
+            )));
+        }
+        Err(error) => {
+            let _ = remove_if_exists(&published_generation);
+            return Err(CliError(format!(
+                "Nix store seal command did not create GC root {}: {error}",
+                gc_root.display()
+            )));
+        }
+    };
+    if !locked_ready(plan, &retained) {
+        let _ = remove_if_exists(&published_generation);
+        return Err(CliError(format!(
+            "Nix store ingestion did not preserve the validated West checkout at {}",
+            retained.display()
+        )));
+    }
+    let local = paths.local_generations.join(&generation);
+    if let Err(error) = create_local_view(root, plan, &retained, &local) {
+        let _ = remove_if_exists(&published_generation);
+        return Err(error);
+    }
+    let pointer = CurrentGeneration {
+        interface_version: WEST_PLAN_INTERFACE_VERSION,
+        generation: generation.clone(),
+    };
+    if let Err(error) = write_json_file(&paths.current, &pointer) {
+        let _ = remove_if_exists(&local);
+        let _ = remove_if_exists(&published_generation);
+        return Err(error);
+    }
+    Ok(ActiveWorkspace {
+        generation,
+        locked: retained,
+        local,
+    })
+}
+
+fn seal_checkout(plan: &WestPlan, source: &Path, gc_root: &Path) -> Result<PathBuf> {
+    let rendered = render_tool_command(
+        &plan.tools.store.seal,
+        &BTreeMap::from([
+            (ToolParameter::Source, source),
+            (ToolParameter::GcRoot, gc_root),
+        ]),
+    )?;
+    let output = run_exact_captured(&rendered.0, &rendered.1, source, "Nix store ingestion")?;
+    let text = String::from_utf8(output.stdout).map_err(|error| {
+        CliError(format!(
+            "Nix store ingestion emitted non-UTF-8 output: {error}"
+        ))
+    })?;
+    let lines = text
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() != 1 {
+        return Err(CliError(format!(
+            "Nix store ingestion must emit exactly one store path, received {} lines",
+            lines.len()
+        )));
+    }
+    let path = PathBuf::from(lines[0]);
+    if !path.is_absolute() || !path.is_dir() {
+        return Err(CliError(format!(
+            "Nix store ingestion returned an unavailable absolute directory: {}",
+            path.display()
+        )));
+    }
+    fs::canonicalize(&path).map_err(|error| {
+        CliError(format!(
+            "cannot canonicalize Nix-ingested West checkout {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn create_generation_staging(generations: &Path) -> Result<(String, PathBuf)> {
+    for _ in 0..128 {
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let sequence = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+        let generation = format!("{elapsed:x}-{:x}-{sequence:x}", std::process::id());
+        let staged = generations.join(format!(".tmp-{generation}"));
+        match fs::create_dir(&staged) {
+            Ok(()) => return Ok((generation, staged)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(CliError(format!(
+                    "cannot stage immutable West generation {}: {error}",
+                    staged.display()
+                )))
+            }
+        }
+    }
+    Err(CliError(
+        "cannot allocate a unique immutable West generation".into(),
+    ))
+}
+
+fn initialize_locked(plan: &WestPlan, locked: &Path, path_cache: Option<&Path>) -> Result<()> {
+    fs::create_dir(locked).map_err(|error| {
+        CliError(format!(
+            "cannot create staged immutable West workspace {}: {error}",
+            locked.display()
+        ))
+    })?;
+    let manifest = locked.join("manifest");
+    let manifest_source =
+        Path::new(&plan.workspace.source.identity.store_path).join(&plan.workspace.source.root);
+    symlink_directory(&manifest_source, &manifest)?;
+    write_west_config(locked, "manifest", &plan.workspace.manifest.relative_path)?;
+
+    let arguments = west_update_arguments(plan.cache.narrow_update, path_cache);
+    let environment = if let Some(seed) = path_cache {
+        let projects = resolved_project_paths(plan, seed)?
+            .into_iter()
+            .map(|(name, relative)| LocalProject {
+                name,
+                source: seed.join(&relative),
+                relative,
+            })
+            .collect::<Vec<_>>();
+        project_path_environment(plan, seed, &projects)?
+    } else {
+        Vec::new()
+    };
+    run_inherited_with_environment(
+        &plan.tools.west,
+        &arguments,
+        locked,
+        &environment,
+        "Nix-selected native West",
+    )?;
+    if !native_checkout_ready(plan, locked) {
+        return Err(CliError(format!(
+            "native West did not produce a valid immutable checkout at {}",
+            locked.display()
+        )));
+    }
 
     let marker = LockedMarker {
         interface_version: WEST_PLAN_INTERFACE_VERSION,
@@ -573,36 +1016,32 @@ fn initialize_locked(plan: &WestPlan, paths: &WestPaths, force: bool) -> Result<
         manifest_resource: plan.workspace.manifest.resource.clone(),
         manifest_sha256: plan.workspace.manifest.sha256.clone(),
     };
-    write_json_file(&paths.locked.join(".nixspace-west.json"), &marker)
+    write_json_file(&locked.join(".nixspace-west.json"), &marker)
 }
 
-fn create_local_view(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<()> {
-    let projects = resolved_project_paths(plan, &paths.locked)?;
+fn create_local_view(root: &Path, plan: &WestPlan, locked: &Path, local: &Path) -> Result<()> {
+    let projection = resolve_local_projection(root, plan, locked)?;
+    install_local_view(plan, locked, local, &projection)
+}
+
+fn resolve_local_projection(
+    root: &Path,
+    plan: &WestPlan,
+    locked: &Path,
+) -> Result<LocalProjection> {
+    let resolved = resolved_project_paths(plan, locked)?;
     let overrides: BTreeMap<_, _> = plan
         .local_view
         .overrides
         .iter()
         .map(|binding| (binding.project.as_str(), binding))
         .collect();
-    let parent = paths
-        .local
-        .parent()
-        .expect("local view always has a content-addressed parent");
-    fs::create_dir_all(parent)
-        .map_err(|error| CliError(format!("cannot create local West view parent: {error}")))?;
-    let temporary = parent.join(format!(
-        ".{}.tmp-{}",
-        plan.local_view.policy_id,
-        std::process::id()
-    ));
-    remove_if_exists(&temporary)?;
-    fs::create_dir_all(&temporary)
-        .map_err(|error| CliError(format!("cannot create temporary local West view: {error}")))?;
-
+    let mut projects = Vec::new();
     let mut effective_overrides = BTreeMap::new();
+    let mut project_markers = BTreeMap::new();
     let mut matched_overrides = BTreeSet::new();
-    for (name, relative) in projects {
-        let immutable = paths.locked.join(&relative);
+    for (name, relative) in resolved {
+        let immutable = locked.join(&relative);
         let source = if let Some(binding) = overrides.get(name.as_str()) {
             matched_overrides.insert(name.clone());
             let editable = root.join(&binding.source);
@@ -610,7 +1049,6 @@ fn create_local_view(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<
                 effective_overrides.insert(name.clone(), editable.display().to_string());
                 editable
             } else if binding.required {
-                remove_if_exists(&temporary)?;
                 return Err(CliError(format!(
                     "required editable West override `{name}` is missing at {}",
                     editable.display()
@@ -622,19 +1060,23 @@ fn create_local_view(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<
             immutable
         };
         if !source.is_dir() {
-            remove_if_exists(&temporary)?;
             return Err(CliError(format!(
                 "native West resolved project `{name}` to missing directory {}",
                 source.display()
             )));
         }
-        let destination = temporary.join(relative);
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent).map_err(|error| {
-                CliError(format!("cannot create local West project parent: {error}"))
-            })?;
-        }
-        symlink_directory(&source, &destination)?;
+        project_markers.insert(
+            name.clone(),
+            LocalProjectMarker {
+                path: relative.display().to_string(),
+                source: source.display().to_string(),
+            },
+        );
+        projects.push(LocalProject {
+            name,
+            relative,
+            source,
+        });
     }
     let unmatched: Vec<_> = overrides
         .keys()
@@ -642,36 +1084,132 @@ fn create_local_view(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<
         .copied()
         .collect();
     if !unmatched.is_empty() {
-        remove_if_exists(&temporary)?;
         return Err(CliError(format!(
             "Nix-declared West overrides do not match native West projects: {}",
             unmatched.join(", ")
         )));
     }
-    if !temporary.join("manifest").exists() {
-        symlink_directory(&paths.locked.join("manifest"), &temporary.join("manifest"))?;
-    }
-    write_west_config(
-        &temporary,
-        "manifest",
-        &plan.workspace.manifest.relative_path,
-    )?;
-    let marker = LocalMarker {
-        interface_version: WEST_PLAN_INTERFACE_VERSION,
-        product: plan.product.id.clone(),
-        workspace: plan.workspace.id.clone(),
-        manifest_sha256: plan.workspace.manifest.sha256.clone(),
-        policy_id: plan.local_view.policy_id.clone(),
+    Ok(LocalProjection {
+        projects,
         overrides: effective_overrides,
-    };
-    write_json_file(&temporary.join(".nixspace-west-local.json"), &marker)?;
-    remove_if_exists(&paths.local)?;
-    fs::rename(&temporary, &paths.local).map_err(|error| {
-        CliError(format!(
-            "cannot install local West view {}: {error}",
-            paths.local.display()
-        ))
+        markers: project_markers,
     })
+}
+
+fn project_path_environment(
+    plan: &WestPlan,
+    locked: &Path,
+    projects: &[LocalProject],
+) -> Result<Vec<(OsString, OsString)>> {
+    let locked = fs::canonicalize(locked).map_err(|error| {
+        CliError(format!(
+            "cannot resolve sealed West checkout {} for its Nix-declared command environment: {error}",
+            locked.display()
+        ))
+    })?;
+    let mut trusted = BTreeSet::new();
+    for project in projects {
+        let source = fs::canonicalize(&project.source).map_err(|error| {
+            CliError(format!(
+                "cannot resolve West project `{}` at {} for its Nix-declared command environment: {error}",
+                project.name,
+                project.source.display()
+            ))
+        })?;
+        if source.starts_with(&locked) {
+            trusted.insert(source.clone());
+            let metadata = source.join(".git");
+            if metadata.is_dir() {
+                trusted.insert(metadata);
+            }
+        }
+    }
+    let contract = &plan.tools.project_path_environment;
+    let mut environment = Vec::with_capacity(1 + trusted.len() * 2);
+    environment.push((
+        OsString::from(&contract.count_variable),
+        OsString::from(trusted.len().to_string()),
+    ));
+    for (index, path) in trusted.into_iter().enumerate() {
+        environment.push((
+            OsString::from(format!("{}{index}", contract.key_variable_prefix)),
+            OsString::from(&contract.key),
+        ));
+        environment.push((
+            OsString::from(format!("{}{index}", contract.value_variable_prefix)),
+            path.into_os_string(),
+        ));
+    }
+    Ok(environment)
+}
+
+fn install_local_view(
+    plan: &WestPlan,
+    locked: &Path,
+    local: &Path,
+    projection: &LocalProjection,
+) -> Result<()> {
+    let parent = local
+        .parent()
+        .expect("local generation always has a parent");
+    fs::create_dir_all(parent)
+        .map_err(|error| CliError(format!("cannot create local West view parent: {error}")))?;
+    let temporary = parent.join(format!(
+        ".{}.tmp-{}-{}",
+        local
+            .file_name()
+            .expect("generation has a file name")
+            .to_string_lossy(),
+        std::process::id(),
+        NEXT_GENERATION.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&temporary)
+        .map_err(|error| CliError(format!("cannot create temporary local West view: {error}")))?;
+
+    let result = (|| -> Result<()> {
+        for project in &projection.projects {
+            let destination = temporary.join(&project.relative);
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent).map_err(|error| {
+                    CliError(format!("cannot create local West project parent: {error}"))
+                })?;
+            }
+            symlink_directory(&project.source, &destination).map_err(|error| {
+                CliError(format!(
+                    "cannot project native West project `{}`: {}",
+                    project.name, error.0
+                ))
+            })?;
+        }
+        if !temporary.join("manifest").exists() {
+            symlink_directory(&locked.join("manifest"), &temporary.join("manifest"))?;
+        }
+        write_west_config(
+            &temporary,
+            "manifest",
+            &plan.workspace.manifest.relative_path,
+        )?;
+        let marker = LocalMarker {
+            interface_version: WEST_PLAN_INTERFACE_VERSION,
+            product: plan.product.id.clone(),
+            workspace: plan.workspace.id.clone(),
+            manifest_sha256: plan.workspace.manifest.sha256.clone(),
+            policy_id: plan.local_view.policy_id.clone(),
+            overrides: projection.overrides.clone(),
+            projects: projection.markers.clone(),
+        };
+        write_json_file(&temporary.join(".nixspace-west-local.json"), &marker)?;
+        fs::rename(&temporary, local).map_err(|error| {
+            CliError(format!(
+                "cannot install local West view {}: {error}",
+                local.display()
+            ))
+        })
+    })();
+    if result.is_err() {
+        let _ = remove_if_exists(&temporary);
+    }
+    result
 }
 
 fn resolved_project_paths(plan: &WestPlan, locked: &Path) -> Result<Vec<(String, PathBuf)>> {
@@ -708,12 +1246,17 @@ fn parse_project_paths(text: &str) -> Result<Vec<(String, PathBuf)>> {
             ))
         })?;
         let path = PathBuf::from(path);
-        if name.is_empty() || !safe_relative(&path) {
+        if name.is_empty() || !safe_project_path(&path) {
             return Err(CliError(format!(
                 "native West returned an unsafe project record: {line}"
             )));
         }
-        if !names.insert(name.to_owned()) || !paths.insert(path.clone()) {
+        if !names.insert(name.to_owned())
+            || paths
+                .iter()
+                .any(|existing: &PathBuf| existing.starts_with(&path) || path.starts_with(existing))
+            || !paths.insert(path.clone())
+        {
             return Err(CliError(format!(
                 "native West returned a duplicate project name or path: {line}"
             )));
@@ -768,33 +1311,166 @@ fn local_ready(plan: &WestPlan, local: &Path) -> bool {
     })
 }
 
-fn status_document<'a>(plan: &'a WestPlan, paths: &'a WestPaths) -> WestStatus<'a> {
+fn local_projection_ready(
+    root: &Path,
+    plan: &WestPlan,
+    locked: &Path,
+    local: &Path,
+) -> Result<bool> {
+    let projection = resolve_local_projection(root, plan, locked)?;
+    local_projection_matches(plan, locked, local, &projection)
+}
+
+fn local_projection_matches(
+    plan: &WestPlan,
+    locked: &Path,
+    local: &Path,
+    projection: &LocalProjection,
+) -> Result<bool> {
+    let marker = match read_json_file::<LocalMarker>(&local.join(".nixspace-west-local.json")) {
+        Some(marker) => marker,
+        None => return Ok(false),
+    };
+    if marker.interface_version != WEST_PLAN_INTERFACE_VERSION
+        || marker.product != plan.product.id
+        || marker.workspace != plan.workspace.id
+        || marker.manifest_sha256 != plan.workspace.manifest.sha256
+        || marker.policy_id != plan.local_view.policy_id
+        || marker.overrides != projection.overrides
+        || marker.projects != projection.markers
+    {
+        return Ok(false);
+    }
+    let expected_config = west_config_contents("manifest", &plan.workspace.manifest.relative_path)?;
+    if fs::read(local.join(".west/config")).ok().as_deref() != Some(expected_config.as_bytes()) {
+        return Ok(false);
+    }
+    let projects_manifest = projection
+        .projects
+        .iter()
+        .any(|project| project.relative == Path::new("manifest"));
+    for project in &projection.projects {
+        if fs::read_link(local.join(&project.relative)).ok().as_deref()
+            != Some(project.source.as_path())
+        {
+            return Ok(false);
+        }
+    }
+    if !projects_manifest
+        && fs::read_link(local.join("manifest")).ok().as_deref()
+            != Some(locked.join("manifest").as_path())
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn ensure_local_projection(
+    root: &Path,
+    plan: &WestPlan,
+    active: &ActiveWorkspace,
+) -> Result<LocalProjection> {
+    let projection = resolve_local_projection(root, plan, &active.locked)?;
+    if local_projection_matches(plan, &active.locked, &active.local, &projection)? {
+        return Ok(projection);
+    }
+    remove_if_exists(&active.local)?;
+    install_local_view(plan, &active.locked, &active.local, &projection)?;
+    Ok(projection)
+}
+
+fn selected_workspace(paths: &WestPaths) -> Option<ActiveWorkspace> {
+    let pointer = read_json_file::<CurrentGeneration>(&paths.current)?;
+    if pointer.interface_version != WEST_PLAN_INTERFACE_VERSION
+        || !valid_generation(&pointer.generation)
+    {
+        return None;
+    }
+    Some(workspace_for_generation(paths, pointer.generation))
+}
+
+fn workspace_for_generation(paths: &WestPaths, generation: String) -> ActiveWorkspace {
+    let gc_root = paths
+        .generations
+        .join(&generation)
+        .join(&paths.generation_gc_root);
+    ActiveWorkspace {
+        locked: fs::canonicalize(&gc_root).unwrap_or(gc_root),
+        local: paths.local_generations.join(&generation),
+        generation,
+    }
+}
+
+fn ready_workspace(plan: &WestPlan, paths: &WestPaths) -> Option<ActiveWorkspace> {
+    selected_workspace(paths)
+        .filter(|active| locked_ready(plan, &active.locked) && local_ready(plan, &active.local))
+}
+
+fn require_ready_workspace(plan: &WestPlan, paths: &WestPaths) -> Result<ActiveWorkspace> {
+    ready_workspace(plan, paths).ok_or_else(|| {
+        CliError(
+            "published West generation is unavailable or invalid; run `nixspace west ensure`"
+                .into(),
+        )
+    })
+}
+
+fn selected_workspace_path(
+    root: &Path,
+    plan: &WestPlan,
+    paths: &WestPaths,
+    mode: WestMode,
+) -> Result<PathBuf> {
+    let _publication_lease = PublicationLease::acquire_shared(&paths.lock)?;
+    let active = ready_workspace(plan, paths).ok_or_else(|| {
+        CliError("West workspace is not materialized; run `nixspace west ensure`".into())
+    })?;
+    match mode {
+        WestMode::Release => Ok(active.locked),
+        WestMode::Local => {
+            let _view_lease = ViewLease::acquire(&paths.view_lock)?;
+            ensure_local_projection(root, plan, &active)?;
+            Ok(active.local)
+        }
+    }
+}
+
+fn status_document<'a>(root: &Path, plan: &'a WestPlan, paths: &'a WestPaths) -> WestStatus<'a> {
+    let active = selected_workspace(paths);
+    let ready = active.as_ref().is_some_and(|active| {
+        locked_ready(plan, &active.locked)
+            && local_ready(plan, &active.local)
+            && local_projection_ready(root, plan, &active.locked, &active.local).unwrap_or(false)
+    });
+    let locked = active
+        .as_ref()
+        .map(|active| active.locked.clone())
+        .unwrap_or_else(|| paths.generations.clone());
+    let local = active
+        .as_ref()
+        .map(|active| active.local.clone())
+        .unwrap_or_else(|| paths.local_generations.clone());
     WestStatus {
         interface_version: WEST_PLAN_INTERFACE_VERSION,
         product: &plan.product.id,
         workspace: &plan.workspace.id,
         manifest_resource: &plan.workspace.manifest.resource,
         content_key: &plan.workspace.content_key,
-        locked: &paths.locked,
-        local: &paths.local,
-        path_cache_seed: path_cache_seed(&paths.cache, &paths.locked),
-        ready: locked_ready(plan, &paths.locked) && local_ready(plan, &paths.local),
+        generation: active.as_ref().map(|active| active.generation.clone()),
+        path_cache_seed: path_cache_seed(plan, paths),
+        locked,
+        local,
+        ready,
     }
 }
 
-fn emit_status(plan: &WestPlan, paths: &WestPaths, json: bool) -> Result<()> {
-    let seed = path_cache_seed(&paths.cache, &paths.locked);
-    let status = WestStatus {
-        interface_version: WEST_PLAN_INTERFACE_VERSION,
-        product: &plan.product.id,
-        workspace: &plan.workspace.id,
-        manifest_resource: &plan.workspace.manifest.resource,
-        content_key: &plan.workspace.content_key,
-        locked: &paths.locked,
-        local: &paths.local,
-        path_cache_seed: seed,
-        ready: locked_ready(plan, &paths.locked) && local_ready(plan, &paths.local),
+fn emit_status(root: &Path, plan: &WestPlan, paths: &WestPaths, json: bool) -> Result<()> {
+    let _lease = if paths.lock.is_file() {
+        Some(PublicationLease::acquire_shared(&paths.lock)?)
+    } else {
+        None
     };
+    let status = status_document(root, plan, paths);
     if json {
         return super::write_json(&status);
     }
@@ -802,6 +1478,10 @@ fn emit_status(plan: &WestPlan, paths: &WestPaths, json: bool) -> Result<()> {
     println!("workspace:      {}", status.workspace);
     println!("manifest:       {}", status.manifest_resource);
     println!("content:        {}", status.content_key);
+    println!(
+        "generation:     {}",
+        status.generation.as_deref().unwrap_or("none")
+    );
     println!("locked product: {}", status.locked.display());
     println!("local product:  {}", status.local.display());
     println!(
@@ -819,20 +1499,13 @@ fn emit_status(plan: &WestPlan, paths: &WestPaths, json: bool) -> Result<()> {
     Ok(())
 }
 
-fn path_cache_seed(cache: &Path, current: &Path) -> Option<PathBuf> {
-    let workspaces = cache.join("workspaces");
-    let mut candidates = fs::read_dir(workspaces)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path().join("locked"))
-        .filter(|candidate| {
-            candidate != current
-                && candidate.join(".nixspace-west.json").is_file()
-                && candidate.join(".west/config").is_file()
-        })
-        .collect::<Vec<_>>();
-    candidates.sort();
-    candidates.into_iter().next()
+fn path_cache_seed(plan: &WestPlan, paths: &WestPaths) -> Option<PathBuf> {
+    if !plan.cache.native_path_cache {
+        return None;
+    }
+    selected_workspace(paths)
+        .map(|active| active.locked)
+        .filter(|locked| locked_ready(plan, locked))
 }
 
 fn west_update_arguments(narrow: bool, path_cache: Option<&Path>) -> Vec<String> {
@@ -848,35 +1521,44 @@ fn west_update_arguments(narrow: bool, path_cache: Option<&Path>) -> Vec<String>
 }
 
 fn write_west_config(workspace: &Path, manifest_path: &str, manifest_file: &str) -> Result<()> {
+    let contents = west_config_contents(manifest_path, manifest_file)?;
+    let west = workspace.join(".west");
+    fs::create_dir_all(&west)
+        .map_err(|error| CliError(format!("cannot create local West configuration: {error}")))?;
+    fs::write(west.join("config"), contents)
+        .map_err(|error| CliError(format!("cannot write local West configuration: {error}")))
+}
+
+fn west_config_contents(manifest_path: &str, manifest_file: &str) -> Result<String> {
     if contains_config_control(manifest_path) || contains_config_control(manifest_file) {
         return Err(CliError(
             "West manifest configuration contains a forbidden control character".into(),
         ));
     }
-    let west = workspace.join(".west");
-    fs::create_dir_all(&west)
-        .map_err(|error| CliError(format!("cannot create local West configuration: {error}")))?;
-    fs::write(
-        west.join("config"),
-        format!(
-            "[manifest]\npath = {manifest_path}\nfile = {manifest_file}\n\n[zephyr]\nbase = zephyr\n"
-        ),
-    )
-    .map_err(|error| CliError(format!("cannot write local West configuration: {error}")))
+    Ok(format!(
+        "[manifest]\npath = {manifest_path}\nfile = {manifest_file}\n\n[zephyr]\nbase = zephyr\n"
+    ))
 }
 
 fn contains_config_control(value: &str) -> bool {
     value.bytes().any(|byte| matches!(byte, b'\n' | b'\r' | 0))
 }
 
-fn run_inherited(program: &Path, arguments: &[String], cwd: &Path) -> Result<()> {
+fn run_inherited_with_environment(
+    program: &Path,
+    arguments: &[String],
+    cwd: &Path,
+    environment: &[(OsString, OsString)],
+    purpose: &str,
+) -> Result<()> {
     let status = Command::new(program)
         .args(arguments)
+        .envs(environment.iter().cloned())
         .current_dir(cwd)
         .status()
         .map_err(|error| {
             CliError(format!(
-                "cannot invoke Nix-selected native West {}: {error}",
+                "cannot invoke {purpose} command {}: {error}",
                 program.display()
             ))
         })?;
@@ -884,7 +1566,7 @@ fn run_inherited(program: &Path, arguments: &[String], cwd: &Path) -> Result<()>
         Ok(())
     } else {
         Err(CliError(format!(
-            "native West command failed with {}: {} {}",
+            "{purpose} command failed with {}: {} {}",
             status,
             program.display(),
             arguments.join(" ")
@@ -914,6 +1596,33 @@ fn run_captured(program: &Path, arguments: &[String], cwd: &Path) -> Result<Outp
     }
 }
 
+fn run_exact_captured(
+    program: &Path,
+    arguments: &[OsString],
+    cwd: &Path,
+    purpose: &str,
+) -> Result<Output> {
+    let output = Command::new(program)
+        .args(arguments)
+        .current_dir(cwd)
+        .output()
+        .map_err(|error| {
+            CliError(format!(
+                "cannot invoke Nix-generated {purpose} command {}: {error}",
+                program.display()
+            ))
+        })?;
+    if output.status.success() {
+        Ok(output)
+    } else {
+        Err(CliError(format!(
+            "Nix-generated {purpose} command failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+}
+
 fn read_json_file<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     serde_json::from_slice(&fs::read(path).ok()?).ok()
 }
@@ -921,11 +1630,26 @@ fn read_json_file<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
 fn write_json_file(path: &Path, value: &impl Serialize) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| CliError(format!("cannot serialize West state marker: {error}")))?;
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&temporary, [bytes.as_slice(), b"\n"].concat())
-        .map_err(|error| CliError(format!("cannot write West state marker: {error}")))?;
-    fs::rename(&temporary, path)
-        .map_err(|error| CliError(format!("cannot install West state marker: {error}")))
+    let sequence = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_extension(format!("tmp-{}-{sequence}", std::process::id()));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| CliError(format!("cannot create West state marker: {error}")))?;
+        file.write_all(&[bytes.as_slice(), b"\n"].concat())
+            .and_then(|()| file.sync_all())
+            .map_err(|error| CliError(format!("cannot write West state marker: {error}")))?;
+        drop(file);
+        fs::rename(&temporary, path)
+            .map_err(|error| CliError(format!("cannot install West state marker: {error}")))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn remove_if_exists(path: &Path) -> Result<()> {
@@ -967,6 +1691,21 @@ fn safe_relative(path: &Path) -> bool {
             .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
+fn safe_project_path(path: &Path) -> bool {
+    if !safe_relative(path) {
+        return false;
+    }
+    let first = path.components().find_map(|component| match component {
+        Component::Normal(value) => Some(value),
+        _ => None,
+    });
+    match first.and_then(|value| value.to_str()) {
+        Some(".west" | ".nixspace-west-local.json") | None => false,
+        Some("manifest") => path == Path::new("manifest"),
+        Some(_) => true,
+    }
+}
+
 fn external_run_directory(local_view: &Path, relative: &Path) -> Result<PathBuf> {
     if !safe_relative(relative) {
         return Err(CliError(format!(
@@ -997,6 +1736,16 @@ fn strict_safe_relative(path: &Path) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
+fn starts_with_component(path: &Path, expected: &str) -> bool {
+    path.components()
+        .next()
+        .is_some_and(|component| matches!(component, Component::Normal(value) if value == expected))
+}
+
+fn paths_overlap(left: &Path, right: &Path) -> bool {
+    left.starts_with(right) || right.starts_with(left)
+}
+
 fn valid_id(value: &str) -> bool {
     let mut characters = value.chars();
     characters
@@ -1007,6 +1756,23 @@ fn valid_id(value: &str) -> bool {
                 || character.is_ascii_digit()
                 || matches!(character, '.' | '_' | '-')
         })
+}
+
+fn valid_environment_name(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn valid_generation(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !value.starts_with('.')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) || byte == b'-')
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -1026,31 +1792,94 @@ fn absolute_path(path: &Path) -> Result<PathBuf> {
     }
 }
 
-struct ProductLock {
-    path: PathBuf,
-}
+struct PublicationLease(File);
 
-impl ProductLock {
-    fn acquire(path: &Path) -> Result<Self> {
-        fs::create_dir(path).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
+impl PublicationLease {
+    fn open(path: &Path, create: bool) -> Result<File> {
+        if create {
+            fs::create_dir_all(
+                path.parent()
+                    .expect("content-addressed lock always has a parent"),
+            )
+            .map_err(|error| CliError(format!("cannot create West lock directory: {error}")))?;
+        }
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(create)
+            .truncate(false)
+            .open(path)
+            .map_err(|error| {
                 CliError(format!(
-                    "West product cache is already being updated: {}; retry after the other command finishes",
+                    "cannot open West publication lock {}: {error}",
                     path.display()
                 ))
-            } else {
-                CliError(format!("cannot acquire West product lock {}: {error}", path.display()))
-            }
+            })
+    }
+
+    fn acquire_exclusive(path: &Path) -> Result<Self> {
+        let file = Self::open(path, true)?;
+        FileExt::lock(&file).map_err(|error| {
+            CliError(format!(
+                "cannot acquire exclusive West publication lease {}: {error}",
+                path.display()
+            ))
         })?;
-        Ok(Self {
-            path: path.to_path_buf(),
-        })
+        Ok(Self(file))
+    }
+
+    fn acquire_shared(path: &Path) -> Result<Self> {
+        let file = Self::open(path, false)?;
+        FileExt::lock_shared(&file).map_err(|error| {
+            CliError(format!(
+                "cannot acquire shared West generation lease {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self(file))
     }
 }
 
-impl Drop for ProductLock {
+impl Drop for PublicationLease {
     fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        let _ = FileExt::unlock(&self.0);
+    }
+}
+
+struct ViewLease(File);
+
+impl ViewLease {
+    fn acquire(path: &Path) -> Result<Self> {
+        fs::create_dir_all(
+            path.parent()
+                .expect("local West view lock always has a parent"),
+        )
+        .map_err(|error| CliError(format!("cannot create West view lock directory: {error}")))?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|error| {
+                CliError(format!(
+                    "cannot open West view execution lock {}: {error}",
+                    path.display()
+                ))
+            })?;
+        FileExt::lock(&file).map_err(|error| {
+            CliError(format!(
+                "cannot acquire exclusive West view execution lease {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for ViewLease {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.0);
     }
 }
 
@@ -1079,8 +1908,12 @@ mod tests {
         for invalid in [
             "telemetry|../outside\n",
             "telemetry|/outside\n",
+            "telemetry|.west/config\n",
+            "telemetry|.nixspace-west-local.json\n",
+            "telemetry|manifest/nested\n",
             "telemetry|modules/lib/telemetry\ntelemetry|other\n",
             "telemetry|modules/lib/telemetry\nother|modules/lib/telemetry\n",
+            "telemetry|modules/lib\nother|modules/lib/other\n",
         ] {
             assert!(
                 parse_project_paths(invalid).is_err(),
@@ -1090,18 +1923,365 @@ mod tests {
     }
 
     #[test]
-    fn path_cache_uses_only_complete_other_product_workspaces() {
-        let base = env::temp_dir().join(format!("nixspace-west-path-cache-{}", std::process::id()));
+    fn stale_lock_file_does_not_block_a_new_publisher() {
+        let base = env::temp_dir().join(format!("nixspace-west-stale-lock-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
-        let ready = base.join("workspaces/aaa/locked");
-        let incomplete = base.join("workspaces/bbb/locked");
-        fs::create_dir_all(ready.join(".west")).unwrap();
-        fs::create_dir_all(incomplete.join(".west")).unwrap();
-        fs::write(ready.join(".west/config"), "[manifest]\n").unwrap();
-        fs::write(incomplete.join(".west/config"), "[manifest]\n").unwrap();
-        fs::write(ready.join(".nixspace-west.json"), "{}\n").unwrap();
+        fs::create_dir_all(&base).unwrap();
+        let lock = base.join("publication.lock");
+        fs::write(&lock, "stale process metadata\n").unwrap();
 
-        assert_eq!(path_cache_seed(&base, &incomplete), Some(ready));
+        let first = PublicationLease::acquire_exclusive(&lock).unwrap();
+        drop(first);
+        let second = PublicationLease::acquire_exclusive(&lock).unwrap();
+        drop(second);
+
+        assert!(lock.is_file(), "advisory lock identity remains stable");
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn shared_generation_lease_excludes_publication_until_reader_releases() {
+        let base =
+            env::temp_dir().join(format!("nixspace-west-reader-lease-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let lock = base.join("publication.lock");
+        fs::write(&lock, []).unwrap();
+
+        let reader = PublicationLease::acquire_shared(&lock).unwrap();
+        let writer = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock)
+            .unwrap();
+        assert!(FileExt::try_lock(&writer).is_err());
+        drop(reader);
+        FileExt::try_lock(&writer).expect("publication proceeds after reader exits");
+        FileExt::unlock(&writer).unwrap();
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn exclusive_view_lease_serializes_arbitrary_commands() {
+        let base = env::temp_dir().join(format!("nixspace-west-view-lease-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let lock = base.join("execution.lock");
+
+        let first = ViewLease::acquire(&lock).unwrap();
+        let contender = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock)
+            .unwrap();
+        assert!(FileExt::try_lock(&contender).is_err());
+        drop(first);
+        FileExt::try_lock(&contender).expect("next local-view command proceeds after release");
+        FileExt::unlock(&contender).unwrap();
+
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn typed_store_argv_renders_only_nix_declared_literals_and_paths() {
+        let executable = env::current_exe().unwrap();
+        let command = ToolCommand {
+            argv: vec![
+                ToolArgument {
+                    literal: Some(executable.display().to_string()),
+                    parameter: None,
+                },
+                ToolArgument {
+                    literal: Some("store".into()),
+                    parameter: None,
+                },
+                ToolArgument {
+                    literal: None,
+                    parameter: Some(ToolParameter::Source),
+                },
+                ToolArgument {
+                    literal: None,
+                    parameter: Some(ToolParameter::GcRoot),
+                },
+            ],
+            output: ToolOutput::StorePath,
+        };
+        validate_tool_command(
+            "store seal",
+            &command,
+            &[ToolParameter::Source, ToolParameter::GcRoot],
+            ToolOutput::StorePath,
+        )
+        .unwrap();
+        let source = Path::new("/typed/source");
+        let gc_root = Path::new("/typed/root");
+        let (program, arguments) = render_tool_command(
+            &command,
+            &BTreeMap::from([
+                (ToolParameter::Source, source),
+                (ToolParameter::GcRoot, gc_root),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(program, executable);
+        assert_eq!(
+            arguments,
+            [
+                OsString::from("store"),
+                source.as_os_str().to_owned(),
+                gc_root.as_os_str().to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn current_pointer_switches_between_immutable_generation_paths() {
+        let base = env::temp_dir().join(format!(
+            "nixspace-west-generation-pointer-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("product")).unwrap();
+        let paths = WestPaths {
+            generations: base.join("product/generations"),
+            generation_gc_root: PathBuf::from("locked"),
+            local_generations: base.join("local/generations"),
+            current: base.join("product/current.json"),
+            lock: base.join("publication.lock"),
+            view_lock: base.join("view.lock"),
+        };
+        let first_generation = "abc-1-0";
+        write_json_file(
+            &paths.current,
+            &CurrentGeneration {
+                interface_version: WEST_PLAN_INTERFACE_VERSION,
+                generation: first_generation.into(),
+            },
+        )
+        .unwrap();
+        let first = selected_workspace(&paths).unwrap();
+
+        let second_generation = "def-1-1";
+        write_json_file(
+            &paths.current,
+            &CurrentGeneration {
+                interface_version: WEST_PLAN_INTERFACE_VERSION,
+                generation: second_generation.into(),
+            },
+        )
+        .unwrap();
+        let second = selected_workspace(&paths).unwrap();
+
+        assert_eq!(first.generation, first_generation);
+        assert_eq!(second.generation, second_generation);
+        assert_ne!(first.locked, second.locked);
+        assert!(first.locked.ends_with("abc-1-0/locked"));
+        assert!(second.locked.ends_with("def-1-1/locked"));
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sealed_generations_survive_failed_sync_and_local_path_repairs_poisoned_view() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let base = env::temp_dir().join(format!(
+            "nixspace-west-immutable-sync-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let source = base.join("source");
+        fs::create_dir_all(&source).unwrap();
+        let manifest = source.join("west.yml");
+        fs::write(&manifest, "manifest:\n  projects: []\n").unwrap();
+        let west = base.join("fake-west");
+        fs::write(
+            &west,
+            concat!(
+                "#!/bin/sh\n",
+                "case \"$1\" in\n",
+                "  update) test ! -f \"$0.fail\" || exit 9; mkdir -p zephyr/.git ;;\n",
+                "  manifest) test \"$2\" = --freeze ;;\n",
+                "  list) printf 'manifest|manifest\\nzephyr|zephyr\\n' ;;\n",
+                "  *) exit 10 ;;\n",
+                "esac\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&west, fs::Permissions::from_mode(0o755)).unwrap();
+        let store_seal = base.join("fake-store-seal");
+        fs::write(
+            &store_seal,
+            concat!(
+                "#!/bin/sh\n",
+                "store=\"$0.store\"\n",
+                "test $# = 2 || exit 10\n",
+                "if test ! -d \"$store\"; then\n",
+                "  cp -R \"$1\" \"$store\" || exit 11\n",
+                "  chmod -R a-w \"$store\" || exit 12\n",
+                "fi\n",
+                "ln -s \"$store\" \"$2\" || exit 13\n",
+                "printf '%s\\n' \"$store\"\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&store_seal, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let key = "c".repeat(64);
+        let policy = "b".repeat(64);
+        let plan = WestPlan {
+            api_version: WEST_API_VERSION.into(),
+            kind: WEST_KIND.into(),
+            interface_version: WEST_PLAN_INTERFACE_VERSION,
+            product: Product {
+                id: "test-product".into(),
+                interface_version: 1,
+            },
+            workspace_root: ".".into(),
+            workspace: Workspace {
+                id: "test-workspace".into(),
+                source: SourceBinding {
+                    input: "source".into(),
+                    root: ".".into(),
+                    identity: SourceIdentity {
+                        store_path: source.display().to_string(),
+                        nar_hash: None,
+                        rev: Some("1".repeat(40)),
+                    },
+                },
+                manifest: ManifestBinding {
+                    resource: "test-workspace:west-manifest".into(),
+                    relative_path: "west.yml".into(),
+                    store_path: manifest,
+                    sha256: "a".repeat(64),
+                },
+                content_key: key.clone(),
+            },
+            cache: CachePolicy {
+                layout_version: WEST_CACHE_LAYOUT_VERSION,
+                namespace: "test-product".into(),
+                root: RootPolicy {
+                    base: RootBase::PlatformCache,
+                    path: PathBuf::from("nixspace/test-product"),
+                },
+                native_path_cache: true,
+                narrow_update: true,
+                paths: CachePaths {
+                    generations: PathBuf::from("generations"),
+                    generation_gc_root: PathBuf::from("locked"),
+                    current: PathBuf::from("current.json"),
+                    publication_lock: PathBuf::from("publication.lock"),
+                },
+            },
+            local_view: LocalViewPolicy {
+                root: RootPolicy {
+                    base: RootBase::Workspace,
+                    path: PathBuf::from("views"),
+                },
+                overrides: Vec::new(),
+                policy_id: policy,
+                paths: LocalViewPaths {
+                    generations: PathBuf::from("views/generations"),
+                    execution_lock: PathBuf::from("views/execution.lock"),
+                },
+            },
+            tools: Tools {
+                west: west.clone(),
+                store: StoreTools {
+                    interface_version: STORE_TOOL_INTERFACE_VERSION,
+                    seal: ToolCommand {
+                        argv: vec![
+                            ToolArgument {
+                                literal: Some(store_seal.display().to_string()),
+                                parameter: None,
+                            },
+                            ToolArgument {
+                                literal: None,
+                                parameter: Some(ToolParameter::Source),
+                            },
+                            ToolArgument {
+                                literal: None,
+                                parameter: Some(ToolParameter::GcRoot),
+                            },
+                        ],
+                        output: ToolOutput::StorePath,
+                    },
+                },
+                project_path_environment: ProjectPathEnvironment {
+                    interface_version: PROJECT_PATH_ENVIRONMENT_INTERFACE_VERSION,
+                    count_variable: "GIT_CONFIG_COUNT".into(),
+                    key_variable_prefix: "GIT_CONFIG_KEY_".into(),
+                    value_variable_prefix: "GIT_CONFIG_VALUE_".into(),
+                    key: "safe.directory".into(),
+                },
+            },
+        };
+        let paths = WestPaths {
+            generations: base.join("cache/generations"),
+            generation_gc_root: PathBuf::from("locked"),
+            current: base.join("cache/current.json"),
+            lock: base.join("cache/locks").join(format!("{key}.lock")),
+            view_lock: base.join("views/execution.lock"),
+            local_generations: base.join("views/generations"),
+        };
+
+        materialize(&base, &plan, &paths, false).unwrap();
+        let first = require_ready_workspace(&plan, &paths).unwrap();
+        let projection = resolve_local_projection(&base, &plan, &first.locked).unwrap();
+        let environment = project_path_environment(&plan, &first.locked, &projection.projects)
+            .expect("Nix-declared environment renders exact sealed project paths");
+        assert_eq!(
+            environment[0],
+            (OsString::from("GIT_CONFIG_COUNT"), OsString::from("2"))
+        );
+        assert!(environment
+            .iter()
+            .skip(1)
+            .filter(|(name, _)| name.to_string_lossy().starts_with("GIT_CONFIG_VALUE_"))
+            .all(|(_, value)| Path::new(value).starts_with(&first.locked)));
+        assert!(fs::write(first.local.join("zephyr/poison"), []).is_err());
+        let malicious = base.join("malicious");
+        fs::create_dir_all(&malicious).unwrap();
+        fs::remove_file(first.local.join("zephyr")).unwrap();
+        symlink_directory(&malicious, &first.local.join("zephyr")).unwrap();
+        assert!(!local_projection_ready(&base, &plan, &first.locked, &first.local).unwrap());
+        assert!(!status_document(&base, &plan, &paths).ready);
+        let selected = selected_workspace_path(&base, &plan, &paths, WestMode::Local).unwrap();
+        assert_eq!(selected, first.local);
+        assert!(status_document(&base, &plan, &paths).ready);
+        assert_eq!(
+            fs::read_link(first.local.join("zephyr")).unwrap(),
+            first.locked.join("zephyr")
+        );
+        fs::write(west.with_extension("fail"), []).unwrap();
+
+        assert!(materialize(&base, &plan, &paths, true).is_err());
+        let after_failure = require_ready_workspace(&plan, &paths).unwrap();
+        assert_eq!(after_failure.generation, first.generation);
+        assert!(first.locked.join("zephyr").is_dir());
+        assert!(first.local.join("zephyr").is_symlink());
+
+        fs::remove_file(west.with_extension("fail")).unwrap();
+        materialize(&base, &plan, &paths, true).unwrap();
+        let second = require_ready_workspace(&plan, &paths).unwrap();
+        assert_ne!(second.generation, first.generation);
+        assert!(first.locked.join("zephyr").is_dir());
+        assert!(first.local.join("zephyr").is_symlink());
+        assert!(second.locked.join("zephyr").is_dir());
+
+        let sealed = store_seal.with_extension("store");
+        fn make_writable(path: &Path) {
+            let metadata = fs::symlink_metadata(path).unwrap();
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                let mut permissions = metadata.permissions();
+                permissions.set_mode(0o755);
+                fs::set_permissions(path, permissions).unwrap();
+                for entry in fs::read_dir(path).unwrap() {
+                    make_writable(&entry.unwrap().path());
+                }
+            }
+        }
+        make_writable(&sealed);
         fs::remove_dir_all(base).unwrap();
     }
 
@@ -1131,6 +2311,22 @@ mod tests {
         assert!(safe_relative(Path::new("src/telemetry")));
         assert!(!safe_relative(Path::new("../src/.west")));
         assert!(!safe_relative(Path::new("/workspace/src/.west")));
+    }
+
+    #[test]
+    fn persistent_plan_paths_must_not_equal_or_contain_one_another() {
+        assert!(paths_overlap(
+            Path::new("namespace/generations"),
+            Path::new("namespace/generations/current.json")
+        ));
+        assert!(paths_overlap(
+            Path::new("namespace/lock"),
+            Path::new("namespace/lock")
+        ));
+        assert!(!paths_overlap(
+            Path::new("namespace/generations"),
+            Path::new("namespace/current.json")
+        ));
     }
 
     #[test]

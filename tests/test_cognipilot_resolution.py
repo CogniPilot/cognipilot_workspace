@@ -57,11 +57,22 @@ class CognipilotResolutionTest(unittest.TestCase):
                 "apiVersion": "nixspace/v1",
                 "kind": "ActionGenerationPointer",
                 "interfaceVersion": 1,
-                "file": "current",
                 "identity": {
                     "kind": "action-task-input",
                     "task": "codegen:schema:build",
                 },
+            },
+        )
+        self.assertEqual(
+            headers["candidates"]["local"]["generation"]["layout"],
+            {
+                "apiVersion": "nixspace/v1",
+                "kind": "ActionGenerationLayout",
+                "interfaceVersion": 1,
+                "publicationLock": ".publish.lock",
+                "generations": "generations",
+                "pointer": "current",
+                "manifest": "manifest.json",
             },
         )
 
@@ -69,12 +80,10 @@ class CognipilotResolutionTest(unittest.TestCase):
         plan = self.template("resolution-locked.nix")
 
         package = plan["packages"]["runtime"]
-        self.assertEqual(package["candidates"]["local"]["deployable"], False)
         self.assertEqual(
             package["candidates"]["locked"],
             {
                 "kind": "nix-output-reference",
-                "deployable": True,
                 "installable": ".#target-runtime--default",
                 "provider": "runtime_release",
                 "package": "runtime",

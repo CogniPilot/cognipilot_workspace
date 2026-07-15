@@ -8,8 +8,8 @@ shell and exports normalized launch shells. Enabling the workspace always
 enables its generated editable tasks; there is no second registry or migration
 switch.
 
-The root composition imports the exact devenv 2.1.2 flake-parts module, the
-CogniPilot modules, and the shared workspace module:
+The root composition imports the checked-in flake-parts adapter over devenv
+2.1.2's `lib.mkEval`, the CogniPilot modules, and the shared workspace module:
 
 ```nix
 {

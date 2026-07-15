@@ -37,7 +37,7 @@ printf 'argv' >> "$NIXSPACE_TEST_MANAGER_LOG"
 printf ' <%s>' "$@" >> "$NIXSPACE_TEST_MANAGER_LOG"
 if [ -n "${TEST_SECRET:-}" ]; then secret_set=yes; else secret_set=no; fi
 printf '\nport=<%s> secret-set=<%s> session=<%s> mapping=<%s>\n' \
-  "$TEST_PORT" "$secret_set" "$NIXSPACE_SESSION_DIR" "$TEST_MAPPING" \
+  "$TEST_PORT" "$secret_set" "$TEST_SESSION_ROOT" "$TEST_MAPPING" \
   >> "$NIXSPACE_TEST_MANAGER_LOG"
 exit "${NIXSPACE_TEST_MANAGER_EXIT:-0}"
 "#,
@@ -114,9 +114,30 @@ fn workspace_index() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "Workspace",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "catalog": {
-            "packages": [], "targets": [], "resources": [], "launches": [],
+            "packages": [{
+                "id": "app", "aliases": [], "extensions": {}
+            }],
+            "targets": [{
+                "coordinate": "app/default", "packageId": "app",
+                "target": {
+                    "id": "default", "actions": {"build": {}},
+                    "artifacts": {"outputs": {"program": {}}, "inputs": {}},
+                    "variants": {}, "release": {}
+                }
+            }],
+            "resources": [],
+            "launches": [{
+                "coordinate": "app/stack", "packageId": "app", "launchId": "stack",
+                "launch": {
+                    "description": "test stack", "parameters": {},
+                    "requiredArtifacts": [], "requiredResources": [],
+                    "sessionEnvironment": {},
+                    "processes": {}, "includes": {},
+                    "capabilities": {"provides": [], "requires": []}
+                }
+            }],
             "artifacts": [{
                 "coordinate": "app:default:program", "packageId": "app",
                 "targetId": "default", "artifactId": "program", "kind": "executable",
@@ -125,7 +146,7 @@ fn workspace_index() -> Value {
             }],
             "executables": [{
                 "coordinate": "app/program", "packageId": "app", "executableId": "program",
-                "from": "app:default:program", "argv": ["fixed"]
+                "from": "app:default:program", "argv": ["program"]
             }]
         },
         "graph": {"schemaVersion": 1, "all": graph, "packages": {}, "reverse": {}},
@@ -144,6 +165,7 @@ fn workspace_index() -> Value {
                 "parameters": {"port": port, "secret": secret},
                 "requiredArtifacts": [], "requiredResources": [],
                 "capabilities": {"provides": [], "requires": []},
+                "sessionEnvironment": {},
                 "instances": [{
                     "instanceId": "app/stack", "launch": "app/stack", "includedBy": null,
                     "parameterBindings": {"port": "port", "secret": "secret"},
@@ -194,8 +216,14 @@ fn execution_plan(manager: &Path) -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "LaunchExecution",
-        "interfaceVersion": 3,
+        "interfaceVersion": 4,
         "stateRoot": "state/sessions",
+        "sessionLayout": {
+            "metadata": "record.json",
+            "managerSocket": "manager.sock",
+            "managerLog": "manager-output.log",
+            "portAllocationLock": ".ports.lock"
+        },
         "launches": {
             "app/stack": {
                 "coordinate": "app:stack",
@@ -216,6 +244,7 @@ fn execution_plan(manager: &Path) -> Value {
                 "runner": {
                     "kind": "devenv-process-compose",
                     "workingDirectory": ".",
+                    "sessionRootEnvironment": "TEST_SESSION_ROOT",
                     "commands": {
                         "up": {"argv": [manager, "up", socket, log]},
                         "start": {"argv": [manager, "start", socket, log]},
@@ -246,7 +275,7 @@ fn assert_success(output: &Output) {
 
 fn session_port(fixture: &Fixture, id: &str) -> u16 {
     let record: Value =
-        serde_json::from_slice(&fs::read(fixture.session(id).join("session.json")).unwrap())
+        serde_json::from_slice(&fs::read(fixture.session(id).join("record.json")).unwrap())
             .unwrap();
     record["resolvedLaunch"]["processes"][0]["endpoints"]["http"]["port"]
         .as_u64()
@@ -276,18 +305,25 @@ fn detached_launch_uses_exact_plan_and_keeps_secrets_out_of_metadata() {
     assert!(!log.contains("top-secret-value"));
     assert!(log.contains(&format!("session=<{}>", session.display())));
     assert!(log.contains(&format!("mapping=<{}/mapping.json>", session.display())));
+    assert!(log.contains(&format!("<{}/manager.sock>", session.display())));
+    assert!(log.contains(&format!("<{}/manager-output.log>", session.display())));
     assert!(!session.join("mapping.json").exists());
-    let metadata = fs::read_to_string(session.join("session.json")).unwrap();
+    let metadata = fs::read_to_string(session.join("record.json")).unwrap();
     assert!(!metadata.contains("top-secret-value"));
     assert!(metadata.contains("<redacted>"));
     assert_eq!(
-        fs::metadata(session.join("session.json"))
+        fs::metadata(session.join("record.json"))
             .unwrap()
             .permissions()
             .mode()
             & 0o777,
         0o600
     );
+    assert!(fixture.root.join("state/sessions/.ports.lock").exists());
+    assert!(!fixture
+        .root
+        .join("state/sessions/.port-allocation.lock")
+        .exists());
 
     let collision = fixture.run(&["launch", "up", "app/stack", "--name", "demo", "--detach"]);
     assert!(!collision.status.success());
@@ -381,6 +417,55 @@ fn launch_rejects_missing_secrets_and_plan_traversal_before_starting_manager() {
     assert!(!traversal.status.success());
     assert!(String::from_utf8_lossy(&traversal.stderr).contains("safe workspace-relative"));
     assert!(!fixture.root.parent().unwrap().join("outside").exists());
+}
+
+#[test]
+fn launch_rejects_legacy_or_unsafe_session_layout_contracts() {
+    let fixture = Fixture::new();
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["interfaceVersion"] = json!(3);
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let legacy = fixture.run(&["launch", "sessions"]);
+    assert!(!legacy.status.success());
+    assert!(String::from_utf8_lossy(&legacy.stderr).contains("supports version 4"));
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["sessionLayout"]["metadata"] = json!("nested/record.json");
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let nested = fixture.run(&["launch", "sessions"]);
+    assert!(!nested.status.success());
+    assert!(String::from_utf8_lossy(&nested.stderr).contains("safe portable leaf"));
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["sessionLayout"]["metadata"] = json!("record\n.json");
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let control = fixture.run(&["launch", "sessions"]);
+    assert!(!control.status.success());
+    assert!(String::from_utf8_lossy(&control.stderr).contains("safe portable leaf"));
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["sessionLayout"]["metadata"] = json!("manager.sock");
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let duplicate = fixture.run(&["launch", "sessions"]);
+    assert!(!duplicate.status.success());
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("distinct safe portable leaf"));
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["launches"]["app/stack"]["runner"]["sessionRootEnvironment"] = json!("bad-name");
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let invalid_environment = fixture.run(&["launch", "sessions"]);
+    assert!(!invalid_environment.status.success());
+    assert!(String::from_utf8_lossy(&invalid_environment.stderr)
+        .contains("sessionRootEnvironment must be a valid environment name"));
+
+    let mut plan = execution_plan(&fixture.manager);
+    plan["launches"]["app/stack"]["sessionEnvironment"]["TEST_SESSION_ROOT"] =
+        json!({"base": "session", "path": "collision", "create": "none"});
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let collision = fixture.run(&["launch", "sessions"]);
+    assert!(!collision.status.success());
+    assert!(String::from_utf8_lossy(&collision.stderr).contains("colliding execution contract"));
 }
 
 #[test]

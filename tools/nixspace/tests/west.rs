@@ -27,7 +27,7 @@ impl Fixture {
         let document = json!({
             "apiVersion": "nixspace/v1",
             "kind": "WestWorkspace",
-            "interfaceVersion": 1,
+            "interfaceVersion": 2,
             "product": {
                 "id": "test-product",
                 "interfaceVersion": 1
@@ -53,14 +53,20 @@ impl Fixture {
                 "contentKey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
             },
             "cache": {
-                "layoutVersion": 1,
+                "layoutVersion": 2,
                 "namespace": "test-product",
-                "root": {"base": "platform-cache", "path": "nixspace/test-product"},
+                "root": {"base": "platform-cache", "path": "nixspace"},
                 "nativePathCache": true,
-                "narrowUpdate": true
+                "narrowUpdate": true,
+                "paths": {
+                    "generations": "test-product/west/workspaces/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/generations",
+                    "generationGcRoot": "locked",
+                    "current": "test-product/west/workspaces/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/current.json",
+                    "publicationLock": "test-product/west/locks/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.lock"
+                }
             },
             "localView": {
-                "root": {"base": "workspace", "path": ".devenv/state/nixspace/west/views"},
+                "root": {"base": "workspace", "path": ".nixspace/state/west/views"},
                 "overrides": [
                     {
                         "project": "telemetry",
@@ -69,10 +75,32 @@ impl Fixture {
                         "zephyrModule": true
                     }
                 ],
-                "policyId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                "policyId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "paths": {
+                    "generations": "test-product/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/generations",
+                    "executionLock": "test-product/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/execution.lock"
+                }
             },
             "tools": {
-                "west": std::env::current_exe().unwrap().display().to_string()
+                "west": std::env::current_exe().unwrap().display().to_string(),
+                "store": {
+                    "interfaceVersion": 2,
+                    "seal": {
+                        "argv": [
+                            {"literal": std::env::current_exe().unwrap().display().to_string()},
+                            {"parameter": "source"},
+                            {"parameter": "gc-root"}
+                        ],
+                        "output": "store-path"
+                    }
+                },
+                "projectPathEnvironment": {
+                    "interfaceVersion": 1,
+                    "countVariable": "GIT_CONFIG_COUNT",
+                    "keyVariablePrefix": "GIT_CONFIG_KEY_",
+                    "valueVariablePrefix": "GIT_CONFIG_VALUE_",
+                    "key": "safe.directory"
+                }
             }
         });
         fs::write(&plan, serde_json::to_vec_pretty(&document).unwrap()).unwrap();
@@ -121,32 +149,39 @@ fn validate_consumes_the_versioned_nix_plan_without_a_project_index() {
     let output = fixture.command(&["validate", "--json"]);
     assert!(output.status.success(), "{}", stderr(&output));
     let status: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(status["interfaceVersion"], 1);
+    assert_eq!(status["interfaceVersion"], 2);
     assert_eq!(status["product"], "test-product");
     assert_eq!(status["workspace"], "test-app");
     assert_eq!(status["ready"], false);
 }
 
 #[test]
-fn paths_are_content_addressed_and_the_editable_view_is_not_src_west() {
+fn status_reports_content_addressed_generation_roots_without_inventing_a_current_path() {
     let fixture = Fixture::new();
-    let locked = fixture.command(&["path", "--mode", "release"]);
-    let local = fixture.command(&["path", "--mode", "local"]);
-    assert!(locked.status.success(), "{}", stderr(&locked));
-    assert!(local.status.success(), "{}", stderr(&local));
-
-    let locked = PathBuf::from(stdout(&locked).trim());
-    let local = PathBuf::from(stdout(&local).trim());
-    assert!(locked.ends_with(Path::new(
-        "workspaces/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/locked"
-    )));
-    assert!(local.starts_with(
-        fixture
-            .root
-            .join(".devenv/state/nixspace/west/views/test-product")
-    ));
+    let output = fixture.command(&["status", "--json"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let status: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let locked = PathBuf::from(status["locked"].as_str().unwrap());
+    let local = PathBuf::from(status["local"].as_str().unwrap());
+    assert!(
+        locked.ends_with(Path::new(
+            "workspaces/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc/generations"
+        )),
+        "{}",
+        locked.display()
+    );
+    assert!(local.starts_with(fixture.root.join(".nixspace/state/west/views/test-product")));
+    assert!(local.ends_with("generations"));
+    assert!(status["generation"].is_null());
+    assert_eq!(status["ready"], false);
     assert!(!local.ends_with(Path::new("src/.west")));
     assert!(!fixture.root.join("src/.west").exists());
+
+    for mode in ["release", "local"] {
+        let path = fixture.command(&["path", "--mode", mode]);
+        assert!(!path.status.success());
+        assert!(stderr(&path).contains("run `nixspace west ensure`"));
+    }
 }
 
 #[test]
@@ -173,6 +208,26 @@ fn unsupported_plan_versions_have_no_compatibility_path() {
     let output = fixture.command(&["status"]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("interface version 0 is unsupported"));
+}
+
+#[test]
+fn overlapping_nix_declared_persistent_paths_are_rejected() {
+    let fixture = Fixture::new();
+    let mut document = fixture.document();
+    let generations = document["cache"]["paths"]["generations"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    document["cache"]["paths"]["current"] = json!(format!("{generations}/current.json"));
+    fixture.write_document(&document);
+
+    let output = fixture.command(&["status"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("must not be equal or ancestor-overlapping"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]

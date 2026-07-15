@@ -107,7 +107,6 @@ fn resolution_plan() -> Value {
             "candidates": {
                 "local": {
                     "kind": "local-worktree",
-                    "deployable": false,
                     "prefix": {
                         "kind": "source-relative",
                         "sourceInput": format!("{id}-source"),
@@ -117,8 +116,8 @@ fn resolution_plan() -> Value {
                     },
                     "provenance": {
                         "kind": "local-git",
-                        "cleanLabel": "LOCAL commit",
-                        "dirtyLabel": "LOCAL dirty",
+                        "cleanLabel": "working tree clean",
+                        "dirtyLabel": "working tree modified",
                         "sourceInput": format!("{id}-source"),
                         "inspection": {
                             "workingDirectory": "project",
@@ -157,7 +156,7 @@ fn resolution_plan() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "WorkspaceResolution",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "roots": {"workspace": ".", "taskState": ".state"},
         "packagePlans": {"app": plan("app"), "library": plan("library")},
         "packages": {"app": package("app"), "library": package("library")},
@@ -200,7 +199,7 @@ fn workspace_index(helper: &Path) -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "Workspace",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "catalog": {
             "packages": [
                 package("app", &["application"]),
@@ -254,22 +253,9 @@ fn workspace_index(helper: &Path) -> Value {
 
 fn package(id: &str, aliases: &[&str]) -> Value {
     json!({
-        "id": format!("{id}-project"),
-        "packageId": id,
+        "id": id,
         "aliases": aliases,
-        "softwareVersion": {"source": "native", "value": null, "file": null},
-        "lifecycle": "stable",
-        "deployability": "local-only",
-        "owner": null,
-        "license": {"spdx": "Apache-2.0"},
-        "repositoryId": format!("{id}-repository"),
-        "preset": "generic-v1",
-        "source": {"input": format!("{id}-source"), "root": "."},
-        "targets": {},
-        "resources": {},
-        "executables": {},
-        "launches": {},
-        "compliance": {"bespokeAdapterCount": 0, "warnings": [], "warningCount": 0}
+        "extensions": {}
     })
 }
 
@@ -277,7 +263,7 @@ fn action_task(helper: &Path, result: Value) -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "ActionTask",
-        "interfaceVersion": 2,
+        "interfaceVersion": 3,
         "cwd": "project",
         "argv": [
             helper,
@@ -305,8 +291,17 @@ fn generation_store() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "ActionGenerationStore",
-        "interfaceVersion": 1,
+        "interfaceVersion": 2,
         "root": "state/devel/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "layout": {
+            "apiVersion": "nixspace/v1",
+            "kind": "ActionGenerationLayout",
+            "interfaceVersion": 1,
+            "publicationLock": "locks/publication.lock",
+            "generations": "records",
+            "pointer": "selected.json",
+            "manifest": "record.json"
+        },
         "identity": {
             "apiVersion": "nixspace/v1",
             "kind": "ActionTaskIdentity",
@@ -324,7 +319,10 @@ fn generation_root(fixture: &Fixture, task: &Value) -> PathBuf {
 
 fn active_generation(fixture: &Fixture, task: &Value) -> (Value, Value) {
     let root = generation_root(fixture, task);
-    let current: Value = serde_json::from_slice(&fs::read(root.join("current")).unwrap()).unwrap();
+    let current: Value = serde_json::from_slice(
+        &fs::read(root.join(task["generation"]["layout"]["pointer"].as_str().unwrap())).unwrap(),
+    )
+    .unwrap();
     let manifest: Value = serde_json::from_slice(
         &fs::read(root.join(current["manifest"].as_str().unwrap())).unwrap(),
     )
@@ -529,10 +527,13 @@ fn run_task_accepts_plan_file_and_never_publishes_a_failed_result() {
         .unwrap();
     assert_success(&first);
     let generation_root = generation_root(&fixture, &successful);
-    let prior_current = fs::read(generation_root.join("current")).unwrap();
-    let prior_generation_count = fs::read_dir(generation_root.join("generations"))
-        .unwrap()
-        .count();
+    let layout = successful["generation"]["layout"].clone();
+    let prior_current =
+        fs::read(generation_root.join(layout["pointer"].as_str().unwrap())).unwrap();
+    let prior_generation_count =
+        fs::read_dir(generation_root.join(layout["generations"].as_str().unwrap()))
+            .unwrap()
+            .count();
 
     let mut task = successful;
     task["result"] = json!({"must": "not be written"});
@@ -551,11 +552,11 @@ fn run_task_accepts_plan_file_and_never_publishes_a_failed_result() {
     assert_eq!(output.status.code(), Some(17));
     assert!(!output_path.exists());
     assert_eq!(
-        fs::read(generation_root.join("current")).unwrap(),
+        fs::read(generation_root.join(layout["pointer"].as_str().unwrap())).unwrap(),
         prior_current
     );
     assert_eq!(
-        fs::read_dir(generation_root.join("generations"))
+        fs::read_dir(generation_root.join(layout["generations"].as_str().unwrap()))
             .unwrap()
             .count(),
         prior_generation_count
@@ -622,10 +623,13 @@ fn run_task_validates_then_hashes_every_declared_output_and_publishes_proofs() {
     assert_eq!(outputs[3]["symlinkTarget"], "program");
     assert_eq!(fs::read_to_string(&hash_log).unwrap().lines().count(), 4);
     let generation_root = generation_root(&fixture, &task);
-    let current_before_rejection = fs::read(generation_root.join("current")).unwrap();
-    let generations_before_rejection = fs::read_dir(generation_root.join("generations"))
-        .unwrap()
-        .count();
+    let layout = task["generation"]["layout"].clone();
+    let current_before_rejection =
+        fs::read(generation_root.join(layout["pointer"].as_str().unwrap())).unwrap();
+    let generations_before_rejection =
+        fs::read_dir(generation_root.join(layout["generations"].as_str().unwrap()))
+            .unwrap()
+            .count();
     let (_, manifest) = active_generation(&fixture, &task);
     assert_eq!(manifest["outputs"], result["outputs"]);
     assert_eq!(
@@ -635,7 +639,7 @@ fn run_task_validates_then_hashes_every_declared_output_and_publishes_proofs() {
     let active_directory = generation_root.join(
         manifest["generation"]
             .as_str()
-            .map(|generation| format!("generations/{generation}"))
+            .map(|generation| format!("{}/{generation}", layout["generations"].as_str().unwrap()))
             .unwrap(),
     );
     assert_eq!(
@@ -643,7 +647,9 @@ fn run_task_validates_then_hashes_every_declared_output_and_publishes_proofs() {
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .collect::<Vec<_>>(),
-        vec![std::ffi::OsString::from("manifest.json")],
+        vec![std::ffi::OsString::from(
+            layout["manifest"].as_str().unwrap(),
+        )],
         "generation metadata must point at stable native outputs instead of copying build trees"
     );
 
@@ -665,12 +671,12 @@ fn run_task_validates_then_hashes_every_declared_output_and_publishes_proofs() {
         "hashing began before complete validation"
     );
     assert_eq!(
-        fs::read(generation_root.join("current")).unwrap(),
+        fs::read(generation_root.join(layout["pointer"].as_str().unwrap())).unwrap(),
         current_before_rejection,
         "failed validation replaced the prior active generation"
     );
     assert_eq!(
-        fs::read_dir(generation_root.join("generations"))
+        fs::read_dir(generation_root.join(layout["generations"].as_str().unwrap()))
             .unwrap()
             .count(),
         generations_before_rejection,
@@ -740,7 +746,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "wrong kind",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "SomethingElse", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "SomethingElse", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper],
                 "environment": {}, "environmentPaths": {}, "pathPrefixes": [], "locks": [],
                 "outputs": [],
@@ -751,7 +757,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "empty argv",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [],
                 "environment": {}, "environmentPaths": {}, "pathPrefixes": [], "locks": [],
                 "outputs": [],
@@ -762,7 +768,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "empty argv path",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project",
                 "argv": [fixture.helper, {"path": "", "prefix": "", "suffix": ""}],
                 "environment": {}, "environmentPaths": {}, "pathPrefixes": [], "locks": [],
@@ -774,7 +780,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "invalid environment",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper], "environment": {"BAD=KEY": "value"},
                 "environmentPaths": {}, "pathPrefixes": [], "locks": [],
                 "outputs": [], "generation": generation_store(), "result": {}
@@ -784,7 +790,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "colliding literal and path environment",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper],
                 "environment": {"COLLISION": "literal"},
                 "environmentPaths": {"COLLISION": "artifact.bin"},
@@ -796,7 +802,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "duplicate lock path",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper],
                 "environment": {}, "environmentPaths": {}, "pathPrefixes": [],
                 "locks": ["state/lock", "state/lock"], "outputs": [],
@@ -807,7 +813,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "relative tool path",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper],
                 "environment": {}, "environmentPaths": {},
                 "pathPrefixes": ["relative/bin"], "locks": [], "outputs": [],
@@ -818,7 +824,7 @@ fn run_task_rejects_invalid_contract_before_starting_the_action() {
         (
             "literal path collision",
             json!({
-                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 2,
+                "apiVersion": "nixspace/v1", "kind": "ActionTask", "interfaceVersion": 3,
                 "cwd": "project", "argv": [fixture.helper],
                 "environment": {"PATH": "/literal/bin"},
                 "environmentPaths": {}, "pathPrefixes": ["/profile/bin"], "locks": [],

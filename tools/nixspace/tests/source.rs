@@ -57,6 +57,18 @@ case "$*" in
     [ -d "$path" ] || exit 91
     (cd "$path" && pwd -P)
     ;;
+	  "rev-parse --verify HEAD")
+	    if [ -e "$path/.concurrent-head" ]; then
+	      printf 'fedcba9876543210fedcba9876543210fedcba98\n'
+	    elif [ -e "$path/.head-target" ]; then
+	      printf '89abcdef0123456789abcdef0123456789abcdef\n'
+	    else
+      printf '0123456789abcdef0123456789abcdef01234567\n'
+    fi
+    ;;
+  "rev-parse --verify origin/"*)
+    printf '89abcdef0123456789abcdef0123456789abcdef\n'
+    ;;
   "remote get-url origin")
     cat "$path/.origin"
     ;;
@@ -64,7 +76,11 @@ case "$*" in
     cat "$path/.branch"
     ;;
   "status --porcelain=v1 --untracked-files=normal")
-    [ ! -e "$path/.dirty" ] || cat "$path/.dirty"
+    if [ -e "$path/.dirty" ]; then
+      cat "$path/.dirty"
+    elif [ "${NIXSPACE_TEST_DIRTY_AFTER_CLEAN:-}" = "$path" ] && [ -e "$path/.merged" ]; then
+      : > "$path/.dirty-after-clean-check"
+    fi
     ;;
   "status --short --branch")
     printf '## %s...origin/%s\n' "$(cat "$path/.branch")" "$(cat "$path/.branch")"
@@ -80,9 +96,37 @@ case "$*" in
       exit 1
     fi
     ;;
-  "merge --ff-only origin/"*)
-    : > "$path/.merged"
-    ;;
+	  "merge --ff-only origin/"*)
+	    if [ "${NIXSPACE_TEST_MERGE_FAIL:-}" = "$path" ]; then
+	      : > "$path/.merged"
+	      : > "$path/.head-target"
+      if [ -n "${NIXSPACE_TEST_CONCURRENT_DIRTY:-}" ]; then
+        printf ' M concurrently-edited.txt\n' > "$NIXSPACE_TEST_CONCURRENT_DIRTY/.dirty"
+      fi
+      exit 31
+	    fi
+	    : > "$path/.merged"
+	    : > "$path/.head-target"
+	    ;;
+	  "update-ref HEAD 0123456789abcdef0123456789abcdef01234567 89abcdef0123456789abcdef0123456789abcdef")
+	    if [ "${NIXSPACE_TEST_CONCURRENT_REF:-}" = "$path" ]; then
+	      : > "$path/.concurrent-head"
+	      rm -f "$path/.head-target"
+	      exit 33
+	    fi
+	    [ -e "$path/.head-target" ] || exit 34
+	    rm -f "$path/.head-target"
+	    ;;
+	  "read-tree -m -u 89abcdef0123456789abcdef0123456789abcdef 0123456789abcdef0123456789abcdef01234567")
+	    [ ! -e "$path/.dirty-after-clean-check" ] || exit 32
+	    [ ! -e "$path/.dirty" ] || exit 32
+	    rm -f "$path/.merged"
+	    ;;
+	  "update-ref HEAD 89abcdef0123456789abcdef0123456789abcdef 0123456789abcdef0123456789abcdef01234567")
+	    [ ! -e "$path/.head-target" ] || exit 35
+	    [ ! -e "$path/.concurrent-head" ] || exit 36
+	    : > "$path/.head-target"
+	    ;;
   *)
     printf 'unexpected argv after -C %s: %s\n' "$path" "$*" >&2
     exit 95
@@ -113,7 +157,11 @@ esac
             .env("PATH", std::env::join_paths(paths).unwrap())
             .env("NIXSPACE_TEST_GIT_LOG", &self.log)
             .env_remove("NIXSPACE_TEST_FETCH_FAIL")
-            .env_remove("NIXSPACE_TEST_NON_FF");
+            .env_remove("NIXSPACE_TEST_NON_FF")
+            .env_remove("NIXSPACE_TEST_MERGE_FAIL")
+            .env_remove("NIXSPACE_TEST_CONCURRENT_DIRTY")
+            .env_remove("NIXSPACE_TEST_DIRTY_AFTER_CLEAN")
+            .env_remove("NIXSPACE_TEST_CONCURRENT_REF");
         command
     }
 
@@ -144,6 +192,10 @@ esac
     fn clear_log(&self) {
         let _ = fs::remove_file(&self.log);
     }
+
+    fn journal(&self) -> PathBuf {
+        self.root.join("state/source-update.json")
+    }
 }
 
 impl Drop for Fixture {
@@ -161,8 +213,12 @@ fn source_plan() -> Value {
     json!({
         "apiVersion": "nixspace/v1",
         "kind": "SourceWorkspace",
-        "interfaceVersion": 1,
+            "interfaceVersion": 3,
         "workspaceRoot": ".",
+        "transaction": {
+            "mutationLock": "state/source-mutation.lock",
+            "journal": "state/source-update.json"
+        },
         "repositories": {
             "alpha": repository("alpha", "main"),
             "beta": repository("beta", "main"),
@@ -183,30 +239,75 @@ fn repository(id: &str, branch: &str) -> Value {
     let path = format!("checkouts/{id}");
     let url = format!("https://example.test/{id}.git");
     json!({
-        "id": id,
-        "packages": [id],
-        "path": path,
-        "source": {
-            "input": format!("{id}-source"),
-            "roots": ["."],
-            "locked": {"type": "github", "rev": "0000000000000000000000000000000000000000", "narHash": "sha256-example"}
+    "id": id,
+    "packages": [id],
+    "path": path,
+    "source": {
+        "input": format!("{id}-source"),
+        "roots": ["."],
+        "locked": {"type": "github", "rev": "0000000000000000000000000000000000000000", "narHash": "sha256-example"}
+    },
+    "git": {
+        "url": url,
+        "branch": branch,
+        "clone": {"argv": ["git", "clone", "--origin", "origin", "--branch", branch, "--", url, path]},
+        "status": {"argv": ["git", "-C", path, "status", "--short", "--branch"]},
+        "inspect": {
+            "worktree": {"argv": ["git", "-C", path, "rev-parse", "--show-toplevel"]},
+            "origin": {"argv": ["git", "-C", path, "remote", "get-url", "origin"]},
+            "branch": {"argv": ["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"]},
+            "clean": {"argv": ["git", "-C", path, "status", "--porcelain=v1", "--untracked-files=normal"]},
+            "head": {"argv": ["git", "-C", path, "rev-parse", "--verify", "HEAD"]},
+            "target": {"argv": ["git", "-C", path, "rev-parse", "--verify", format!("origin/{branch}")]}
         },
-        "git": {
-            "url": url,
-            "branch": branch,
-            "clone": {"argv": ["git", "clone", "--origin", "origin", "--branch", branch, "--", url, path]},
-            "status": {"argv": ["git", "-C", path, "status", "--short", "--branch"]},
-            "inspect": {
-                "worktree": {"argv": ["git", "-C", path, "rev-parse", "--show-toplevel"]},
-                "origin": {"argv": ["git", "-C", path, "remote", "get-url", "origin"]},
-                "branch": {"argv": ["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"]},
-                "clean": {"argv": ["git", "-C", path, "status", "--porcelain=v1", "--untracked-files=normal"]}
-            },
-            "fetch": {"argv": ["git", "-C", path, "fetch", "--prune", "origin", branch]},
-            "fastForwardCheck": {"argv": ["git", "-C", path, "merge-base", "--is-ancestor", "HEAD", format!("origin/{branch}")]},
-            "fastForward": {"argv": ["git", "-C", path, "merge", "--ff-only", format!("origin/{branch}")]}
+        "fetch": {"argv": ["git", "-C", path, "fetch", "--prune", "origin", branch]},
+        "fastForwardCheck": {"argv": ["git", "-C", path, "merge-base", "--is-ancestor", "HEAD", format!("origin/{branch}")]},
+        "fastForward": {"argv": ["git", "-C", path, "merge", "--ff-only", format!("origin/{branch}")]},
+            "rollback": {
+                "refUpdate": {"argv": rollback_argv(&path, "update-ref", true)},
+                "worktreeRestore": {"argv": rollback_argv(&path, "read-tree", true)},
+                "refRestore": {"argv": rollback_argv(&path, "update-ref", false)}
+            }
         }
     })
+}
+
+fn rollback_argv(path: &str, operation: &str, forward: bool) -> Value {
+    let mut argv = vec![
+        json!({"kind": "literal", "value": "git"}),
+        json!({"kind": "literal", "value": "-C"}),
+        json!({"kind": "literal", "value": path}),
+    ];
+    match operation {
+        "update-ref" => {
+            argv.extend([
+                json!({"kind": "literal", "value": "update-ref"}),
+                json!({"kind": "literal", "value": "HEAD"}),
+            ]);
+            if forward {
+                argv.extend([
+                    json!({"kind": "old-head"}),
+                    json!({"kind": "expected-current"}),
+                ]);
+            } else {
+                argv.extend([
+                    json!({"kind": "expected-current"}),
+                    json!({"kind": "old-head"}),
+                ]);
+            }
+        }
+        "read-tree" => {
+            argv.extend([
+                json!({"kind": "literal", "value": "read-tree"}),
+                json!({"kind": "literal", "value": "-m"}),
+                json!({"kind": "literal", "value": "-u"}),
+                json!({"kind": "expected-current"}),
+                json!({"kind": "old-head"}),
+            ]);
+        }
+        _ => unreachable!(),
+    }
+    Value::Array(argv)
 }
 
 fn assert_success(output: &Output) {
@@ -347,6 +448,161 @@ fn update_fetch_failure_propagates_without_checks_or_merges() {
 }
 
 #[test]
+fn update_rolls_back_every_attempted_checkout_when_a_later_merge_fails() {
+    let fixture = Fixture::new();
+    for id in ["alpha", "beta", "gamma"] {
+        fixture.create_checkout(id);
+    }
+    let output = fixture
+        .command("update")
+        .arg("application")
+        .env("NIXSPACE_TEST_MERGE_FAIL", "checkouts/beta")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(31));
+    for id in ["alpha", "beta", "gamma"] {
+        assert!(
+            !fixture.checkout(id).join(".merged").exists(),
+            "repository {id} remained partially advanced"
+        );
+    }
+    let log = fixture.log();
+    assert_eq!(log.matches(" update-ref HEAD ").count(), 2);
+    assert_eq!(log.matches(" read-tree -m -u ").count(), 2);
+    assert!(log.contains("checkouts/beta update-ref HEAD"));
+    assert!(log.contains("checkouts/alpha update-ref HEAD"));
+    assert!(!log.contains("git -C checkouts/gamma merge --ff-only"));
+    assert!(!fixture.journal().exists());
+}
+
+#[test]
+fn rollback_refuses_to_destroy_a_concurrent_tracked_edit_and_retains_journal() {
+    let fixture = Fixture::new();
+    for id in ["alpha", "beta", "gamma"] {
+        fixture.create_checkout(id);
+    }
+    let output = fixture
+        .command("update")
+        .arg("application")
+        .env("NIXSPACE_TEST_MERGE_FAIL", "checkouts/beta")
+        .env("NIXSPACE_TEST_CONCURRENT_DIRTY", "checkouts/alpha")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("refusing the conditional rollback"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("manual recovery"), "{stderr}");
+    assert!(fixture.checkout("alpha").join(".merged").exists());
+    assert!(fixture.checkout("alpha").join(".dirty").exists());
+    assert!(!fixture.checkout("beta").join(".merged").exists());
+    assert!(fixture.journal().is_file());
+    let log = fixture.log();
+    assert!(log.contains("checkouts/beta update-ref HEAD"));
+    assert!(!log.contains("checkouts/alpha update-ref HEAD"));
+}
+
+#[test]
+fn nix_declared_conditional_rollback_preserves_an_edit_after_the_clean_check() {
+    let fixture = Fixture::new();
+    for id in ["alpha", "beta", "gamma"] {
+        fixture.create_checkout(id);
+    }
+    let output = fixture
+        .command("update")
+        .arg("application")
+        .env("NIXSPACE_TEST_MERGE_FAIL", "checkouts/beta")
+        .env("NIXSPACE_TEST_DIRTY_AFTER_CLEAN", "checkouts/alpha")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(fixture.checkout("alpha").join(".merged").exists());
+    assert!(fixture
+        .checkout("alpha")
+        .join(".dirty-after-clean-check")
+        .exists());
+    assert!(fixture.journal().is_file());
+    let log = fixture.log();
+    assert!(log.contains("checkouts/alpha read-tree -m -u"));
+    assert!(log.contains(
+        "checkouts/alpha update-ref HEAD 89abcdef0123456789abcdef0123456789abcdef 0123456789abcdef0123456789abcdef01234567"
+    ));
+}
+
+#[test]
+fn rollback_cas_refuses_a_concurrent_clean_commit_and_retains_the_journal() {
+    let fixture = Fixture::new();
+    for id in ["alpha", "beta", "gamma"] {
+        fixture.create_checkout(id);
+    }
+    let output = fixture
+        .command("update")
+        .arg("application")
+        .env("NIXSPACE_TEST_MERGE_FAIL", "checkouts/beta")
+        .env("NIXSPACE_TEST_CONCURRENT_REF", "checkouts/alpha")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("moved away from expected transaction head"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("concurrent ref update"), "{stderr}");
+    assert!(fixture.checkout("alpha").join(".concurrent-head").is_file());
+    assert!(fixture.checkout("alpha").join(".merged").is_file());
+    assert!(fixture.journal().is_file());
+    assert!(!fixture.log().contains("checkouts/alpha read-tree -m -u"));
+}
+
+#[test]
+fn a_durable_journal_recovers_an_interrupted_partial_update_before_sync() {
+    let fixture = Fixture::new();
+    for id in ["alpha", "beta", "gamma"] {
+        fixture.create_checkout(id);
+    }
+    fs::write(fixture.checkout("alpha").join(".merged"), "").unwrap();
+    fs::write(fixture.checkout("alpha").join(".head-target"), "").unwrap();
+    fs::create_dir_all(fixture.journal().parent().unwrap()).unwrap();
+    fs::write(
+        fixture.journal(),
+        serde_json::to_vec(&json!({
+            "interfaceVersion": 1,
+            "repositories": [
+                {
+                    "id": "alpha",
+                    "oldHead": "0123456789abcdef0123456789abcdef01234567",
+                    "targetHead": "89abcdef0123456789abcdef0123456789abcdef"
+                },
+                {
+                    "id": "beta",
+                    "oldHead": "0123456789abcdef0123456789abcdef01234567",
+                    "targetHead": "89abcdef0123456789abcdef0123456789abcdef"
+                }
+            ]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let output = fixture.run("sync", &[]);
+    assert_success(&output);
+    assert!(!fixture.checkout("alpha").join(".merged").exists());
+    assert!(!fixture.checkout("beta").join(".merged").exists());
+    assert!(!fixture.journal().exists());
+    let log = fixture.log();
+    let recovery = log.find(" update-ref HEAD ").unwrap();
+    let sync_inspection = log.rfind(" remote get-url origin").unwrap();
+    assert!(recovery < sync_inspection);
+}
+
+#[test]
 fn exact_package_selection_and_environment_plan_override_are_honored() {
     let fixture = Fixture::new();
     fixture.create_checkout("alpha");
@@ -384,7 +640,7 @@ fn invalid_plan_version_and_duplicate_selection_have_no_fallback() {
     assert!(!version.status.success());
     assert!(String::from_utf8_lossy(&version.stderr).contains("version 2 is unsupported"));
 
-    plan["interfaceVersion"] = json!(1);
+    plan["interfaceVersion"] = json!(3);
     plan["plans"]["all"] = json!(["alpha", "alpha"]);
     fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
     let duplicate = fixture.run("sync", &[]);
@@ -392,6 +648,48 @@ fn invalid_plan_version_and_duplicate_selection_have_no_fallback() {
     assert!(String::from_utf8_lossy(&duplicate.stderr)
         .contains("selection `all` repeats repository `alpha`"));
     assert!(!fixture.log.exists());
+}
+
+#[test]
+fn source_plan_requires_typed_rollback_old_head_and_expected_current_parameters() {
+    let fixture = Fixture::new();
+    let mut plan = source_plan();
+    plan["repositories"]["alpha"]["git"]["rollback"]["refUpdate"]["argv"][5] =
+        json!({"kind": "literal", "value": "not-an-old-head"});
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let output = fixture.run("sync", &["alpha"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("exactly one typed old-head and expected-current parameter"));
+    assert!(!fixture.log.exists());
+}
+
+#[test]
+fn transaction_paths_are_distinct_portable_workspace_files() {
+    let fixture = Fixture::new();
+    for invalid in [
+        ".",
+        "../source.lock",
+        "C:/source.lock",
+        "state\\source.lock",
+    ] {
+        let mut plan = source_plan();
+        plan["transaction"]["mutationLock"] = json!(invalid);
+        fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+        let output = fixture.run("sync", &["alpha"]);
+        assert!(
+            !output.status.success(),
+            "transaction path `{invalid}` was accepted"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("workspace-relative file path"));
+    }
+
+    let mut plan = source_plan();
+    plan["transaction"]["mutationLock"] = plan["transaction"]["journal"].clone();
+    fs::write(&fixture.plan, serde_json::to_vec(&plan).unwrap()).unwrap();
+    let output = fixture.run("sync", &["alpha"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("must be distinct"));
 }
 
 #[test]

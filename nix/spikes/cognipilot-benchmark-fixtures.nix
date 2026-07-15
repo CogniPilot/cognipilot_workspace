@@ -10,6 +10,7 @@ let
   workspaceRoot = ".";
   client = lib.getExe nixspace;
   cognipilotModuleRoot = ../cognipilot;
+  actionGenerationLayout = import ../nixspace/action-generation-layout.nix;
 
   command =
     argv:
@@ -109,7 +110,7 @@ let
   implementationActionPlan = {
     inherit apiVersion;
     kind = "ActionTask";
-    interfaceVersion = 2;
+    interfaceVersion = 3;
     cwd = implementationSource;
     inherit (implementationIdentity)
       argv
@@ -122,8 +123,9 @@ let
     generation = {
       inherit apiVersion;
       kind = "ActionGenerationStore";
-      interfaceVersion = 1;
+      interfaceVersion = 2;
       root = "${implementationState}/generations";
+      layout = actionGenerationLayout;
       identity = {
         inherit apiVersion;
         kind = "ActionTaskIdentity";
@@ -605,9 +607,9 @@ let
   cases = portableCases // linuxCases;
 
   checks = {
-    implementation-plan-v2 =
+    implementation-plan-v3 =
       implementationActionPlan.kind == "ActionTask"
-      && implementationActionPlan.interfaceVersion == 2
+      && implementationActionPlan.interfaceVersion == 3
       && implementationActionPlan.outputs != [ ];
     implementation-generation-is-typed =
       implementationActionPlan.generation.kind == "ActionGenerationStore"

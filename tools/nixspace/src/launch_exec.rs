@@ -20,12 +20,8 @@ use crate::{CliError, Result};
 
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
 const SUPPORTED_KIND: &str = "LaunchExecution";
-const SUPPORTED_INTERFACE_VERSION: u64 = 3;
+const SUPPORTED_INTERFACE_VERSION: u64 = 4;
 const SESSION_KIND: &str = "LaunchSession";
-const METADATA_FILE: &str = "session.json";
-const SOCKET_FILE: &str = "process-compose.sock";
-const LOG_FILE: &str = "processes.log";
-const SESSION_ENVIRONMENT: &str = "NIXSPACE_SESSION_DIR";
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(0);
 static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
@@ -95,7 +91,17 @@ struct LaunchExecutionPlan {
     kind: String,
     interface_version: u64,
     state_root: PathBuf,
+    session_layout: SessionLayout,
     launches: BTreeMap<String, ExecutionLaunch>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SessionLayout {
+    metadata: PathBuf,
+    manager_socket: PathBuf,
+    manager_log: PathBuf,
+    port_allocation_lock: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,6 +180,7 @@ struct ExecutionParameter {
 struct LaunchRunner {
     kind: String,
     working_directory: PathBuf,
+    session_root_environment: String,
     commands: LaunchCommands,
 }
 
@@ -309,7 +316,7 @@ pub(crate) fn up(
                 launch.coordinate, launch.workspace_launch
             ))
         })?;
-    let mut ports = LaunchPorts::acquire(&loaded.state_root)?;
+    let mut ports = LaunchPorts::acquire(&loaded.state_root, &loaded.plan.session_layout)?;
     let assignments = automatic_port_assignments(launch, &arguments.assignments, &mut ports)?;
     let resolved = crate::launch::build_plan(index.interface_version, template, &assignments)
         .map_err(CliError)?;
@@ -327,8 +334,8 @@ pub(crate) fn up(
         let _ = fs::remove_dir_all(&session);
         return Err(error);
     }
-    let socket = session.join(SOCKET_FILE);
-    let log = session.join(LOG_FILE);
+    let socket = session.join(&loaded.plan.session_layout.manager_socket);
+    let log = session.join(&loaded.plan.session_layout.manager_log);
     let working_directory = resolve_working_directory(root, &launch.runner.working_directory)?;
     let commands = RecordedCommands {
         attach: resolve_command(&launch.runner.commands.attach, &socket, &log)?,
@@ -367,7 +374,7 @@ pub(crate) fn up(
             CliError(format!("cannot encode redacted launch resolution: {error}"))
         })?,
     };
-    atomic_json(&session.join(METADATA_FILE), &record)?;
+    atomic_json(&session.join(&loaded.plan.session_layout.metadata), &record)?;
 
     println!("{id}");
     io::stdout()
@@ -376,7 +383,7 @@ pub(crate) fn up(
     let mut manager = exact_command(&command, &working_directory)?;
     manager
         .envs(&environment)
-        .env(SESSION_ENVIRONMENT, &session);
+        .env(&launch.runner.session_root_environment, &session);
     ports.release_sockets();
     if arguments.detach {
         let status = manager
@@ -406,7 +413,7 @@ pub(crate) fn sessions(root: &Path, explicit_plan: Option<PathBuf>) -> Result<Ou
         })?
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
-        .filter_map(|entry| read_session_at(&entry.path()).ok())
+        .filter_map(|entry| read_session_at(&entry.path(), &loaded.plan.session_layout).ok())
         .collect::<Vec<_>>();
     records.sort_by(|left, right| left.id.cmp(&right.id));
     for record in records {
@@ -445,7 +452,7 @@ pub(crate) fn readiness(
             if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 continue;
             }
-            match read_session_at(&entry.path()) {
+            match read_session_at(&entry.path(), &loaded.plan.session_layout) {
                 Ok(record) => records.push(record),
                 Err(error) => errors.push(error.0),
             }
@@ -679,14 +686,14 @@ impl Drop for PendingSession {
 }
 
 impl LaunchPorts {
-    fn acquire(state_root: &Path) -> Result<Self> {
+    fn acquire(state_root: &Path, layout: &SessionLayout) -> Result<Self> {
         fs::create_dir_all(state_root).map_err(|error| {
             CliError(format!(
                 "cannot create Nix-selected launch state root at {}: {error}",
                 state_root.display()
             ))
         })?;
-        let lock_path = state_root.join(".port-allocation.lock");
+        let lock_path = state_root.join(&layout.port_allocation_lock);
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
@@ -720,11 +727,11 @@ impl LaunchPorts {
             if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
                 continue;
             }
-            let metadata = entry.path().join(METADATA_FILE);
+            let metadata = entry.path().join(&layout.metadata);
             if !metadata.exists() {
                 continue;
             }
-            let record = read_session_at(&entry.path())?;
+            let record = read_session_at(&entry.path(), layout)?;
             for claim in session_port_claims(&record) {
                 claimed.insert((claim.host.unwrap_or_else(|| "127.0.0.1".into()), claim.port));
             }
@@ -946,7 +953,7 @@ pub(crate) fn session_command(
     validate_session_id(&arguments.session)?;
     let loaded = load(root, explicit_plan)?;
     let directory = loaded.state_root.join(&arguments.session);
-    let record = read_session_at(&directory)?;
+    let record = read_session_at(&directory, &loaded.plan.session_layout)?;
     if record.id != arguments.session {
         return Err(CliError(format!(
             "launch session metadata ID `{}` does not match requested session `{}`",
@@ -1144,6 +1151,23 @@ fn validate_plan(plan: &LaunchExecutionPlan) -> Result<()> {
             "launch execution stateRoot must be a nonempty safe workspace-relative path".into(),
         ));
     }
+    let session_layout = [
+        ("metadata", &plan.session_layout.metadata),
+        ("managerSocket", &plan.session_layout.manager_socket),
+        ("managerLog", &plan.session_layout.manager_log),
+        (
+            "portAllocationLock",
+            &plan.session_layout.port_allocation_lock,
+        ),
+    ];
+    let mut layout_names = BTreeSet::new();
+    for (name, path) in session_layout {
+        if !portable_leaf(path) || !layout_names.insert(path) {
+            return Err(CliError(format!(
+                "launch execution sessionLayout `{name}` must be a distinct safe portable leaf name"
+            )));
+        }
+    }
     for (key, launch) in &plan.launches {
         if key != &launch.workspace_launch
             || launch.coordinate.is_empty()
@@ -1157,6 +1181,11 @@ fn validate_plan(plan: &LaunchExecutionPlan) -> Result<()> {
             return Err(CliError(format!(
                 "launch `{key}` runner kind `{}` is unsupported; expected `devenv-process-compose`",
                 launch.runner.kind
+            )));
+        }
+        if !valid_environment_name(&launch.runner.session_root_environment) {
+            return Err(CliError(format!(
+                "launch `{key}` runner sessionRootEnvironment must be a valid environment name"
             )));
         }
         let mut declared_ports = BTreeSet::new();
@@ -1253,7 +1282,7 @@ fn validate_plan(plan: &LaunchExecutionPlan) -> Result<()> {
         }
         for (environment, binding) in &launch.session_environment {
             if !valid_environment_name(environment)
-                || environment == SESSION_ENVIRONMENT
+                || environment == &launch.runner.session_root_environment
                 || launch.parameters.contains_key(environment)
                 || !portable_relative(&binding.path)
             {
@@ -1450,8 +1479,8 @@ fn validate_session_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_session_at(directory: &Path) -> Result<SessionRecord> {
-    let path = directory.join(METADATA_FILE);
+fn read_session_at(directory: &Path, layout: &SessionLayout) -> Result<SessionRecord> {
+    let path = directory.join(&layout.metadata);
     let bytes = fs::read(&path).map_err(|error| {
         CliError(format!(
             "launch session metadata is unavailable at {}: {error}",
@@ -1580,6 +1609,16 @@ fn portable_relative(path: &Path) -> bool {
         && path
             .components()
             .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn portable_leaf(path: &Path) -> bool {
+    portable_relative(path)
+        && path.components().count() == 1
+        && path.to_str().is_some_and(|value| {
+            value
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "._-".contains(character))
+        })
 }
 
 fn valid_environment_name(name: &str) -> bool {

@@ -19,9 +19,8 @@
   };
 
   inputs = {
-    # Devenv's official flake-parts integration reads an overrideable root
-    # file. Direnv supplies the real absolute workspace path at the atomic
-    # flake cutover; /dev/null keeps the committed input host-independent.
+    # Direnv overrides this empty, host-independent file with a generated
+    # absolute workspace root. Pure consumers fall back to self.outPath.
     devenv-root = {
       url = "file+file:///dev/null";
       flake = false;
@@ -139,7 +138,7 @@
     in
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
-        inputs.devenv.flakeModules.default
+        ./nix/cognipilot/devenv-flake-module.nix
         ./nix/cognipilot/flake-module.nix
         ./nix/cognipilot/product-flake-module.nix
         ./nix/cognipilot/compliance-flake-module.nix
@@ -177,6 +176,10 @@
       ];
 
       cognipilot.product.name = "cognipilot-development";
+      # This public composition may retain private/local projects in its
+      # editable catalog, but its immutable product, SBOM and attestations are
+      # projections of public projects only.
+      cognipilot.product.promotionVisibilities = [ "public" ];
       cognipilot.workspacePolicy.source = ./.;
       # This is a public CogniPilot product.  The explicitly private FastDyn
       # integration remains available for opted-in local development, but it
@@ -270,6 +273,114 @@
             nixspace = config.packages.nixspace;
             devenvSource = inputs.devenv;
           };
+          # The contract check runs Nix with a private writable store so it can
+          # evaluate fixtures without daemon access.  A build sandbox exposes
+          # only declared derivation inputs, so retain the complete source graph
+          # of every public root input explicitly.  Do not make the private
+          # FastDyn integration a build-time dependency of the public cache
+          # root merely to seed that nested store.
+          contractExcludedInputNames = [
+            "fastdyn_definition"
+            "fastdyn_source"
+          ];
+          contractFlakeInputNames = builtins.filter (
+            name: name != "self" && !(builtins.elem name contractExcludedInputNames)
+          ) (builtins.attrNames inputs);
+          contractInputNode = input: {
+            key = toString input.outPath;
+            value = input;
+          };
+          contractFlakeInputClosure = builtins.genericClosure {
+            startSet = map contractInputNode (
+              builtins.filter (
+                input: builtins.isAttrs input && input ? outPath
+              ) (map (name: inputs.${name}) contractFlakeInputNames)
+            );
+            operator = node:
+              if builtins.isAttrs node.value && node.value ? inputs then
+                map contractInputNode (
+                  builtins.filter (
+                    input: builtins.isAttrs input && input ? outPath
+                  ) (builtins.attrValues node.value.inputs)
+                )
+              else
+                [ ];
+          };
+          # Relative path inputs live inside `self` and are available when that
+          # source is copied into a fixture. Import only independently addressed
+          # top-level store paths into the nested store.
+          contractFlakeInputSources = map (node: node.value.outPath) (
+            builtins.filter (
+              node:
+              builtins.match "^${builtins.storeDir}/[^/]+$" (toString node.value.outPath) != null
+            ) contractFlakeInputClosure
+          );
+          contractStoreName = source:
+            let
+              match = builtins.match "^[^-]+-(.+)$" (builtins.baseNameOf (toString source));
+            in
+            if match == null then
+              throw "contract flake input is not a named Nix store path: ${toString source}"
+            else
+              builtins.head match;
+          contractTestSelections =
+            [
+              "tests.test_cognipilot_compliance"
+              "tests.test_cognipilot_flake_module"
+              "tests.test_cognipilot_launch_ir"
+              "tests.test_cognipilot_package_metadata"
+              "tests.test_cognipilot_resolution"
+              "tests.test_cognipilot_resources"
+              "tests.test_cognipilot_source_workspace"
+              "tests.test_ci_cache_policy"
+              "tests.test_nixspace_generic"
+              "tests.test_workspace_policy"
+            ];
+          contractTests =
+            pkgs.runCommand "cognipilot-python-contract-tests"
+              {
+                # This value is deliberately unused by the command. Its string
+                # contexts are the sandbox/source-availability contract for the
+                # nested offline Nix store described above.
+                inherit contractFlakeInputSources;
+                source = inputs.self;
+                passthru = {
+                  inherit
+                    contractExcludedInputNames
+                    contractFlakeInputNames
+                    contractFlakeInputSources
+                    ;
+                };
+              }
+              ''
+                export PATH=${lib.makeBinPath [
+                  pkgs.git
+                  pkgs.nix
+                  pkgs.python3
+                ]}:$PATH
+                export HOME="$TMPDIR/home"
+                export NIX_CONFIG="experimental-features = nix-command flakes"
+                export NIX_PATH=nixpkgs=${inputs.nixpkgs}
+                export NIX_REMOTE="local?root=$TMPDIR/nix-store"
+                mkdir -p "$HOME"
+                # Merely mounting a source in the build sandbox does not register
+                # it in this separate store. Import each exact public flake input
+                # under its original store name so locked offline fetches resolve
+                # without network access or the host daemon.
+                ${lib.concatMapStringsSep "\n" (source: ''
+                  imported="$(${lib.getExe pkgs.nix} store add \
+                    --store "$NIX_REMOTE" --mode nar \
+                    --name ${lib.escapeShellArg (contractStoreName source)} \
+                    ${lib.escapeShellArg (toString source)})"
+                  if [ "$imported" != ${lib.escapeShellArg (toString source)} ]; then
+                    echo "nested store imported $imported instead of ${toString source}" >&2
+                    exit 1
+                  fi
+                '') contractFlakeInputSources}
+                cd "$source"
+                python -m unittest -q ${lib.escapeShellArgs contractTestSelections}
+                touch "$out"
+              '';
           cachedQuery =
             {
               coordinate,
@@ -304,6 +415,8 @@
             };
         in
         {
+          checks.cognipilot-contract-tests = contractTests;
+
           nixspace.benchmark = {
             enable = true;
             id = "cognipilot-lightweight-client-v1";
@@ -537,6 +650,7 @@
         compliance = ./nix/cognipilot/compliance-flake-module.nix;
         contract = ./nix/cognipilot/flake-module.nix;
         devenvLaunches = ./nix/cognipilot/devenv-launch-module.nix;
+        devenv = ./nix/cognipilot/devenv-flake-module.nix;
         devenvTasks = ./nix/cognipilot/devenv-task-module.nix;
         devenvWorkspace = ./nix/cognipilot/devenv-workspace-module.nix;
         resolution = ./nix/cognipilot/resolution-module.nix;
@@ -559,7 +673,7 @@
         };
         productRoot = {
           imports = [
-            inputs.devenv.flakeModules.default
+            ./nix/cognipilot/devenv-flake-module.nix
             ./nix/cognipilot/flake-module.nix
             ./nix/cognipilot/product-flake-module.nix
             ./nix/cognipilot/compliance-flake-module.nix

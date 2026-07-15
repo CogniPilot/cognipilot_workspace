@@ -76,7 +76,7 @@ let
 in
 assert plan.apiVersion == "nixspace/v1";
 assert plan.kind == "WestWorkspace";
-assert plan.interfaceVersion == 1;
+assert plan.interfaceVersion == 2;
 assert
   plan.product == {
     id = "demo-product";
@@ -98,19 +98,30 @@ assert
   ];
 assert
   plan.cache == {
-    layoutVersion = 1;
+    layoutVersion = 2;
     namespace = "demo-product";
     root = {
       base = "platform-cache";
-      path = "nixspace/demo-product";
+      path = "nixspace";
     };
     narrowUpdate = true;
     nativePathCache = true;
+    paths = {
+      generations = "demo-product/west/workspaces/${plan.workspace.contentKey}/generations";
+      generationGcRoot = "locked";
+      current = "demo-product/west/workspaces/${plan.workspace.contentKey}/current.json";
+      publicationLock = "demo-product/west/locks/${plan.workspace.contentKey}.lock";
+    };
+  };
+assert
+  plan.localView.paths == {
+    generations = "demo-product/${plan.workspace.contentKey}/${plan.localView.policyId}/generations";
+    executionLock = "demo-product/${plan.workspace.contentKey}/${plan.localView.policyId}/execution.lock";
   };
 assert
   plan.localView.root == {
     base = "workspace";
-    path = ".devenv/state/nixspace/west/views";
+    path = ".nixspace/state/west/views";
   };
 assert !unsafeResult.success;
 assert !injectedConfigResult.success;

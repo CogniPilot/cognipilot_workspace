@@ -55,6 +55,9 @@ class CognipilotComplianceTests(unittest.TestCase):
                     flake.nixspaceIndex = lib.mkOption {{
                       type = lib.types.attrs;
                     }};
+                    flake.cognipilotIndex = lib.mkOption {{
+                      type = lib.types.attrs;
+                    }};
                   }};
                 }}
                 {FIXTURES / "valid.nix"}
@@ -94,8 +97,10 @@ class CognipilotComplianceTests(unittest.TestCase):
           in {{
             checks = builtins.attrNames system.config.checks;
             indexMatches =
-              root.config.flake.nixspaceIndex
-              == root.config.cognipilot.validatedIndex;
+              root.config.flake.cognipilotIndex
+              == root.config.cognipilot.validatedIndex
+              && root.config.flake.nixspaceIndex
+              == root.config.cognipilot.nixspaceIndex;
           }}
         """
         return subprocess.run(

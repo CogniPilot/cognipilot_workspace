@@ -53,6 +53,12 @@ jobs:
       - name: Evaluate the versioned workspace interface
         run: nix eval --accept-flake-config --raw .#nixspaceIndex.kind
 
+      # Evaluate every conventional output for the native system. `--no-build`
+      # keeps this bounded while catching unusable packages or shells that a
+      # hand-selected aggregate root would otherwise hide.
+      - name: Evaluate the complete native flake surface
+        run: nix flake check --accept-flake-config --no-build
+
       - name: Evaluate the system public workspace root
         run: >-
           nix eval --accept-flake-config --raw
@@ -111,6 +117,17 @@ jobs:
           result-public-cache-root/sccache-tools/sccache/bin/sccache
           --show-stats --stats-format json > sccache-cold.json
 
+      # Force the replay through a fresh local server. A warm hit can therefore
+      # only come from the configured GHA backend, not the first server's
+      # in-memory state.
+      - name: Restart sccache before backend replay
+        if: matrix.system == 'x86_64-linux'
+        env:
+          SCCACHE_DIR: ${{ github.workspace }}/.nixspace/state/sccache
+          SCCACHE_GHA_ENABLED: "true"
+          SCCACHE_GHA_VERSION: cognipilot-v1
+        run: result-public-cache-root/sccache-tools/sccache/bin/sccache --stop-server
+
       - name: Clean the sccache pilot fixture before replay
         if: matrix.system == 'x86_64-linux'
         run: >-
@@ -140,10 +157,10 @@ jobs:
       - name: Require an sccache miss-to-hit transition
         if: matrix.system == 'x86_64-linux'
         run: >-
-          result-public-cache-root/sccache-tools/jq/bin/jq -e
-          '([.stats.cache_misses.counts[]] | add // 0) > 0 and
-          ([.stats.cache_hits.counts[]] | add // 0) > 0'
-          sccache-warm.json
+          result-public-cache-root/sccache-tools/jq/bin/jq -s -e
+          '([.[0].stats.cache_misses.counts[]] | add // 0) > 0 and
+          ([.[1].stats.cache_hits.counts[]] | add // 0) > 0'
+          sccache-cold.json sccache-warm.json
 
       - name: Retain sccache pilot evidence
         if: matrix.system == 'x86_64-linux' && always() && hashFiles('sccache-warm.json') != ''
@@ -279,6 +296,10 @@ jobs:
       # ultimately trusted/content-addressed path) and exits nonzero on an
       # untrusted path. Verbose output is retained with the exact closure.
       - name: Verify closure trust against the declared cache union
+        # GitHub's implicit `bash -e` shell returns `tee`'s status for a
+        # pipeline. Selecting Bash explicitly enables `-o pipefail`, so a
+        # failed signature verification can never be recorded as a pass.
+        shell: bash
         run: >-
           nix store verify --recursive --no-contents --sigs-needed 1 --verbose
           --substituter https://cache.nixos.org

@@ -20,7 +20,9 @@ cargo install nixspace
 A workspace wrapper supplies the exact generated index and auxiliary plan
 paths through CLI options or environment variables. `nixspace` assigns no
 flake output names or workspace state paths itself. The index top-level
-`interfaceVersion` is `1`.
+`interfaceVersion` is `2`. Its package catalog has only the reusable core
+`{ id, aliases, extensions }`; provider policy belongs under an explicit
+`reverse.domain/name` extension key and remains opaque to `nixspace`.
 
 ```console
 NIXSPACE_INDEX=/nix/store/.../share/nixspace/index.json nixspace package list
@@ -109,7 +111,7 @@ hit advertises a size for one or more covered paths. Actual transferred bytes
 remain unknown because stable Nix inventory JSON does not observe an earlier
 transfer.
 
-An optional versioned `SourceWorkspace` plan supplies editable checkout paths,
+An optional strict `SourceWorkspace` v3 plan supplies editable checkout paths,
 package selections, repository identity expectations, and every Git argv:
 
 ```console
@@ -181,7 +183,16 @@ custom build cache or skip native tasks.
 `nixspace west exec -- WEST_ARGS...` invokes the Nix-selected West executable;
 `nixspace west run [--cwd RELATIVE] -- ARGV...` invokes another exact external
 command in the materialized local West view. The optional working directory is
-validated as a local-view-relative path.
+validated as a local-view-relative path. Native West updates happen only in a
+private staging tree, which is validated and ingested into the Nix store using
+the exact versioned argv emitted by Nix. That one command installs the sealed
+checkout and its final generation GC root before it exits, so no unrooted
+store-path window exists. Non-overridden local projects link to the canonical
+store path. Exec, run, and local-path lookup hold an exclusive view lease and
+verify or reconstruct the managed projection before exposing it. Persistent cache/view
+paths and the indexed environment protocol for trusting exact sealed project
+paths are Nix plan data; nixspace does not mutate user-global Git
+configuration.
 
 Local path flakes must have tracked `flake.nix`, `flake.lock`, and cleanly
 Git-filtered local path inputs before refresh. Remote flake references are

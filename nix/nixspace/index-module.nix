@@ -22,8 +22,8 @@ let
       throw "nixspace.index.apiVersion must be `nixspace/v1`"
     else if document.kind != "Workspace" then
       throw "nixspace.index.kind must be `Workspace`"
-    else if (document.interfaceVersion or null) != 1 then
-      throw "nixspace.index.interfaceVersion must be 1"
+    else if (document.interfaceVersion or null) != 2 then
+      throw "nixspace.index.interfaceVersion must be 2"
     else
       document;
 in
@@ -62,7 +62,7 @@ in
             }
             ''
               nixspace --index ${indexPackage}/share/nixspace/index.json package list --json \
-                | jq -e '.interfaceVersion == 1 and .count == (.packages | length)' >/dev/null
+                | jq -e '.interfaceVersion == 2 and .count == (.packages | length)' >/dev/null
               nixspace --index ${indexPackage}/share/nixspace/index.json graph --json \
                 | jq -e '(.nodes | type) == "array" and (.edges | type) == "array"' >/dev/null
               touch "$out"

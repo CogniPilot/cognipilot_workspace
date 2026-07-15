@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 
 use clap::Args;
+use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -14,11 +15,11 @@ use crate::{CliError, Result};
 
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
 const SUPPORTED_KIND: &str = "SourceWorkspace";
-const SUPPORTED_INTERFACE_VERSION: u64 = 1;
+const SUPPORTED_INTERFACE_VERSION: u64 = 3;
 
 #[derive(Debug, Args)]
 pub(crate) struct SelectionArgs {
-    /// Select the public default, one exact package closure, or all repositories.
+    /// Select the Nix-declared default, one exact package closure, or all repositories.
     #[arg(value_name = "default|PACKAGE|all", default_value = "default")]
     selector: String,
 }
@@ -30,8 +31,16 @@ struct SourcePlan {
     kind: String,
     interface_version: u64,
     workspace_root: PathBuf,
+    transaction: TransactionPaths,
     repositories: BTreeMap<String, Repository>,
     plans: Selections,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransactionPaths {
+    mutation_lock: PathBuf,
+    journal: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -63,6 +72,7 @@ struct GitPlan {
     fetch: GitCommand,
     fast_forward_check: GitCommand,
     fast_forward: GitCommand,
+    rollback: RollbackCommand,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +82,8 @@ struct GitInspect {
     origin: GitCommand,
     branch: GitCommand,
     clean: GitCommand,
+    head: GitCommand,
+    target: GitCommand,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,9 +92,56 @@ struct GitCommand {
     argv: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RollbackCommand {
+    ref_update: RollbackCommandTemplate,
+    worktree_restore: RollbackCommandTemplate,
+    ref_restore: RollbackCommandTemplate,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RollbackCommandTemplate {
+    argv: Vec<RollbackArgument>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum RollbackArgument {
+    Literal { value: String },
+    OldHead,
+    ExpectedCurrent,
+}
+
 struct Loaded {
     plan: SourcePlan,
     workspace: PathBuf,
+}
+
+impl Loaded {
+    fn mutation_lock(&self) -> PathBuf {
+        self.workspace.join(&self.plan.transaction.mutation_lock)
+    }
+
+    fn transaction_journal(&self) -> PathBuf {
+        self.workspace.join(&self.plan.transaction.journal)
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateJournal {
+    interface_version: u64,
+    repositories: Vec<UpdateJournalRepository>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateJournalRepository {
+    id: String,
+    old_head: String,
+    target_head: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +249,8 @@ pub(crate) fn sync(
 ) -> Result<Outcome> {
     let loaded = load(root, explicit_plan)?;
     let repositories = select(&loaded.plan, &arguments.selector)?;
+    let _lock = SourceMutationLock::acquire(&loaded.mutation_lock())?;
+    recover_interrupted_update(&loaded)?;
     let mut missing = Vec::new();
     let mut preflight_errors = Vec::new();
 
@@ -285,6 +346,8 @@ pub(crate) fn update(
 ) -> Result<Outcome> {
     let loaded = load(root, explicit_plan)?;
     let repositories = select(&loaded.plan, &arguments.selector)?;
+    let _lock = SourceMutationLock::acquire(&loaded.mutation_lock())?;
+    recover_interrupted_update(&loaded)?;
 
     // Phase 1: nothing networked or mutable happens until every repository is
     // proven to be the exact clean worktree declared by Nix.
@@ -333,18 +396,527 @@ pub(crate) fn update(
         return Err(CliError(non_fast_forward.join("\n")));
     }
 
-    // Phase 4: execute the exact Nix-emitted ff-only commands.
-    for repository in repositories {
-        let status = run_streaming(
+    // Fetch and fast-forward checks can run arbitrary hooks and take time.
+    // Revalidate every checkout while still holding the workspace mutation
+    // lock immediately before capturing the rollback boundary.
+    let mut revalidation_errors = Vec::new();
+    for repository in &repositories {
+        let path = repository_path(&loaded.workspace, repository);
+        if let Err(error) = inspect_identity(&loaded.workspace, repository, &path, true) {
+            revalidation_errors.push(error.0);
+        }
+    }
+    if !revalidation_errors.is_empty() {
+        return Err(CliError(format!(
+            "source selection changed during update preflight; no checkout was advanced:\n{}",
+            revalidation_errors.join("\n")
+        )));
+    }
+
+    let heads = repositories
+        .iter()
+        .map(|repository| capture_head(&loaded.workspace, repository))
+        .collect::<Result<Vec<_>>>()?;
+    let targets = repositories
+        .iter()
+        .map(|repository| {
+            capture_command(
+                &loaded.workspace,
+                repository,
+                &repository.git.inspect.target,
+                "fetched target head",
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    write_update_journal(
+        &loaded.transaction_journal(),
+        &repositories,
+        &heads,
+        &targets,
+    )?;
+
+    // Phase 4: execute the exact Nix-emitted ff-only commands. If any command
+    // fails, restore every checkout that may have been touched to its captured
+    // clean head before returning.
+    for (index, repository) in repositories.iter().enumerate() {
+        let result = run_streaming(
             &repository.git.fast_forward,
             &loaded.workspace,
             "fast-forward",
-        )?;
-        if !status.success() {
-            return Ok(Outcome::Exit(status.code().unwrap_or(1)));
+        );
+        match result {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                let rollback_errors = rollback_heads(
+                    &loaded.workspace,
+                    &repositories[..=index],
+                    &heads[..=index],
+                    &targets[..=index],
+                );
+                if rollback_errors.is_empty() {
+                    remove_update_journal(&loaded.transaction_journal())?;
+                    return Ok(Outcome::Exit(status.code().unwrap_or(1)));
+                }
+                return Err(CliError(format!(
+                    "source fast-forward failed with {status}; rollback was incomplete:\n{}",
+                    rollback_errors.join("\n")
+                )));
+            }
+            Err(error) => {
+                let rollback_errors = rollback_heads(
+                    &loaded.workspace,
+                    &repositories[..=index],
+                    &heads[..=index],
+                    &targets[..=index],
+                );
+                if rollback_errors.is_empty() {
+                    remove_update_journal(&loaded.transaction_journal())?;
+                    return Err(CliError(format!(
+                        "{}; every attempted checkout was restored",
+                        error.0
+                    )));
+                }
+                return Err(CliError(format!(
+                    "{}; rollback was incomplete:\n{}",
+                    error.0,
+                    rollback_errors.join("\n")
+                )));
+            }
         }
     }
+
+    let mut postflight_errors = Vec::new();
+    for repository in &repositories {
+        let path = repository_path(&loaded.workspace, repository);
+        if let Err(error) = inspect_identity(&loaded.workspace, repository, &path, true) {
+            postflight_errors.push(error.0);
+        }
+    }
+    for ((repository, expected), actual) in repositories.iter().zip(&targets).zip(
+        repositories
+            .iter()
+            .map(|repository| capture_head(&loaded.workspace, repository)),
+    ) {
+        match actual {
+            Ok(actual) if &actual == expected => {}
+            Ok(actual) => postflight_errors.push(format!(
+                "repository `{}` ended at `{actual}` instead of fetched target `{expected}`",
+                repository.id
+            )),
+            Err(error) => postflight_errors.push(error.0),
+        }
+    }
+    if !postflight_errors.is_empty() {
+        let rollback_errors = rollback_heads(&loaded.workspace, &repositories, &heads, &targets);
+        let mut diagnostic = format!(
+            "source update postflight failed; all checkouts were rolled back:\n{}",
+            postflight_errors.join("\n")
+        );
+        if !rollback_errors.is_empty() {
+            diagnostic.push_str("\nrollback was incomplete:\n");
+            diagnostic.push_str(&rollback_errors.join("\n"));
+        } else if let Err(error) = remove_update_journal(&loaded.transaction_journal()) {
+            diagnostic.push_str("\nrollback completed but its journal could not be removed:\n");
+            diagnostic.push_str(&error.0);
+        }
+        return Err(CliError(diagnostic));
+    }
+    remove_update_journal(&loaded.transaction_journal())?;
     Ok(Outcome::Success)
+}
+
+struct SourceMutationLock(File);
+
+impl SourceMutationLock {
+    fn acquire(path: &Path) -> Result<Self> {
+        let parent = path.parent().expect("validated lock path has a parent");
+        fs::create_dir_all(parent).map_err(|error| {
+            CliError(format!(
+                "cannot create source workspace lock directory {}: {error}",
+                parent.display()
+            ))
+        })?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|error| {
+                CliError(format!(
+                    "cannot open source workspace lock {}: {error}",
+                    path.display()
+                ))
+            })?;
+        FileExt::lock(&file).map_err(|error| {
+            CliError(format!(
+                "cannot acquire source workspace lock {}: {error}",
+                path.display()
+            ))
+        })?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for SourceMutationLock {
+    fn drop(&mut self) {
+        let _ = FileExt::unlock(&self.0);
+    }
+}
+
+fn capture_head(workspace: &Path, repository: &Repository) -> Result<String> {
+    capture_command(
+        workspace,
+        repository,
+        &repository.git.inspect.head,
+        "rollback head",
+    )
+}
+
+fn capture_command(
+    workspace: &Path,
+    repository: &Repository,
+    command: &GitCommand,
+    description: &str,
+) -> Result<String> {
+    let output = run_captured(command, workspace, "rollback-boundary inspection")?;
+    if !output.status.success() {
+        return Err(CliError(format!(
+            "repository `{}` cannot capture its {description}: {}",
+            repository.id,
+            failure_detail(&output)
+        )));
+    }
+    let head = output_line(&output, &repository.id, description)?;
+    if !(40..=64).contains(&head.len()) || !head.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(CliError(format!(
+            "repository `{}` returned an invalid {description} `{head}`",
+            repository.id
+        )));
+    }
+    Ok(head.to_owned())
+}
+
+fn write_update_journal(
+    path: &Path,
+    repositories: &[&Repository],
+    heads: &[String],
+    targets: &[String],
+) -> Result<()> {
+    let journal = UpdateJournal {
+        interface_version: 1,
+        repositories: repositories
+            .iter()
+            .zip(heads)
+            .zip(targets)
+            .map(
+                |((repository, old_head), target_head)| UpdateJournalRepository {
+                    id: repository.id.clone(),
+                    old_head: old_head.clone(),
+                    target_head: target_head.clone(),
+                },
+            )
+            .collect(),
+    };
+    let mut contents = serde_json::to_vec_pretty(&journal)
+        .map_err(|error| CliError(format!("cannot encode source update journal: {error}")))?;
+    contents.push(b'\n');
+    let parent = path.parent().expect("validated journal path has a parent");
+    fs::create_dir_all(parent).map_err(|error| {
+        CliError(format!(
+            "cannot create source transaction journal directory {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary).map_err(|error| {
+        CliError(format!(
+            "cannot create source update journal staging file {}: {error}",
+            temporary.display()
+        ))
+    })?;
+    use std::io::Write;
+    file.write_all(&contents)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| {
+            let _ = fs::remove_file(&temporary);
+            CliError(format!("cannot persist source update journal: {error}"))
+        })?;
+    drop(file);
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        CliError(format!(
+            "cannot publish source update journal {}: {error}",
+            path.display()
+        ))
+    })?;
+    sync_transaction_directory(parent)
+}
+
+fn remove_update_journal(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => sync_transaction_directory(path.parent().expect("journal path has parent")),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(CliError(format!(
+            "cannot remove completed source update journal {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+#[cfg(unix)]
+fn sync_transaction_directory(path: &Path) -> Result<()> {
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| {
+            CliError(format!(
+                "cannot durably synchronize source transaction directory {}: {error}",
+                path.display()
+            ))
+        })
+}
+
+#[cfg(not(unix))]
+fn sync_transaction_directory(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn recover_interrupted_update(loaded: &Loaded) -> Result<()> {
+    let path = loaded.transaction_journal();
+    let contents = match fs::read(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(CliError(format!(
+                "cannot read interrupted source update journal {}: {error}",
+                path.display()
+            )))
+        }
+    };
+    let journal: UpdateJournal = serde_json::from_slice(&contents).map_err(|error| {
+        CliError(format!(
+            "interrupted source update journal {} is unreadable: {error}",
+            path.display()
+        ))
+    })?;
+    if journal.interface_version != 1 || journal.repositories.is_empty() {
+        return Err(CliError(
+            "interrupted source update journal has an unsupported interface or no repositories"
+                .into(),
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    let mut repositories = Vec::with_capacity(journal.repositories.len());
+    let mut observed = Vec::with_capacity(journal.repositories.len());
+    for entry in &journal.repositories {
+        if !seen.insert(entry.id.as_str())
+            || !valid_object_id(&entry.old_head)
+            || !valid_object_id(&entry.target_head)
+        {
+            return Err(CliError(
+                "interrupted source update journal contains duplicate repositories or invalid object IDs"
+                    .into(),
+            ));
+        }
+        let repository = loaded.plan.repositories.get(&entry.id).ok_or_else(|| {
+            CliError(format!(
+                "interrupted source update references repository `{}` missing from the current Nix plan",
+                entry.id
+            ))
+        })?;
+        let repository_path = repository_path(&loaded.workspace, repository);
+        inspect_identity(&loaded.workspace, repository, &repository_path, true)?;
+        observed.push(capture_head(&loaded.workspace, repository)?);
+        repositories.push(repository);
+    }
+    let all_old = observed
+        .iter()
+        .zip(&journal.repositories)
+        .all(|(actual, entry)| actual == &entry.old_head);
+    let all_target = observed
+        .iter()
+        .zip(&journal.repositories)
+        .all(|(actual, entry)| actual == &entry.target_head);
+    if all_old || all_target {
+        return remove_update_journal(&path);
+    }
+    let recognized = observed
+        .iter()
+        .zip(&journal.repositories)
+        .all(|(actual, entry)| actual == &entry.old_head || actual == &entry.target_head);
+    if !recognized {
+        return Err(CliError(
+            "interrupted source update found a checkout at neither its old nor target head; refusing destructive recovery"
+                .into(),
+        ));
+    }
+    let old_heads = journal
+        .repositories
+        .iter()
+        .map(|entry| entry.old_head.clone())
+        .collect::<Vec<_>>();
+    let target_heads = journal
+        .repositories
+        .iter()
+        .map(|entry| entry.target_head.clone())
+        .collect::<Vec<_>>();
+    let errors = rollback_heads(&loaded.workspace, &repositories, &old_heads, &target_heads);
+    if errors.is_empty() {
+        remove_update_journal(&path)
+    } else {
+        Err(CliError(format!(
+            "interrupted source update recovery was incomplete:\n{}",
+            errors.join("\n")
+        )))
+    }
+}
+
+fn valid_object_id(value: &str) -> bool {
+    (40..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn rollback_heads(
+    workspace: &Path,
+    repositories: &[&Repository],
+    old_heads: &[String],
+    target_heads: &[String],
+) -> Vec<String> {
+    repositories
+        .iter()
+        .zip(old_heads)
+        .zip(target_heads)
+        .rev()
+        .filter_map(|((repository, old_head), target_head)| {
+            rollback_head(workspace, repository, old_head, target_head).err()
+        })
+        .map(|error| error.0)
+        .collect()
+}
+
+fn rollback_head(
+    workspace: &Path,
+    repository: &Repository,
+    old_head: &str,
+    target_head: &str,
+) -> Result<()> {
+    let path = repository_path(workspace, repository);
+    inspect_identity(workspace, repository, &path, true).map_err(|error| {
+        CliError(format!(
+            "repository `{}` changed while rollback was pending; refusing the conditional rollback and retaining the transaction journal for manual recovery: {}",
+            repository.id, error.0
+        ))
+    })?;
+    let current_head = capture_head(workspace, repository).map_err(|error| {
+        CliError(format!(
+            "repository `{}` head could not be revalidated immediately before rollback; refusing the conditional rollback and retaining the transaction journal for manual recovery: {}",
+            repository.id, error.0
+        ))
+    })?;
+    if current_head != old_head && current_head != target_head {
+        return Err(CliError(format!(
+            "repository `{}` is at `{current_head}`, neither transaction head `{old_head}` nor `{target_head}`; refusing destructive reset and retaining the transaction journal for manual recovery",
+            repository.id
+        )));
+    }
+    if current_head == old_head {
+        return Ok(());
+    }
+    let ref_update =
+        render_rollback_command(&repository.git.rollback.ref_update, old_head, target_head);
+    let output = run_captured(&ref_update, workspace, "conditional rollback ref update").map_err(
+        |error| {
+            CliError(format!(
+                "{}; the transaction journal is retained for manual recovery",
+                error.0
+            ))
+        },
+    )?;
+    if !output.status.success() {
+        return Err(CliError(format!(
+            "repository `{}` moved away from expected transaction head `{target_head}` immediately before rollback; refusing to overwrite the concurrent ref update and retaining the transaction journal: {}",
+            repository.id,
+            failure_detail(&output)
+        )));
+    }
+
+    let worktree_restore = render_rollback_command(
+        &repository.git.rollback.worktree_restore,
+        old_head,
+        target_head,
+    );
+    let worktree_result = run_captured(
+        &worktree_restore,
+        workspace,
+        "conditional rollback worktree restore",
+    );
+    let worktree_error = match worktree_result {
+        Ok(output) if output.status.success() => None,
+        Ok(output) => Some(failure_detail(&output)),
+        Err(error) => Some(error.0),
+    };
+    if let Some(worktree_error) = worktree_error {
+        let ref_restore =
+            render_rollback_command(&repository.git.rollback.ref_restore, old_head, target_head);
+        let ref_restore_detail = match run_captured(
+            &ref_restore,
+            workspace,
+            "conditional rollback ref restoration",
+        ) {
+            Ok(output) if output.status.success() => {
+                "the original ref was restored conditionally".to_owned()
+            }
+            Ok(output) => format!(
+                "the original ref could not be restored because it moved concurrently: {}",
+                failure_detail(&output)
+            ),
+            Err(error) => format!("the original ref could not be restored: {}", error.0),
+        };
+        return Err(CliError(format!(
+            "repository `{}` worktree could not be restored safely after its conditional ref update; {ref_restore_detail}; the transaction journal is retained for manual recovery: {worktree_error}",
+            repository.id
+        )));
+    }
+
+    inspect_identity(workspace, repository, &path, true).map_err(|error| {
+        CliError(format!(
+            "repository `{}` diverged while its rollback worktree was being restored; the transaction journal is retained for manual recovery: {}",
+            repository.id, error.0
+        ))
+    })?;
+    let final_head = capture_head(workspace, repository)?;
+    if final_head == old_head {
+        Ok(())
+    } else {
+        Err(CliError(format!(
+            "repository `{}` moved to `{final_head}` while rollback was completing instead of remaining at `{old_head}`; the concurrent ref update was not overwritten and the transaction journal is retained for manual recovery",
+            repository.id
+        )))
+    }
+}
+
+fn render_rollback_command(
+    template: &RollbackCommandTemplate,
+    old_head: &str,
+    expected_current: &str,
+) -> GitCommand {
+    GitCommand {
+        argv: template
+            .argv
+            .iter()
+            .map(|argument| match argument {
+                RollbackArgument::Literal { value } => value.clone(),
+                RollbackArgument::OldHead => old_head.to_owned(),
+                RollbackArgument::ExpectedCurrent => expected_current.to_owned(),
+            })
+            .collect(),
+    }
 }
 
 fn load(root: &Path, explicit_plan: Option<PathBuf>) -> Result<Loaded> {
@@ -399,6 +971,21 @@ fn validate(plan: &SourcePlan) -> Result<()> {
             "source workspace workspaceRoot must not be empty".into(),
         ));
     }
+    for (name, path) in [
+        ("mutationLock", &plan.transaction.mutation_lock),
+        ("journal", &plan.transaction.journal),
+    ] {
+        if !safe_workspace_file(path) {
+            return Err(CliError(format!(
+                "source workspace transaction.{name} must be a nonempty workspace-relative file path without `.`, `..`, or platform prefixes"
+            )));
+        }
+    }
+    if plan.transaction.mutation_lock == plan.transaction.journal {
+        return Err(CliError(
+            "source workspace transaction lock and journal paths must be distinct".into(),
+        ));
+    }
     for (key, repository) in &plan.repositories {
         if key != &repository.id
             || repository.id.is_empty()
@@ -429,6 +1016,13 @@ fn validate(plan: &SourcePlan) -> Result<()> {
                 )));
             }
         }
+        for (name, command) in [
+            ("refUpdate", &repository.git.rollback.ref_update),
+            ("worktreeRestore", &repository.git.rollback.worktree_restore),
+            ("refRestore", &repository.git.rollback.ref_restore),
+        ] {
+            validate_rollback_command(key, name, command)?;
+        }
     }
     validate_selection("default", &plan.plans.default, &plan.repositories)?;
     validate_selection("all", &plan.plans.all, &plan.repositories)?;
@@ -439,6 +1033,39 @@ fn validate(plan: &SourcePlan) -> Result<()> {
             ));
         }
         validate_selection(package, selection, &plan.repositories)?;
+    }
+    Ok(())
+}
+
+fn validate_rollback_command(
+    repository: &str,
+    name: &str,
+    command: &RollbackCommandTemplate,
+) -> Result<()> {
+    let old_head_parameters = command
+        .argv
+        .iter()
+        .filter(|argument| matches!(argument, RollbackArgument::OldHead))
+        .count();
+    let expected_current_parameters = command
+        .argv
+        .iter()
+        .filter(|argument| matches!(argument, RollbackArgument::ExpectedCurrent))
+        .count();
+    if command.argv.is_empty()
+        || old_head_parameters != 1
+        || expected_current_parameters != 1
+        || command.argv.iter().any(|argument| {
+            matches!(argument, RollbackArgument::Literal { value } if value.is_empty() || value.contains('\0'))
+        })
+        || !matches!(
+            command.argv.first(),
+            Some(RollbackArgument::Literal { .. })
+        )
+    {
+        return Err(CliError(format!(
+            "source repository `{repository}` rollback.{name} argv template must begin with a nonempty literal executable, contain no NUL, and declare exactly one typed old-head and expected-current parameter"
+        )));
     }
     Ok(())
 }
@@ -469,7 +1096,20 @@ fn validate_repository_paths(plan: &SourcePlan, workspace: &Path) -> Result<()> 
     Ok(())
 }
 
-fn commands(repository: &Repository) -> [(&'static str, &GitCommand); 9] {
+fn safe_workspace_file(path: &Path) -> bool {
+    let rendered = path.to_string_lossy();
+    !path.as_os_str().is_empty()
+        && !rendered.contains('\\')
+        && !rendered
+            .split('/')
+            .next()
+            .is_some_and(|segment| segment.ends_with(':'))
+        && path
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+}
+
+fn commands(repository: &Repository) -> [(&'static str, &GitCommand); 11] {
     [
         ("clone", &repository.git.clone),
         ("status", &repository.git.status),
@@ -477,6 +1117,8 @@ fn commands(repository: &Repository) -> [(&'static str, &GitCommand); 9] {
         ("origin inspect", &repository.git.inspect.origin),
         ("branch inspect", &repository.git.inspect.branch),
         ("clean inspect", &repository.git.inspect.clean),
+        ("head inspect", &repository.git.inspect.head),
+        ("target inspect", &repository.git.inspect.target),
         ("fetch", &repository.git.fetch),
         ("fast-forward check", &repository.git.fast_forward_check),
         ("fast-forward", &repository.git.fast_forward),

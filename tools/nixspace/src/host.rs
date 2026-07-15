@@ -685,16 +685,21 @@ fn validate_plan(plan: &HostPlan) -> Result<()> {
             ));
         }
     }
-    let configured_substituters = plan
-        .nix
-        .settings
-        .get("extra-substituters")
-        .or_else(|| plan.nix.settings.get("substituters"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<BTreeSet<_>>();
+    for (name, value) in &plan.nix.settings {
+        validate_setting(name, value)?;
+    }
+    let mut configured_substituters = BTreeSet::new();
+    for name in ["substituters", "extra-substituters"] {
+        match plan.nix.settings.get(name) {
+            Some(Value::String(value)) => {
+                configured_substituters.insert(value.as_str());
+            }
+            Some(Value::Array(values)) => {
+                configured_substituters.extend(values.iter().filter_map(Value::as_str));
+            }
+            _ => {}
+        }
+    }
     if plan.readiness.cache.stores.is_empty() {
         return Err(CliError(
             "host readiness.cache.stores must declare at least one union store".into(),
@@ -730,9 +735,6 @@ fn validate_plan(plan: &HostPlan) -> Result<()> {
         return Err(CliError(
             "host readiness.requiredDocuments must not contain duplicates".into(),
         ));
-    }
-    for (name, value) in &plan.nix.settings {
-        validate_setting(name, value)?;
     }
     for (name, tool) in &plan.tools {
         if name.is_empty()
@@ -770,7 +772,11 @@ fn public_cache_uri(value: &str) -> bool {
     let authority = authority_and_path
         .split_once('/')
         .map_or(authority_and_path, |(authority, _)| authority);
-    !authority.is_empty() && !value.contains(['\0', '\n', '\r', '\t', ' ', '?', '#', '@'])
+    !authority.is_empty()
+        && !value.contains(['?', '#', '@'])
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
 }
 
 fn validate_setting(name: &str, value: &Value) -> Result<()> {
@@ -782,6 +788,36 @@ fn validate_setting(name: &str, value: &Value) -> Result<()> {
         || name.contains('\r')
     {
         return Err(CliError(format!("invalid Nix setting name `{name}`")));
+    }
+    if secret_bearing_setting(name) {
+        return Err(CliError(format!(
+            "Nix setting `{name}` may carry credentials and must not be embedded in a Nix-generated host plan or managed nix.conf; provide it through an out-of-store runtime credential mechanism"
+        )));
+    }
+    if matches!(name, "substituters" | "extra-substituters") {
+        let values: Vec<&str> = match value {
+            Value::String(value) => vec![value],
+            Value::Array(values) => values
+                .iter()
+                .map(|value| {
+                    value.as_str().ok_or_else(|| {
+                        CliError(format!(
+                            "Nix setting `{name}` arrays must contain only strings"
+                        ))
+                    })
+                })
+                .collect::<Result<_>>()?,
+            _ => {
+                return Err(CliError(format!(
+                "Nix setting `{name}` must be a public HTTPS URI or an array of public HTTPS URIs"
+            )))
+            }
+        };
+        if values.iter().any(|value| !public_cache_uri(value)) {
+            return Err(CliError(format!(
+                "Nix setting `{name}` contains a non-public or credential-bearing substituter URI; managed host plans permit only credential-free HTTPS caches"
+            )));
+        }
     }
     match value {
         Value::Bool(_) | Value::Number(_) => Ok(()),
@@ -806,6 +842,13 @@ fn validate_setting(name: &str, value: &Value) -> Result<()> {
             "Nix setting `{name}` must be a boolean, number, string, or string array"
         ))),
     }
+}
+
+fn secret_bearing_setting(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    ["credential", "netrc", "password", "secret", "token"]
+        .iter()
+        .any(|fragment| normalized.contains(fragment))
 }
 
 fn validate_setting_scalar(name: &str, value: &str) -> Result<()> {
@@ -2218,7 +2261,7 @@ fn temporary_in(parent: impl AsRef<Path>, prefix: &str) -> Result<PathBuf> {
     for _ in 0..128 {
         let sequence = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
         let path = parent.join(format!("{prefix}.{}.{}.tmp", std::process::id(), sequence));
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        match create_private_temporary(&path) {
             Ok(_) => return Ok(path),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
@@ -2233,6 +2276,22 @@ fn temporary_in(parent: impl AsRef<Path>, prefix: &str) -> Result<PathBuf> {
         "cannot allocate a temporary file in {}",
         parent.display()
     )))
+}
+
+#[cfg(unix)]
+fn create_private_temporary(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn create_private_temporary(path: &Path) -> io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
 }
 
 #[cfg(unix)]

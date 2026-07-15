@@ -10,7 +10,7 @@ let
   projectIds = builtins.attrNames normalizedIndex.projects;
   standaloneIndex =
     if builtins.length projectIds == 1 then
-      normalizedIndex
+      rootConfig.cognipilot.nixspaceIndex
     else
       throw ''
         CogniPilot standalone project output requires exactly one selected project;
@@ -26,6 +26,7 @@ in
     # Standalone project roots are workspace providers with exactly one
     # selected project. The generic module owns the emitted protocol outputs.
     nixspace.index = standaloneIndex;
+    flake.cognipilotIndex = normalizedIndex;
 
     perSystem =
       { config, pkgs, ... }:

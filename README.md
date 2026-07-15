@@ -101,8 +101,10 @@ project inputs/outputs, the public product definition, and the exact
 completions. First-run workspace tooling can therefore be substituted as one
 closure after main CI successfully publishes it. A local coverage report is an
 inventory, not proof of publication; only a successful main run and a complete
-union query establish that the closure is present. Branch protection remains
-an open governance gate.
+union query establish that the closure is present. Protected `main` now
+requires the strict three-system GitHub Actions check matrix, a CODEOWNER
+approval, resolved conversations, and linear history; those controls protect
+the publisher but do not substitute for a successful publication run.
 
 FastDyn's separately locked source is private, and that source plus any private
 release output are excluded from the public cache root. Its integration

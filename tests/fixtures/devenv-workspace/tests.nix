@@ -193,7 +193,7 @@ let
     generic-index-envelope =
       currentRoot.config.flake.nixspaceIndex.apiVersion == "nixspace/v1"
       && currentRoot.config.flake.nixspaceIndex.kind == "Workspace"
-      && currentRoot.config.flake.nixspaceIndex.interfaceVersion == 1;
+      && currentRoot.config.flake.nixspaceIndex.interfaceVersion == 2;
     generic-runtime-environment =
       defaultShell.env.NIXSPACE_WORKSPACE_ROOT == "/workspace"
       && !(defaultShell.env ? NIXSPACE_HOST_PLAN)
@@ -241,7 +241,7 @@ let
     );
     generic-index-rejects-wrong-api = !(invalidIndex { apiVersion = "other/v1"; }).success;
     generic-index-rejects-wrong-kind = !(invalidIndex { kind = "Other"; }).success;
-    generic-index-rejects-wrong-interface = !(invalidIndex { interfaceVersion = 2; }).success;
+    generic-index-rejects-wrong-interface = !(invalidIndex { interfaceVersion = 1; }).success;
   };
   failures = builtins.attrNames (lib.filterAttrs (_: passed: !passed) checks);
 in

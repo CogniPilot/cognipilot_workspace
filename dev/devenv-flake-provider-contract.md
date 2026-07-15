@@ -18,24 +18,30 @@ fixture. Editable package authority is complete. Packages remain
 qualification-only until they expose faithful immutable deployable outputs;
 that release status does not create another editable graph.
 
-The root also imports the official devenv flake-parts module at the exact
-revision used by devenv 2.1.2. One shared root module supplies the generic
-`nixspace` client, Git, the Nix-generated index path, Cachix pull declarations,
-the default shell, and one process-compose shell/app per normalized launch.
+The root imports a checked-in flake-parts adapter over devenv 2.1.2's supported
+`lib.mkEval` API. The adapter exports only declared dev shells, avoiding the
+upstream module's deprecated implicit package/container outputs. One shared
+root module supplies the generic `nixspace` client, Git, the Nix-generated
+index path, Cachix pull declarations, the default shell, and one
+process-compose shell/app per normalized launch.
 Editable tasks are generated whenever the shared workspace module is enabled;
 package modules repeat none of that wiring.
 
 The generic `nix/nixspace/index-module.nix` and the standalone tool it imports
 know nothing about CogniPilot. The small
-`nix/cognipilot/nixspace-module.nix` adapter supplies the already validated
-CogniPilot index. The generic module validates the versioned
+`nix/cognipilot/nixspace-module.nix` adapter supplies the generic projection
+of the already validated CogniPilot index. The generic module validates the versioned
 `apiVersion = "nixspace/v1"`, `kind = "Workspace"`, and
-`interfaceVersion = 1` envelope and exports `packages.nixspace-index` at
+`interfaceVersion = 2` envelope and exports `packages.nixspace-index` at
 `share/nixspace/index.json`. Devenv passes that store file through
 `NIXSPACE_INDEX` and the absolute root through `NIXSPACE_WORKSPACE_ROOT`; it
 also binds whichever Nix-generated source, host, and West plan packages are
 enabled and installs the Nix-built shell completions. It does not maintain a
 second Python or Rust semantic model.
+The generic package catalog contains only canonical IDs, aliases, and opaque
+namespaced extensions; CogniPilot lifecycle, release, ownership, source, and
+compliance policy stays in the provider's validated index and its
+`org.cognipilot/package-v1` extension projection.
 
 ## Decision
 

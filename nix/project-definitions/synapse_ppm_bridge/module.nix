@@ -1,9 +1,14 @@
+{ softwareVersion }:
+
 {
   cognipilot.projects.synapse_ppm_bridge = {
     lifecycle = "stable";
     softwareVersion = {
       source = "literal";
-      value = "0.1.0";
+      # The selected source manifest is the sole version authority. The
+      # product module independently verifies this value against the provider
+      # derivation before emitting promotion metadata.
+      value = softwareVersion;
     };
     deployability = "deployable";
     owner = "CogniPilot";

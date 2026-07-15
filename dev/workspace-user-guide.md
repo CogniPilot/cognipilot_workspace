@@ -43,8 +43,9 @@ developer machine where every local user is trusted.
 
 The root flake supports `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`.
 CI is configured with a native runner and main-only stable-cache publication
-for every system. The branch is not yet protected, and this configuration is
-not a claim that the remote matrix or cache publication has already passed.
+for every system. Protected `main` requires the strict native check matrix,
+CODEOWNER approval, resolved conversations, and linear history. Those controls
+are not a claim that the remote matrix or cache publication has already passed.
 
 ## The command line
 
@@ -90,7 +91,7 @@ flakes.
 
 ### Editable repositories
 
-The root flake emits a `SourceWorkspace` plan containing each repository path,
+The root flake emits a strict `SourceWorkspace` v3 plan containing each repository path,
 canonical Git URL and branch, precomputed package selection, and exact Git
 argv. Git remains the authority for checkout and ancestry semantics.
 
@@ -173,9 +174,10 @@ graph with no compatibility fallback.
 
 West remains the authority for Zephyr manifest discovery, revisions, module
 metadata, and commands. Nix selects one exact manifest source and emits a
-versioned `WestWorkspace` plan. `nixspace` materializes its content-addressed
-workspace and an isolated editable view, then invokes the Nix-selected west or
-another emitted command:
+versioned `WestWorkspace` plan. `nixspace` stages and validates the native
+checkout, seals it into the Nix store, retains it through a generation GC root,
+and creates an isolated editable view. It then invokes the Nix-selected west or
+another exact command:
 
 ```sh
 ./ws west validate
@@ -186,9 +188,14 @@ another emitted command:
 ./ws west exec -- build -b native_sim/native/64
 ```
 
-The immutable workspace cache is below the platform cache in the namespace
-chosen by Nix. Editable views are workspace-relative. West's native
-`--path-cache` and narrow update support are used for reuse; there is no shared
+Generation metadata is below the platform cache in the namespace chosen by
+Nix; release paths are canonical Nix store paths. Editable views default to
+`.nixspace/state/west/views` and link non-overridden projects to the sealed
+tree. West's native `--path-cache` and narrow update support are used for
+reuse. Arbitrary local-view commands are serialized and the managed projection
+is repaired before execution. Nix also emits the scoped command-environment
+protocol used to trust only the sealed project paths when Git runs against a
+multi-user store; no global Git configuration is changed. There is no shared
 global `src/.west` workspace and no duplicate West dependency graph in Nix or
 Rust.
 
@@ -242,7 +249,9 @@ expectations. The public keys verify downloaded paths; they are not upload
 credentials.
 
 Main CI is configured to realize and publish the explicit root package on all
-three native systems. Branch protection is still an explicit governance gate:
+three native systems. Protected `main` requires the strict native check matrix
+from the GitHub Actions app, CODEOWNER approval, resolved conversations, and
+linear history:
 
 ```sh
 nix build --accept-flake-config --out-link result-public-cache-root \

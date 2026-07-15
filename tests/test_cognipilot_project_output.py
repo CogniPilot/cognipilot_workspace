@@ -169,7 +169,7 @@ class CognipilotProjectOutputTests(unittest.TestCase):
         )
 
     def test_standalone_and_direct_contract_normalize_identically(self) -> None:
-        standalone = self.nix_eval("nixspaceIndex")
+        standalone = self.nix_eval("cognipilotIndex")
         self.assertEqual("nixspace/v1", standalone["apiVersion"])
         self.assertEqual("Workspace", standalone["kind"])
         definition = self.proof_root / "definition"
@@ -238,6 +238,9 @@ class CognipilotProjectOutputTests(unittest.TestCase):
                 {{
                   options = {{
                     flake.nixspaceIndex = pkgs.lib.mkOption {{
+                      type = pkgs.lib.types.attrs;
+                    }};
+                    flake.cognipilotIndex = pkgs.lib.mkOption {{
                       type = pkgs.lib.types.attrs;
                     }};
                     perSystem = pkgs.lib.mkOption {{

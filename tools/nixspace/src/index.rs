@@ -120,9 +120,8 @@ fn refresh_configuration(
 }
 
 fn refresh(root: &Path, destination: &Path, configuration: &RefreshConfiguration) -> Result<()> {
-    ensure_git_filtered_flake(root, &configuration.flake)?;
-
-    let installable = format!("{}#{}", configuration.flake, configuration.installable);
+    let flake = prepared_flake_reference(root, &configuration.flake)?;
+    let installable = format!("{}#{}", flake.reference, configuration.installable);
 
     let output = Command::new("nix")
         .current_dir(root)
@@ -176,89 +175,367 @@ fn refresh(root: &Path, destination: &Path, configuration: &RefreshConfiguration
     Ok(())
 }
 
-fn ensure_git_filtered_flake(workspace_root: &Path, flake_reference: &str) -> Result<()> {
+struct PreparedFlake {
+    reference: String,
+    _snapshot: Option<TemporaryDirectory>,
+}
+
+fn prepared_flake_reference(workspace_root: &Path, flake_reference: &str) -> Result<PreparedFlake> {
     let Some(root) = local_flake_root(workspace_root, flake_reference) else {
-        return Ok(());
+        return Ok(PreparedFlake {
+            reference: flake_reference.to_owned(),
+            _snapshot: None,
+        });
     };
-    let flake = root.join("flake.nix");
-    if !flake.is_file() {
-        return Err(CliError(format!(
-            "index refresh requires a local flake at {}",
-            flake.display()
-        )));
-    }
-    let lock = root.join("flake.lock");
-    if !lock.is_file() {
-        return Err(CliError(format!(
-            "index refresh requires a pinned local flake lock at {}",
-            lock.display()
-        )));
-    }
-
-    let tracked = git_output(
-        &root,
-        [
-            "ls-files",
-            "--error-unmatch",
-            "--",
-            "flake.nix",
-            "flake.lock",
-        ],
-    )?;
-    if !tracked.status.success() {
-        return Err(untracked_flake_error(None));
-    }
-
-    let root_status = git_output(
-        &root,
-        [
-            "status",
-            "--porcelain=v1",
-            "--untracked-files=all",
-            "--ignored=matching",
-            "--",
-            "flake.nix",
-            "flake.lock",
-        ],
-    )?;
-    ensure_status_succeeded(&root_status, &root)?;
-    let unsafe_paths = untracked_or_ignored(&root_status.stdout)?;
-    if !unsafe_paths.is_empty() {
-        return Err(untracked_flake_error(Some(&unsafe_paths)));
-    }
-
-    for local_input in local_path_inputs(&root, &lock)? {
-        if !local_input.exists() {
+    let root = fs::canonicalize(&root).map_err(|error| {
+        CliError(format!(
+            "cannot resolve local flake root {}: {error}; existing cache was not changed",
+            root.display()
+        ))
+    })?;
+    let worktree = git_output(&root, ["rev-parse", "--show-toplevel"])?;
+    ensure_status_succeeded(&worktree, &root)?;
+    let worktree = output_line(&worktree.stdout, "Git worktree root")?;
+    let worktree = fs::canonicalize(worktree).map_err(|error| {
+        CliError(format!(
+            "cannot resolve Git worktree root for local flake {}: {error}",
+            root.display()
+        ))
+    })?;
+    let flake_directory = root.strip_prefix(&worktree).map_err(|_| {
+        CliError(format!(
+            "refusing index refresh: local flake {} is outside its reported Git worktree {}; existing cache was not changed",
+            root.display(),
+            worktree.display()
+        ))
+    })?;
+    // Capture first, then validate only bytes and tree entries from that exact
+    // immutable commit. The private repository and its advertised ref remain
+    // alive through `nix build`; no user index, worktree, or ref is changed.
+    let snapshot = snapshot_repository(&worktree)?;
+    let tracked_flake = flake_directory.join("flake.nix");
+    let tracked_lock = flake_directory.join("flake.lock");
+    snapshot_regular_file(&snapshot, &tracked_flake, "flake.nix")?;
+    let lock_bytes = snapshot_regular_file(&snapshot, &tracked_lock, "flake.lock")?;
+    for locked_path in local_path_inputs(&lock_bytes, &tracked_lock)? {
+        let rendered = locked_path.to_string_lossy();
+        if locked_path.is_absolute()
+            || rendered
+                .split('/')
+                .next()
+                .is_some_and(|segment| segment.ends_with(':'))
+        {
             return Err(CliError(format!(
-                "refusing index refresh: local path input does not exist: {}; existing cache was not changed",
-                local_input.display()
+                "refusing index refresh: pinned local path input {} is absolute and cannot be bound to the immutable snapshot; use a relative path inside the Git worktree",
+                locked_path.display()
             )));
         }
-        let worktree = git_output(&local_input, ["rev-parse", "--show-toplevel"])?;
-        if !worktree.status.success() {
-            return Err(CliError(format!(
-                "refusing index refresh: local path input is not in a Git worktree: {}; existing cache was not changed",
-                local_input.display()
-            )));
-        }
-        let status = git_output(
-            &local_input,
-            [
-                "status",
-                "--porcelain=v1",
-                "--untracked-files=all",
-                "--ignored=matching",
-                "--",
-                ".",
-            ],
-        )?;
-        ensure_status_succeeded(&status, &local_input)?;
-        let unsafe_paths = untracked_or_ignored(&status.stdout)?;
-        if !unsafe_paths.is_empty() {
-            return Err(untracked_flake_error(Some(&unsafe_paths)));
+        let local_input = lexical_normalize(&root.join(&locked_path)).ok_or_else(|| {
+            CliError(format!(
+                "refusing index refresh: local path input {} escapes the immutable Git worktree",
+                locked_path.display()
+            ))
+        })?;
+        let relative = local_input.strip_prefix(&worktree).map_err(|_| {
+            CliError(format!(
+                "refusing index refresh: local path input {} is outside the immutable Git worktree {}; use a locked Git flake input instead; existing cache was not changed",
+                locked_path.display(), worktree.display()
+            ))
+        })?;
+        snapshot_tree(&snapshot, relative, "local path input")?;
+    }
+
+    let mut reference = format!(
+        "git+{}?rev={}",
+        file_url(&snapshot.repository)?,
+        snapshot.commit
+    );
+    if !flake_directory.as_os_str().is_empty() {
+        let directory = flake_directory.to_str().ok_or_else(|| {
+            CliError(
+                "local flake directory is not valid UTF-8 and cannot be encoded as a Git flake URL"
+                    .into(),
+            )
+        })?;
+        reference.push_str("&dir=");
+        reference.push_str(&percent_encode(
+            directory.replace('\\', "/").as_bytes(),
+            true,
+        ));
+    }
+    Ok(PreparedFlake {
+        reference,
+        _snapshot: Some(snapshot.temporary),
+    })
+}
+
+struct SnapshotRepository {
+    temporary: TemporaryDirectory,
+    repository: PathBuf,
+    commit: String,
+}
+
+fn snapshot_repository(worktree: &Path) -> Result<SnapshotRepository> {
+    let temporary = create_snapshot_directory()?;
+    let guard = TemporaryDirectory(temporary.clone());
+    let repository = temporary.join("snapshot.git");
+    let index = temporary.join("index");
+
+    let clone = Command::new("git")
+        .current_dir(worktree)
+        .args(["clone", "--quiet", "--shared", "--bare", "--"])
+        .arg(worktree)
+        .arg(&repository)
+        .output()
+        .map_err(|error| git_start_error(worktree, error))?;
+    ensure_status_succeeded(&clone, worktree)?;
+
+    let index_path = git_output(worktree, ["rev-parse", "--git-path", "index"])?;
+    ensure_status_succeeded(&index_path, worktree)?;
+    let index_path = PathBuf::from(output_line(&index_path.stdout, "Git index path")?);
+    let index_path = if index_path.is_absolute() {
+        index_path
+    } else {
+        worktree.join(index_path)
+    };
+    fs::copy(&index_path, &index).map_err(|error| {
+        CliError(format!(
+            "cannot snapshot Git index {} without modifying it: {error}; existing cache was not changed",
+            index_path.display()
+        ))
+    })?;
+
+    let add = git_snapshot_output(&repository, worktree, &index, ["add", "-u", "--", "."])?;
+    ensure_status_succeeded(&add, worktree)?;
+    let tree = git_snapshot_output(&repository, worktree, &index, ["write-tree"])?;
+    ensure_status_succeeded(&tree, worktree)?;
+    let tree = output_object_id(&tree.stdout, "Git snapshot tree")?;
+
+    let commit = Command::new("git")
+        .current_dir(worktree)
+        .env("GIT_DIR", &repository)
+        .env("GIT_WORK_TREE", worktree)
+        .env("GIT_INDEX_FILE", &index)
+        .env("GIT_AUTHOR_NAME", "nixspace")
+        .env("GIT_AUTHOR_EMAIL", "nixspace@invalid")
+        .env("GIT_AUTHOR_DATE", "1970-01-01T00:00:00Z")
+        .env("GIT_COMMITTER_NAME", "nixspace")
+        .env("GIT_COMMITTER_EMAIL", "nixspace@invalid")
+        .env("GIT_COMMITTER_DATE", "1970-01-01T00:00:00Z")
+        .args(["commit-tree", tree, "-m", "nixspace index snapshot"])
+        .output()
+        .map_err(|error| git_start_error(worktree, error))?;
+    ensure_status_succeeded(&commit, worktree)?;
+    let commit = output_object_id(&commit.stdout, "Git snapshot commit")?.to_owned();
+    let update_ref = bare_git_output(
+        &repository,
+        ["update-ref", "refs/heads/nixspace-index-snapshot", &commit],
+    )?;
+    ensure_status_succeeded(&update_ref, &repository)?;
+    Ok(SnapshotRepository {
+        temporary: guard,
+        repository,
+        commit,
+    })
+}
+
+fn git_snapshot_output<I, S>(
+    repository: &Path,
+    worktree: &Path,
+    index: &Path,
+    arguments: I,
+) -> Result<Output>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    Command::new("git")
+        .current_dir(worktree)
+        .env("GIT_DIR", repository)
+        .env("GIT_WORK_TREE", worktree)
+        .env("GIT_INDEX_FILE", index)
+        .args(arguments)
+        .output()
+        .map_err(|error| git_start_error(worktree, error))
+}
+
+fn bare_git_output<I, S>(repository: &Path, arguments: I) -> Result<Output>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    Command::new("git")
+        .env("GIT_DIR", repository)
+        .args(arguments)
+        .output()
+        .map_err(|error| git_start_error(repository, error))
+}
+
+fn snapshot_regular_file(
+    snapshot: &SnapshotRepository,
+    path: &Path,
+    description: &str,
+) -> Result<Vec<u8>> {
+    let mode = snapshot_entry(snapshot, path, "blob", description)?;
+    if !mode.starts_with("100") {
+        return Err(CliError(format!(
+            "refusing index refresh: immutable snapshot {description} must be a regular tracked file"
+        )));
+    }
+    snapshot_contents(snapshot, path, description)
+}
+
+fn snapshot_tree(snapshot: &SnapshotRepository, path: &Path, description: &str) -> Result<()> {
+    snapshot_entry(snapshot, path, "tree", description).map(|_| ())
+}
+
+fn snapshot_entry(
+    snapshot: &SnapshotRepository,
+    path: &Path,
+    expected_type: &str,
+    description: &str,
+) -> Result<String> {
+    let path = git_path(path)?;
+    let output = bare_git_output(
+        &snapshot.repository,
+        ["ls-tree", "-z", &snapshot.commit, "--", &path],
+    )?;
+    ensure_status_succeeded(&output, &snapshot.repository)?;
+    let entries = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
+    if entries.len() != 1 {
+        return Err(CliError(format!(
+            "refusing index refresh: immutable snapshot is missing exact tracked {description} `{path}`"
+        )));
+    }
+    let entry = std::str::from_utf8(entries[0]).map_err(|error| {
+        CliError(format!(
+            "immutable snapshot tree entry is not UTF-8: {error}"
+        ))
+    })?;
+    let (metadata, entry_path) = entry
+        .split_once('\t')
+        .ok_or_else(|| CliError("immutable snapshot returned a malformed tree entry".into()))?;
+    let mut metadata = metadata.split_whitespace();
+    let mode = metadata.next().unwrap_or_default();
+    let object_type = metadata.next().unwrap_or_default();
+    let object = metadata.next().unwrap_or_default();
+    if metadata.next().is_some()
+        || entry_path != path
+        || object_type != expected_type
+        || !valid_object_id(object)
+    {
+        return Err(CliError(format!(
+            "refusing index refresh: immutable snapshot {description} `{path}` is not the expected tracked {expected_type}"
+        )));
+    }
+    Ok(mode.to_owned())
+}
+
+fn snapshot_contents(
+    snapshot: &SnapshotRepository,
+    path: &Path,
+    description: &str,
+) -> Result<Vec<u8>> {
+    let path = git_path(path)?;
+    let object = format!("{}:{path}", snapshot.commit);
+    let output = bare_git_output(&snapshot.repository, ["cat-file", "-p", &object])?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(CliError(with_command_stderr(
+            &format!("cannot read {description} from immutable Git snapshot"),
+            &output,
+        )))
+    }
+}
+
+fn git_path(path: &Path) -> Result<String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| CliError("immutable Git snapshot path is not valid UTF-8".into()))?;
+    if path.is_empty() {
+        Ok(".".into())
+    } else {
+        Ok(path.replace('\\', "/"))
+    }
+}
+
+fn git_start_error(directory: &Path, error: io::Error) -> CliError {
+    if error.kind() == io::ErrorKind::NotFound {
+        CliError("index refresh of local path flakes requires Git on PATH".into())
+    } else {
+        CliError(format!(
+            "cannot inspect Git state in {}: {error}",
+            directory.display()
+        ))
+    }
+}
+
+fn output_object_id<'a>(bytes: &'a [u8], description: &str) -> Result<&'a str> {
+    let object = output_line(bytes, description)?;
+    if !valid_object_id(object) {
+        return Err(CliError(format!(
+            "{description} returned invalid object ID `{object}`"
+        )));
+    }
+    Ok(object)
+}
+
+fn valid_object_id(object: &str) -> bool {
+    (40..=64).contains(&object.len()) && object.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn create_snapshot_directory() -> Result<PathBuf> {
+    let parent = env::temp_dir();
+    for _ in 0..128 {
+        let sequence = NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed);
+        let path = parent.join(format!(
+            "nixspace-index-snapshot.{}.{}",
+            std::process::id(),
+            sequence
+        ));
+        match fs::create_dir(&path) {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).map_err(
+                        |error| {
+                            let _ = fs::remove_dir(&path);
+                            CliError(format!(
+                                "cannot secure temporary Git snapshot directory {}: {error}",
+                                path.display()
+                            ))
+                        },
+                    )?;
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(CliError(format!(
+                    "cannot create temporary Git snapshot directory in {}: {error}",
+                    parent.display()
+                )))
+            }
         }
     }
-    Ok(())
+    Err(CliError(format!(
+        "cannot allocate a temporary Git snapshot directory in {}",
+        parent.display()
+    )))
+}
+
+struct TemporaryDirectory(PathBuf);
+
+impl Drop for TemporaryDirectory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn git_output<I, S>(directory: &Path, arguments: I) -> Result<Output>
@@ -270,16 +547,7 @@ where
         .current_dir(directory)
         .args(arguments)
         .output()
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                CliError("index refresh of local path flakes requires Git on PATH".into())
-            } else {
-                CliError(format!(
-                    "cannot inspect Git state in {}: {error}",
-                    directory.display()
-                ))
-            }
-        })
+        .map_err(|error| git_start_error(directory, error))
 }
 
 fn ensure_status_succeeded(output: &Output, directory: &Path) -> Result<()> {
@@ -293,34 +561,51 @@ fn ensure_status_succeeded(output: &Output, directory: &Path) -> Result<()> {
     }
 }
 
-fn untracked_or_ignored(stdout: &[u8]) -> Result<Vec<String>> {
-    let status = std::str::from_utf8(stdout)
-        .map_err(|error| CliError(format!("Git returned non-UTF-8 status output: {error}")))?;
-    Ok(status
-        .lines()
-        .filter(|line| line.starts_with("?? ") || line.starts_with("!! "))
-        .map(str::to_owned)
-        .collect())
+fn output_line<'a>(bytes: &'a [u8], description: &str) -> Result<&'a str> {
+    let value = std::str::from_utf8(bytes)
+        .map_err(|error| CliError(format!("{description} is not valid UTF-8: {error}")))?
+        .trim_end_matches(['\r', '\n']);
+    if value.is_empty() || value.contains(['\r', '\n']) {
+        return Err(CliError(format!(
+            "{description} must contain exactly one nonempty line"
+        )));
+    }
+    Ok(value)
 }
 
-fn untracked_flake_error(paths: Option<&[String]>) -> CliError {
-    let detail = paths
-        .filter(|values| !values.is_empty())
-        .map(|values| format!("; unsafe paths: {}", values.join(", ")))
-        .unwrap_or_default();
-    CliError(format!(
-        "refusing index refresh: the local flake or one of its local path inputs is untracked/ignored and could be ingested as an unfiltered Nix path{detail}; track the flake, lock, and every local path input before refreshing"
-    ))
-}
-
-fn local_path_inputs(root: &Path, lock: &Path) -> Result<Vec<PathBuf>> {
-    let bytes = fs::read(lock).map_err(|error| {
-        CliError(format!(
-            "cannot read pinned flake lock at {}: {error}",
-            lock.display()
-        ))
+fn file_url(path: &Path) -> Result<String> {
+    let path = path.to_str().ok_or_else(|| {
+        CliError("Git worktree path is not valid UTF-8 and cannot be encoded as a flake URL".into())
     })?;
-    let document: Value = serde_json::from_slice(&bytes).map_err(|error| {
+    let normalized = path.replace('\\', "/");
+    let encoded = percent_encode(normalized.as_bytes(), false);
+    if encoded.starts_with('/') {
+        Ok(format!("file://{encoded}"))
+    } else {
+        Ok(format!("file:///{encoded}"))
+    }
+}
+
+fn percent_encode(bytes: &[u8], encode_slash: bool) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut encoded = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        if byte.is_ascii_alphanumeric()
+            || matches!(byte, b'-' | b'.' | b'_' | b'~' | b':')
+            || (!encode_slash && byte == b'/')
+        {
+            encoded.push(char::from(byte));
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+    }
+    encoded
+}
+
+fn local_path_inputs(bytes: &[u8], lock: &Path) -> Result<Vec<PathBuf>> {
+    let document: Value = serde_json::from_slice(bytes).map_err(|error| {
         CliError(format!(
             "cannot read pinned flake lock at {} as JSON: {error}",
             lock.display()
@@ -342,14 +627,37 @@ fn local_path_inputs(root: &Path, lock: &Path) -> Result<Vec<PathBuf>> {
             .get("path")
             .and_then(Value::as_str)
             .ok_or_else(|| CliError("pinned path input is missing its `path` string".into()))?;
+        if path.is_empty()
+            || path.contains('\\')
+            || path.chars().any(|character| character.is_control())
+        {
+            return Err(CliError(
+                "pinned path input must be a nonempty portable relative path without alternate separators or control characters"
+                    .into(),
+            ));
+        }
         let path = PathBuf::from(path);
-        paths.insert(if path.is_absolute() {
-            path
-        } else {
-            root.join(path)
-        });
+        paths.insert(path);
     }
     Ok(paths.into_iter().collect())
+}
+
+fn lexical_normalize(path: &Path) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(normalized)
 }
 
 fn local_flake_root(workspace_root: &Path, reference: &str) -> Option<PathBuf> {

@@ -2,6 +2,7 @@
 
 let
   inherit (pkgs) lib;
+  sourceCache = import ../../nix/cognipilot/source-cache-patterns.nix;
   fixtures = ../fixtures;
   projectFixtures = fixtures + /project-flakes;
 
@@ -79,6 +80,8 @@ let
     {
       adapter,
       argv,
+      cacheExcludes ? [ ],
+      cacheInputs ? sourceCache.inputs,
       dependsOn ? [ ],
       environment ? { },
       kind,
@@ -88,6 +91,8 @@ let
       inherit
         adapter
         argv
+        cacheExcludes
+        cacheInputs
         dependsOn
         environment
         kind
@@ -136,6 +141,7 @@ let
       build = expectedAction {
         kind = "build";
         adapter = "cargo-v1";
+        cacheExcludes = [ "target" ];
         argv = inProjectShell [
           "cargo"
           "build"
@@ -145,6 +151,7 @@ let
       test = expectedAction {
         kind = "test";
         adapter = "cargo-v1";
+        cacheExcludes = [ "target" ];
         dependsOn = [ "build" ];
         argv = inProjectShell [
           "cargo"
@@ -157,6 +164,14 @@ let
       npm-install = expectedAction {
         kind = "build";
         adapter = "npm-v1";
+        cacheExcludes = [
+          "apps/web/.svelte-kit"
+          "apps/web/build"
+          "apps/web/node_modules"
+          "node_modules"
+          "packages/electrode-flatbuffers/node_modules"
+          "packages/electrode-sdk/node_modules"
+        ];
         argv = inProjectShell [
           "npm"
           "ci"
@@ -165,6 +180,7 @@ let
       cargo-build = expectedAction {
         kind = "build";
         adapter = "cargo-v1";
+        cacheExcludes = [ "target" ];
         dependsOn = [ "npm-install" ];
         argv = inProjectShell [
           "cargo"
@@ -196,6 +212,7 @@ let
       cargo-test = expectedAction {
         kind = "test";
         adapter = "cargo-v1";
+        cacheExcludes = [ "target" ];
         dependsOn = [
           "cargo-build"
           "npm-test"
@@ -212,6 +229,7 @@ let
       configure = expectedAction {
         kind = "generate";
         adapter = "cmake-v1";
+        cacheExcludes = [ "build" ];
         toolProfile = "cmake-v1";
         argv = [
           "cmake"
@@ -226,6 +244,7 @@ let
       build = expectedAction {
         kind = "build";
         adapter = "cmake-v1";
+        cacheExcludes = [ "build" ];
         toolProfile = "cmake-v1";
         dependsOn = [ "configure" ];
         argv = [
@@ -237,6 +256,7 @@ let
       test = expectedAction {
         kind = "test";
         adapter = "cmake-v1";
+        cacheExcludes = [ "build" ];
         toolProfile = "cmake-v1";
         dependsOn = [ "build" ];
         argv = [
@@ -251,6 +271,10 @@ let
       build = expectedAction {
         kind = "build";
         adapter = "npm-v1";
+        cacheExcludes = [
+          "dist"
+          "node_modules"
+        ];
         argv = inProjectShell [
           "npm"
           "run"
@@ -260,6 +284,10 @@ let
       test = expectedAction {
         kind = "test";
         adapter = "npm-v1";
+        cacheExcludes = [
+          "dist"
+          "node_modules"
+        ];
         dependsOn = [ "build" ];
         argv = inProjectShell [
           "npm"
@@ -271,6 +299,14 @@ let
       compiler-build = expectedAction {
         kind = "build";
         adapter = "nix-flake-package-v1";
+        cacheExcludes = [
+          "crates/rumoca-bind-wasm/LICENSE"
+          "packages/playground/vendor"
+          "packages/rumoca-web/node_modules"
+          "packages/rumoca-web/vendor"
+          "result-rumoca"
+          "target"
+        ];
         argv = [
           "nix"
           "build"
@@ -283,6 +319,7 @@ let
       python-build = expectedAction {
         kind = "build";
         adapter = "nix-flake-package-v1";
+        cacheExcludes = [ "result-rumoca-python" ];
         argv = [
           "nix"
           "build"
@@ -295,6 +332,7 @@ let
       javascript-build = expectedAction {
         kind = "build";
         adapter = "npm-v1";
+        cacheExcludes = [ "packages/rumoca/dist" ];
         argv = inProjectShell [
           "npm"
           "--prefix"
@@ -319,6 +357,7 @@ let
       build = expectedAction {
         kind = "build";
         adapter = "twister-v1";
+        cacheExcludes = [ "build" ];
         environment = {
           NIX_HARDENING_ENABLE = "";
           ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -328,6 +367,7 @@ let
       test = expectedAction {
         kind = "test";
         adapter = "twister-v1";
+        cacheExcludes = [ "build" ];
         dependsOn = [ "build" ];
         environment = {
           NIX_HARDENING_ENABLE = "";
@@ -339,6 +379,7 @@ let
     west.build = expectedAction {
       kind = "build";
       adapter = "west-v1";
+      cacheExcludes = [ "build" ];
       argv = inProjectShell [
         "west"
         "build"
@@ -348,6 +389,7 @@ let
       build = expectedAction {
         kind = "build";
         adapter = "nixspace-west-v1";
+        cacheExcludes = [ "build-native_sim_native_64_sil" ];
         environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
         argv = [
           "nixspace"
@@ -368,6 +410,7 @@ let
       test = expectedAction {
         kind = "test";
         adapter = "nixspace-west-app-v1";
+        cacheExcludes = [ "build-native_sim_native_64_sil" ];
         dependsOn = [ "build" ];
         argv = [
           "nixspace"
@@ -420,6 +463,34 @@ let
     testPresetActionSemantics = {
       expr = actualPresetActions;
       expected = expectedPresetActions;
+    };
+    testDefaultSourceCachePatternsStayFileSelective = {
+      expr = builtins.all (
+        pattern:
+        let
+          segments = lib.splitString "/" pattern;
+          leaf = builtins.elemAt segments (builtins.length segments - 1);
+        in
+        pattern != "." && !lib.hasPrefix "!" pattern && leaf != "*" && leaf != "**"
+      ) sourceCache.inputs;
+      expected = true;
+    };
+    testDefaultSourceCacheCoversWorkspaceEcosystems = {
+      expr = builtins.all (pattern: builtins.elem pattern sourceCache.inputs) [
+        "flake.nix"
+        "Cargo.toml"
+        "CMakeLists.txt"
+        "package.json"
+        "west.yml"
+        "**/*.c"
+        "**/*.fbs"
+        "**/*.js"
+        "**/*.mo"
+        "**/*.nix"
+        "**/*.py"
+        "**/*.rs"
+      ];
+      expected = true;
     };
     testExternalDefinitionMatchesInTreeDefinition = {
       expr = externalCargo;

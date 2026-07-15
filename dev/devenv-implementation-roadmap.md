@@ -66,7 +66,7 @@ task executable is bound explicitly from its own pinned, upstream-cache-aligned
 flake output, so the complete three-system flake evaluates with
 import-from-derivation disabled.
 There is no Python test runner or nested private Nix store. The separate Rust
-package passes all 147 tests with its locked dependency graph, passes clippy
+package passes all 148 tests with its locked dependency graph, passes clippy
 with warnings denied, and packages as one standalone Cargo crate. The
 Nix-emitted lightweight matrix
 passes all eight default cases plus both explicit evaluator cases (20/20
@@ -191,15 +191,15 @@ Resolution requirements:
       correction. Static producer semantics are checked directly by Nix: the
       aggregate links four domain reports, including 19 golden and 74 invalid
       module fixtures. Executable client semantics remain in the independently
-      locked Rust package's 147 tests. The replaced Python harness and its
+      locked Rust package's 148 tests. The replaced Python harness and its
       nested evaluator store were deleted in the same cutover.
 - [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
       cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
       non-QEMU package budgets and exact typed build commands with no
-      per-package runner. The one remaining execution result is tracked once
-      at the Phase 2 pilot/matrix gate below. Existing evidence remains
-      `synapse_fbs` at 0.61-0.62s and `synapse_ppm_bridge` at 1.34-1.35s; no
-      complete result is inferred.
+      per-package runner. Execution results are tracked once at the Phase 2
+      pilot/matrix gate below. Existing evidence is
+      `synapse_fbs` at 0.61-0.62s, `synapse_ppm_bridge` at 1.34-1.35s, and
+      `rumoca` at 0.153s p50/0.155s p95; no complete result is inferred.
 
 The conflict should be resolved as its own reviewable change. Do not combine it
 with the new schema or CLI.
@@ -218,6 +218,14 @@ These temporary implementations and their replaced tests were deleted during
 the atomic cutover. Generated tasks now use devenv `execIfModified` and its
 task-output file protocol; `nixspace` validates typed outputs/NAR proofs and
 publishes task results atomically.
+
+The generated cache key is Nix-owned and file-selective. Shared presets emit
+positive source-file patterns plus conventional mutable-tree exclusions, and
+declared artifact outputs are excluded automatically. Broad directory watches
+are rejected because devenv recursively hashes matched directories even when a
+descendant glob is excluded; that behavior made unchanged Rumoca tasks rerun
+for 15--18 seconds. The corrected unchanged replay passes at 0.153s p50 and
+0.155s p95 with no package-local cache boilerplate.
 
 Work:
 
@@ -798,9 +806,12 @@ For each pilot:
       packages are rejected from this matrix by a Nix contract. Generic Cargo implementation,
       interface-major, Zephyr variant, and launch lifecycle edit paths pass;
       `synapse_fbs` has a real 0.61-0.62s result and `synapse_ppm_bridge` has a
-      1.34-1.35s result. The remaining rows have not been run after cutover and
-      are not inferred from those pilots. FastDyn's cold QEMU prerequisite is a
-      separate explicitly deferred measurement;
+      1.34-1.35s result. Rumoca's corrected file-selective cache replay at
+      `.nixspace/state/benchmarks/run-1784085586587608524-16875/report.json`
+      passes at 0.153s p50 and 0.155s p95 after one 7.80s warmup. The remaining
+      rows have not been run after cutover and are not inferred from those
+      results. FastDyn's cold QEMU prerequisite is a separate explicitly
+      deferred measurement;
 - [x] direct cutover deletes the replaced central definition atomically;
 - [x] central package-internal commands are removed rather than retained for
       an observation or compatibility period.
@@ -1142,7 +1153,7 @@ Nix substituter, including a later self-hosted Attic deployment.
       required only 27 small generated metadata/check derivations after the
       Devenv task package was realigned with its upstream binary cache. The
       current contract root is Nix-native and has no Python runtime. The
-      independently locked Rust client passes all 147 tests. All declared
+      independently locked Rust client passes all 148 tests. All declared
       packages, checks, shells, and plans evaluate on the three supported
       systems with IFD disabled; the two non-native systems and a successful
       remote three-system realization are not claimed as built.
@@ -1406,8 +1417,8 @@ revision.
 
 ## Next implementation priorities
 
-1. Run the remaining five-pilot edit/warm rows and the deferred cold QEMU/full
-   matrix when multi-minute native builds are acceptable.
+1. Run the remaining safe native edit/warm rows and the deferred cold
+   QEMU/full matrix only when multi-minute native builds are acceptable.
 2. Commit the cutover, enforce protected-main/CODEOWNERS review, and obtain one
    successful three-system workflow run that publishes, pins, inventories, and
    substitutes every public root with builders disabled.

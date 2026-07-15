@@ -1,6 +1,7 @@
 { config, lib, ... }:
 
 let
+  sourceCache = import ./source-cache-patterns.nix;
   inherit (lib)
     all
     attrNames
@@ -27,6 +28,13 @@ let
     && !hasPrefix "/" value
     && all (part: part != "" && part != "..") (splitString "/" value);
   validRuntimePath = value: value != "" && all (part: part != "..") (splitString "/" value);
+  validCacheInput =
+    value:
+    let
+      segments = splitString "/" value;
+      leaf = builtins.elemAt segments (length segments - 1);
+    in
+    validRelativePath value && value != "." && !hasPrefix "!" value && leaf != "*" && leaf != "**";
   validEnvironmentName = value: builtins.match "^[A-Z_][A-Z0-9_]*$" value != null;
   validVariantValue = value: builtins.match "^[A-Za-z0-9][A-Za-z0-9._/+:-]*$" value != null;
   nonBlank = value: value != "" && builtins.match "[[:space:]]*" value == null;
@@ -143,6 +151,24 @@ let
           Exact static environment entries passed to the action process.
           Artifact-derived paths are declared on artifact inputs instead of
           encoded as string interpolation here.
+        '';
+      };
+      cacheExcludes = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        description = ''
+          Workspace-relative mutable output trees excluded from devenv's
+          source-change cache key. Shared presets declare conventional build
+          trees so package modules do not repeat them.
+        '';
+      };
+      cacheInputs = mkOption {
+        type = types.listOf types.str;
+        default = sourceCache.inputs;
+        description = ''
+          Workspace-relative file globs that form devenv's source-change
+          cache key. Patterns must select files, not whole directories;
+          shared presets provide the conventional cross-ecosystem set.
         '';
       };
       toolProfile = mkOption {
@@ -1037,6 +1063,8 @@ let
     project:
     mapAttrs (_: action: {
       inherit (action)
+        cacheExcludes
+        cacheInputs
         dependsOn
         environment
         kind
@@ -1956,6 +1984,37 @@ let
           )
         ) (normalizedBaseActions project)
       );
+      invalidCacheExcludes = concatLists (
+        mapAttrsToList (
+          actionId: action:
+          map (path: "${actionId}:${path}") (filter (path: !validRelativePath path) action.cacheExcludes)
+        ) (normalizedBaseActions project)
+      );
+      duplicateCacheExcludes = filter (
+        actionId:
+        let
+          values = (normalizedBaseActions project).${actionId}.cacheExcludes;
+        in
+        length values != length (unique values)
+      ) (attrNames (normalizedBaseActions project));
+      invalidCacheInputs = concatLists (
+        mapAttrsToList (
+          actionId: action:
+          map (pattern: "${actionId}:${pattern}") (
+            filter (pattern: !validCacheInput pattern) action.cacheInputs
+          )
+        ) (normalizedBaseActions project)
+      );
+      duplicateCacheInputs = filter (
+        actionId:
+        let
+          values = (normalizedBaseActions project).${actionId}.cacheInputs;
+        in
+        length values != length (unique values)
+      ) (attrNames (normalizedBaseActions project));
+      emptyCacheInputs = filter (
+        actionId: (normalizedBaseActions project).${actionId}.cacheInputs == [ ]
+      ) (attrNames (normalizedBaseActions project));
       cyclicActions = filter (
         actionId: builtins.elem actionId (dependencyClosure project actionNames actionId)
       ) actionNames;
@@ -1976,6 +2035,21 @@ let
     ++ map (alias: "package `${packageId}` alias ID `${alias}` is invalid") (
       filter (alias: !validId alias) project.aliases
     )
+    ++ map (
+      value: "package `${packageId}` action cache exclusion `${value}` is not a safe relative path"
+    ) invalidCacheExcludes
+    ++ map (
+      actionId: "package `${packageId}` action `${actionId}` has duplicate cache exclusions"
+    ) duplicateCacheExcludes
+    ++ map (
+      value: "package `${packageId}` action cache input `${value}` is not a safe file pattern"
+    ) invalidCacheInputs
+    ++ map (
+      actionId: "package `${packageId}` action `${actionId}` has duplicate cache inputs"
+    ) duplicateCacheInputs
+    ++ map (
+      actionId: "package `${packageId}` action `${actionId}` must declare at least one cache input"
+    ) emptyCacheInputs
     ++ optional (
       length (unique project.aliases) != length project.aliases
     ) "package `${packageId}` declares duplicate aliases"

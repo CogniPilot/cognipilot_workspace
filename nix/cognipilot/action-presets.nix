@@ -1,19 +1,24 @@
 { lib }:
 
 let
-  inProjectShell = command: [
-    "nix"
-    "develop"
-    "--no-pure-eval"
-    "."
-    "-c"
-  ] ++ command;
+  sourceCache = import ./source-cache-patterns.nix;
+  inProjectShell =
+    command:
+    [
+      "nix"
+      "develop"
+      "--no-pure-eval"
+      "."
+      "-c"
+    ]
+    ++ command;
   # Run from the materialized West view, but obtain every compiler, Python
   # module, and native tool from the manifest project's own locked dev shell.
   # `manifest` is the native West project identity written into the generated
   # local-view configuration; nixspace remains responsible only for creating
   # that view and crossing the process boundary.
-  inWestManifestShellAt = cwd: command:
+  inWestManifestShellAt =
+    cwd: command:
     let
       depth = builtins.length (lib.splitString "/" cwd);
       manifest =
@@ -34,13 +39,19 @@ let
       "--no-pure-eval"
       manifest
       "-c"
-    ] ++ command;
+    ]
+    ++ command;
   inWestManifestShell = inWestManifestShellAt ".";
-  action = value: {
-    dependsOn = [ ];
-    environment = { };
-    toolProfile = null;
-  } // value;
+  action =
+    value:
+    {
+      cacheExcludes = [ ];
+      cacheInputs = sourceCache.inputs;
+      dependsOn = [ ];
+      environment = { };
+      toolProfile = null;
+    }
+    // value;
   nixBuild = output: outLink: [
     "nix"
     "build"
@@ -60,41 +71,48 @@ let
     prefix = ''patch.crates-io.synapse_fbs.path="'';
     suffix = ''"'';
   };
-  cargoWithSynapse = project: command:
+  cargoWithSynapse =
+    project: command:
     command
-    ++ lib.optionals (
-      builtins.hasAttr "synapse-rust" (
-        lib.attrByPath [ "targets" "default" "artifacts" "inputs" ] { } project
-      )
-    ) [
-      "--config"
-      synapseCargoPatch
-    ];
-  westProjectPath = project:
+    ++
+      lib.optionals
+        (builtins.hasAttr "synapse-rust" (
+          lib.attrByPath [ "targets" "default" "artifacts" "inputs" ] { } project
+        ))
+        [
+          "--config"
+          synapseCargoPatch
+        ];
+  westProjectPath =
+    project:
     if project.repositoryId == "cerebri_modules" then
       "modules/lib/cerebri_lockstep"
     else
       "modules/lib/${project.repositoryId}";
-  twisterActions = project:
+  twisterActions =
+    project:
     let
       projectPath = westProjectPath project;
-      twister = output: inWestManifestShell [
-        "west"
-        "twister"
-        "-T"
-        "${projectPath}/tests"
-        "-p"
-        "native_sim/native/64"
-        "--force-platform"
-        "--outdir"
-        "${projectPath}/build/twister/${output}"
-        "--no-clean"
-      ];
+      twister =
+        output:
+        inWestManifestShell [
+          "west"
+          "twister"
+          "-T"
+          "${projectPath}/tests"
+          "-p"
+          "native_sim/native/64"
+          "--force-platform"
+          "--outdir"
+          "${projectPath}/build/twister/${output}"
+          "--no-clean"
+        ];
     in
     {
       build = action {
         kind = "build";
         adapter = "twister-v1";
+        cacheExcludes = [ "build" ];
         environment = {
           NIX_HARDENING_ENABLE = "";
           ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -104,6 +122,7 @@ let
       test = action {
         kind = "test";
         adapter = "twister-v1";
+        cacheExcludes = [ "build" ];
         dependsOn = [ "build" ];
         environment = {
           NIX_HARDENING_ENABLE = "";
@@ -118,6 +137,7 @@ in
     build = action {
       kind = "build";
       adapter = "cargo-v1";
+      cacheExcludes = [ "target" ];
       argv = inProjectShell [
         "cargo"
         "build"
@@ -127,6 +147,7 @@ in
     test = action {
       kind = "test";
       adapter = "cargo-v1";
+      cacheExcludes = [ "target" ];
       dependsOn = [ "build" ];
       argv = inProjectShell [
         "cargo"
@@ -140,6 +161,7 @@ in
     build = action {
       kind = "build";
       adapter = "cargo-xtask-v1";
+      cacheExcludes = [ "target" ];
       argv = inProjectShell [
         "cargo"
         "run"
@@ -155,6 +177,7 @@ in
     test = action {
       kind = "test";
       adapter = "cargo-xtask-v1";
+      cacheExcludes = [ "target" ];
       dependsOn = [ "build" ];
       argv = inProjectShell [
         "cargo"
@@ -174,6 +197,7 @@ in
     build = action {
       kind = "build";
       adapter = "nix-flake-package-v1";
+      cacheExcludes = [ "result-default" ];
       argv = nixBuild "default" "result-default";
     };
     test = action {
@@ -189,6 +213,7 @@ in
     build = action {
       kind = "build";
       adapter = "nix-flake-package-v1";
+      cacheExcludes = [ "result-default" ];
       argv = nixBuild "default" "result-default";
     };
     test = action {
@@ -211,6 +236,7 @@ in
     build = action {
       kind = "build";
       adapter = "colcon-v1";
+      cacheExcludes = [ "result-ci" ];
       argv = nixBuild "ci" "result-ci";
     };
     test = action {
@@ -225,6 +251,7 @@ in
     build = action {
       kind = "build";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "target" ];
       toolProfile = "rust-libudev-sccache-v1";
       argv = [
         "cargo"
@@ -235,6 +262,7 @@ in
     test = action {
       kind = "test";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "target" ];
       toolProfile = "rust-libudev-sccache-v1";
       dependsOn = [ "build" ];
       argv = [
@@ -249,6 +277,7 @@ in
     build = action {
       kind = "build";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "rust/target" ];
       argv = cargoWithSynapse project (inProjectShell [
         "cargo"
         "build"
@@ -260,6 +289,7 @@ in
     test = action {
       kind = "test";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "rust/target" ];
       dependsOn = [ "build" ];
       argv = cargoWithSynapse project (inProjectShell [
         "cargo"
@@ -272,6 +302,7 @@ in
     qualification = action {
       kind = "test";
       adapter = "twister-v1";
+      cacheExcludes = [ "build" ];
       dependsOn = [ "test" ];
       environment = {
         NIX_HARDENING_ENABLE = "";
@@ -296,6 +327,7 @@ in
     build = action {
       kind = "build";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "target" ];
       argv = cargoWithSynapse project (inProjectShell [
         "cargo"
         "build"
@@ -307,6 +339,7 @@ in
     test = action {
       kind = "test";
       adapter = "cargo-locked-v1";
+      cacheExcludes = [ "target" ];
       dependsOn = [ "build" ];
       argv = cargoWithSynapse project (inProjectShell [
         "cargo"
@@ -317,6 +350,11 @@ in
     qualification = action {
       kind = "test";
       adapter = "playwright-v1";
+      cacheExcludes = [
+        "node_modules"
+        "playwright-report"
+        "test-results"
+      ];
       dependsOn = [ "test" ];
       environment.BRIDGE_BIN = "target/debug/synapse-qualisys-bridge";
       argv = inProjectShell [
@@ -332,6 +370,10 @@ in
     build = action {
       kind = "build";
       adapter = "npm-v1";
+      cacheExcludes = [
+        "dist"
+        "node_modules"
+      ];
       argv = inProjectShell [
         "npm"
         "run"
@@ -341,6 +383,10 @@ in
     test = action {
       kind = "test";
       adapter = "npm-v1";
+      cacheExcludes = [
+        "dist"
+        "node_modules"
+      ];
       dependsOn = [ "build" ];
       argv = inProjectShell [
         "npm"
@@ -353,6 +399,7 @@ in
     configure = action {
       kind = "generate";
       adapter = "cmake-v1";
+      cacheExcludes = [ "build" ];
       toolProfile = "cmake-v1";
       argv = [
         "cmake"
@@ -367,6 +414,7 @@ in
     build = action {
       kind = "build";
       adapter = "cmake-v1";
+      cacheExcludes = [ "build" ];
       toolProfile = "cmake-v1";
       dependsOn = [ "configure" ];
       argv = [
@@ -378,6 +426,7 @@ in
     test = action {
       kind = "test";
       adapter = "cmake-v1";
+      cacheExcludes = [ "build" ];
       toolProfile = "cmake-v1";
       dependsOn = [ "build" ];
       argv = [
@@ -393,6 +442,7 @@ in
     configure = action {
       kind = "generate";
       adapter = "meson-v1";
+      cacheExcludes = [ "build" ];
       toolProfile = "meson-glib-cjson-v1";
       argv = [
         "meson"
@@ -403,6 +453,7 @@ in
     build = action {
       kind = "build";
       adapter = "meson-v1";
+      cacheExcludes = [ "build" ];
       toolProfile = "meson-glib-cjson-v1";
       dependsOn = [ "configure" ];
       argv = [
@@ -414,7 +465,8 @@ in
     };
   };
 
-  cargo-npm-v1 = project:
+  cargo-npm-v1 =
+    project:
     let
       inputs = lib.attrByPath [ "targets" "default" "artifacts" "inputs" ] { } project;
       hasSynapseRust = builtins.hasAttr "synapse-rust" inputs;
@@ -433,108 +485,132 @@ in
         else
           "npm-install";
     in
-  ({
-    npm-install = action {
-      kind = "build";
-      adapter = "npm-v1";
-      argv = inProjectShell [
-        "npm"
-        "ci"
-      ];
-    };
-    cargo-build = action {
-      kind = "build";
-      adapter = "cargo-v1";
-      dependsOn = [ "npm-install" ];
-      argv = inProjectShell [
-        "cargo"
-        "build"
-        "--locked"
-        "--workspace"
-      ] ++ lib.optionals hasSynapseRust [
-        "--config"
-        cargoLocalPath
-      ];
-    };
-    npm-build = action {
-      kind = "build";
-      adapter = "npm-v1";
-      dependsOn = [ npmBuildDependency ];
-      argv = inProjectShell [
-        "npm"
-        "run"
-        "build"
-      ];
-    };
-    npm-test = action {
-      kind = "test";
-      adapter = "npm-v1";
-      dependsOn = [ "npm-build" ];
-      argv = inProjectShell [
-        "npm"
-        "run"
-        "ci"
-      ];
-    };
-    cargo-test = action {
-      kind = "test";
-      adapter = "cargo-v1";
-      dependsOn = [
-        "cargo-build"
-        "npm-test"
-      ];
-      argv = inProjectShell [
-        "cargo"
-        "test"
-        "--locked"
-        "--workspace"
-      ] ++ lib.optionals hasSynapseRust [
-        "--config"
-        cargoLocalPath
-      ];
-    };
-  }
-  // lib.optionalAttrs hasSynapseJavascript {
-    npm-bind-synapse = action {
-      kind = "build";
-      adapter = "npm-v1";
-      dependsOn = [ "npm-install" ];
-      argv = inProjectShell [
-        "npm"
-        "install"
-        "--no-save"
-        "--package-lock=false"
-        {
-          artifactInput = "synapse-javascript";
-        }
-      ];
-    };
-  }
-  // lib.optionalAttrs hasRumocaJavascript {
-    npm-bind-rumoca = action {
-      kind = "build";
-      adapter = "npm-v1";
-      dependsOn = [
-        (if hasSynapseJavascript then "npm-bind-synapse" else "npm-install")
-      ];
-      argv = inProjectShell [
-        "npm"
-        "install"
-        "--workspace"
-        "apps/web"
-        "--no-save"
-        "--package-lock=false"
-        {
-          artifactInput = "rumoca-javascript";
-        }
-      ];
-    };
-  });
+    (
+      {
+        npm-install = action {
+          kind = "build";
+          adapter = "npm-v1";
+          cacheExcludes = [
+            "apps/web/.svelte-kit"
+            "apps/web/build"
+            "apps/web/node_modules"
+            "node_modules"
+            "packages/electrode-flatbuffers/node_modules"
+            "packages/electrode-sdk/node_modules"
+          ];
+          argv = inProjectShell [
+            "npm"
+            "ci"
+          ];
+        };
+        cargo-build = action {
+          kind = "build";
+          adapter = "cargo-v1";
+          cacheExcludes = [ "target" ];
+          dependsOn = [ "npm-install" ];
+          argv =
+            inProjectShell [
+              "cargo"
+              "build"
+              "--locked"
+              "--workspace"
+            ]
+            ++ lib.optionals hasSynapseRust [
+              "--config"
+              cargoLocalPath
+            ];
+        };
+        npm-build = action {
+          kind = "build";
+          adapter = "npm-v1";
+          dependsOn = [ npmBuildDependency ];
+          argv = inProjectShell [
+            "npm"
+            "run"
+            "build"
+          ];
+        };
+        npm-test = action {
+          kind = "test";
+          adapter = "npm-v1";
+          dependsOn = [ "npm-build" ];
+          argv = inProjectShell [
+            "npm"
+            "run"
+            "ci"
+          ];
+        };
+        cargo-test = action {
+          kind = "test";
+          adapter = "cargo-v1";
+          cacheExcludes = [ "target" ];
+          dependsOn = [
+            "cargo-build"
+            "npm-test"
+          ];
+          argv =
+            inProjectShell [
+              "cargo"
+              "test"
+              "--locked"
+              "--workspace"
+            ]
+            ++ lib.optionals hasSynapseRust [
+              "--config"
+              cargoLocalPath
+            ];
+        };
+      }
+      // lib.optionalAttrs hasSynapseJavascript {
+        npm-bind-synapse = action {
+          kind = "build";
+          adapter = "npm-v1";
+          dependsOn = [ "npm-install" ];
+          argv = inProjectShell [
+            "npm"
+            "install"
+            "--no-save"
+            "--package-lock=false"
+            {
+              artifactInput = "synapse-javascript";
+            }
+          ];
+        };
+      }
+      // lib.optionalAttrs hasRumocaJavascript {
+        npm-bind-rumoca = action {
+          kind = "build";
+          adapter = "npm-v1";
+          dependsOn = [
+            (if hasSynapseJavascript then "npm-bind-synapse" else "npm-install")
+          ];
+          argv = inProjectShell [
+            "npm"
+            "install"
+            "--workspace"
+            "apps/web"
+            "--no-save"
+            "--package-lock=false"
+            {
+              artifactInput = "rumoca-javascript";
+            }
+          ];
+        };
+      }
+    );
 
   rumoca-v1 = {
     compiler-build = action {
       kind = "build";
       adapter = "nix-flake-package-v1";
+      cacheExcludes = [
+        "crates/rumoca-bind-wasm/LICENSE"
+        "packages/playground/vendor"
+        "packages/rumoca-web/node_modules"
+        "packages/rumoca-web/vendor"
+        "result-rumoca"
+        "target"
+      ];
       argv = [
         "nix"
         "build"
@@ -547,6 +623,7 @@ in
     python-build = action {
       kind = "build";
       adapter = "nix-flake-package-v1";
+      cacheExcludes = [ "result-rumoca-python" ];
       argv = [
         "nix"
         "build"
@@ -559,6 +636,7 @@ in
     javascript-build = action {
       kind = "build";
       adapter = "npm-v1";
+      cacheExcludes = [ "packages/rumoca/dist" ];
       argv = inProjectShell [
         "npm"
         "--prefix"
@@ -583,6 +661,7 @@ in
   west-v1.build = action {
     kind = "build";
     adapter = "west-v1";
+    cacheExcludes = [ "build" ];
     argv = inProjectShell [
       "west"
       "build"
@@ -593,44 +672,56 @@ in
   # preset represents that honestly instead of fabricating a build command.
   resource-only-v1 = { };
 
-  rdd2-v1 = project:
+  rdd2-v1 =
+    project:
     let
       inputs = project.targets.default.artifacts.inputs;
       hasRumoca = builtins.hasAttr "rumoca-compiler" inputs;
       hasSynapse = builtins.hasAttr "synapse-c" inputs;
     in
-  {
-    prepare = action {
-      kind = "generate";
-      adapter = "nix-flake-app-v1";
-      argv = nixRun "west-update";
-    };
-    build = action {
-      kind = "build";
-      adapter = "nix-flake-app-v1";
-      dependsOn = [ "prepare" ];
-      environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
-      argv = nixRun "build-native-sim" ++ [
-        "--"
-        "-p"
-        "auto"
-        "--"
-      ]
-      ++ lib.optionals hasRumoca [
-        "-DRDD2_RUMOCA_VERSION=workspace"
-        {
-          artifactInput = "rumoca-compiler";
-          prefix = "-DRDD2_RUMOCA_EXECUTABLE=";
-        }
-      ]
-      ++ lib.optional hasSynapse {
-        artifactInput = "synapse-c";
-        prefix = "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=";
+    {
+      prepare = action {
+        kind = "generate";
+        adapter = "nix-flake-app-v1";
+        cacheExcludes = [
+          "build"
+          "build-native_sim"
+        ];
+        argv = nixRun "west-update";
+      };
+      build = action {
+        kind = "build";
+        adapter = "nix-flake-app-v1";
+        cacheExcludes = [
+          "build"
+          "build-native_sim"
+        ];
+        dependsOn = [ "prepare" ];
+        environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
+        argv =
+          nixRun "build-native-sim"
+          ++ [
+            "--"
+            "-p"
+            "auto"
+            "--"
+          ]
+          ++ lib.optionals hasRumoca [
+            "-DRDD2_RUMOCA_VERSION=workspace"
+            {
+              artifactInput = "rumoca-compiler";
+              prefix = "-DRDD2_RUMOCA_EXECUTABLE=";
+            }
+          ]
+          ++ lib.optional hasSynapse {
+            artifactInput = "synapse-c";
+            prefix = "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=";
+          };
       };
     };
-  };
 
-  zephyr-native-sim-v1 = project:
+  zephyr-native-sim-v1 =
+    project:
     let
       app = project.repositoryId;
       board = project.targets.default.variants.dimensions.board.default;
@@ -638,52 +729,56 @@ in
       buildDirectory = "${app}/build-${boardSlug}_sil";
       hasSynapseC = builtins.hasAttr "synapse-c" project.targets.default.artifacts.inputs;
     in
-  {
-    build = action {
-      kind = "build";
-      adapter = "nixspace-west-v1";
-      environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
-      argv = [
-        "nixspace"
-        "west"
-        "exec"
-        "build"
-        "-b"
-        board
-        "-d"
-        buildDirectory
-        app
-        "-p"
-        "auto"
-        "--"
-        "-DEXTRA_CONF_FILE=${app}/boards/native_sim_sil.conf"
-      ] ++ lib.optional hasSynapseC {
-        artifactInput = "synapse-c";
-        prefix = "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=";
+    {
+      build = action {
+        kind = "build";
+        adapter = "nixspace-west-v1";
+        cacheExcludes = [ "build-${boardSlug}_sil" ];
+        environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
+        argv = [
+          "nixspace"
+          "west"
+          "exec"
+          "build"
+          "-b"
+          board
+          "-d"
+          buildDirectory
+          app
+          "-p"
+          "auto"
+          "--"
+          "-DEXTRA_CONF_FILE=${app}/boards/native_sim_sil.conf"
+        ]
+        ++ lib.optional hasSynapseC {
+          artifactInput = "synapse-c";
+          prefix = "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=";
+        };
+      };
+      test = action {
+        kind = "test";
+        adapter = "nixspace-west-app-v1";
+        cacheExcludes = [ "build-${boardSlug}_sil" ];
+        dependsOn = [ "build" ];
+        argv = [
+          "nixspace"
+          "west"
+          "run"
+          "--"
+          "env"
+          "CUBS2_WORKSPACE_ROOT=."
+          "nix"
+          "run"
+          "--no-pure-eval"
+          "./${app}#native-sim-64-sil-test"
+        ];
       };
     };
-    test = action {
-      kind = "test";
-      adapter = "nixspace-west-app-v1";
-      dependsOn = [ "build" ];
-      argv = [
-        "nixspace"
-        "west"
-        "run"
-        "--"
-        "env"
-        "CUBS2_WORKSPACE_ROOT=."
-        "nix"
-        "run"
-        "--no-pure-eval"
-        "./${app}#native-sim-64-sil-test"
-      ];
-    };
-  };
 
   twister-v1 = twisterActions;
 
-  zros-v1 = project:
+  zros-v1 =
+    project:
     let
       twister = twisterActions project;
       projectPath = westProjectPath project;

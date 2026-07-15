@@ -163,6 +163,14 @@ let
     actionId = "build";
     adapter = "cargo-v1";
     argv = expectedBuildArgv;
+    cacheExcludes = [
+      "target"
+      "dist"
+    ];
+    cacheInputs = [
+      "Cargo.toml"
+      "**/*.rs"
+    ];
     artifacts = expectedBuildArtifacts;
     environment = { };
     environmentPaths = { };
@@ -267,6 +275,8 @@ let
           actionId
           adapter
           artifacts
+          cacheExcludes
+          cacheInputs
           environment
           environmentPaths
           locks
@@ -281,6 +291,14 @@ let
       expected = {
         actionId = "build";
         adapter = "cargo-v1";
+        cacheExcludes = [
+          "target"
+          "dist"
+        ];
+        cacheInputs = [
+          "Cargo.toml"
+          "**/*.rs"
+        ];
         artifacts = {
           inputs = { };
           outputs.bundle = {
@@ -317,7 +335,22 @@ let
           visibility = "private";
         };
         cwd = "/workspace";
-        modified = [ "/checkouts/alpha" ];
+        modified = [
+          "/checkouts/alpha/Cargo.toml"
+          "/checkouts/alpha/**/*.rs"
+          "!/checkouts/alpha/.devenv"
+          "!/checkouts/alpha/.devenv/**/*"
+          "!/checkouts/alpha/.direnv"
+          "!/checkouts/alpha/.direnv/**/*"
+          "!/checkouts/alpha/.git"
+          "!/checkouts/alpha/.git/**/*"
+          "!/checkouts/alpha/.nixspace"
+          "!/checkouts/alpha/.nixspace/**/*"
+          "!/checkouts/alpha/target"
+          "!/checkouts/alpha/target/**/*"
+          "!/checkouts/alpha/dist"
+          "!/checkouts/alpha/dist/**/*"
+        ];
       };
     };
     testCanonicalActionTaskPlanAndExec = {

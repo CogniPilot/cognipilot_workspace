@@ -36,6 +36,11 @@
           build = {
             kind = "build";
             adapter = "cargo-v1";
+            cacheExcludes = [ "target" ];
+            cacheInputs = [
+              "Cargo.toml"
+              "**/*.rs"
+            ];
             dependsOn = [ ];
             environment = { };
             argv = [
@@ -60,6 +65,11 @@
           test = {
             kind = "test";
             adapter = "cargo-v1";
+            cacheExcludes = [ "target" ];
+            cacheInputs = [
+              "Cargo.toml"
+              "**/*.rs"
+            ];
             environment = { };
             dependsOn = [ "build" ];
             argv = [
@@ -81,6 +91,8 @@
           generate = {
             kind = "generate";
             adapter = "bespoke-v1";
+            cacheExcludes = [ ];
+            cacheInputs = [ "schema/*.fbs" ];
             environment.DANGEROUS_LITERAL = "$(not-expanded); still literal";
             argv = [
               "cargo"
@@ -98,6 +110,8 @@
           docs = {
             kind = "other";
             adapter = "bespoke-v1";
+            cacheExcludes = [ ];
+            cacheInputs = [ "**/*.md" ];
             dependsOn = [ ];
             environment = { };
             argv = [
@@ -144,6 +158,11 @@
           build = {
             kind = "build";
             adapter = "cmake-v1";
+            cacheExcludes = [ "build" ];
+            cacheInputs = [
+              "CMakeLists.txt"
+              "**/*.c"
+            ];
             dependsOn = [ ];
             environment = { };
             argv = [
@@ -170,6 +189,11 @@
           test = {
             kind = "test";
             adapter = "cmake-v1";
+            cacheExcludes = [ "build" ];
+            cacheInputs = [
+              "CMakeLists.txt"
+              "**/*.c"
+            ];
             environment = { };
             dependsOn = [ "build" ];
             argv = [
@@ -213,6 +237,11 @@
           build = {
             kind = "build";
             adapter = "npm-v1";
+            cacheExcludes = [ ];
+            cacheInputs = [
+              "package.json"
+              "**/*.js"
+            ];
             dependsOn = [ ];
             environment = { };
             argv = [
@@ -234,6 +263,11 @@
           test = {
             kind = "test";
             adapter = "npm-v1";
+            cacheExcludes = [ ];
+            cacheInputs = [
+              "package.json"
+              "**/*.js"
+            ];
             environment = { };
             dependsOn = [ "build" ];
             argv = [
@@ -275,6 +309,11 @@
         actions.build = {
           kind = "build";
           adapter = "west-v1";
+          cacheExcludes = [ ];
+          cacheInputs = [
+            "west.yml"
+            "**/*.c"
+          ];
           dependsOn = [ ];
           environment = { };
           argv = [
@@ -315,6 +354,11 @@
         actions.test = {
           kind = "test";
           adapter = "twister-v1";
+          cacheExcludes = [ ];
+          cacheInputs = [
+            "west.yml"
+            "**/*.c"
+          ];
           dependsOn = [ ];
           environment = { };
           argv = [

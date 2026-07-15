@@ -171,6 +171,21 @@ let
 
   lockPath = lockId: joinPath portableTaskStateRoot "locks/${lockId}.lock";
 
+  excludedSourceTrees =
+    actionCwd: relativePaths:
+    concatLists (
+      map (
+        relative:
+        let
+          path = joinPath actionCwd relative;
+        in
+        [
+          "!${path}"
+          "!${path}/**/*"
+        ]
+      ) relativePaths
+    );
+
   mkTask =
     project: targetId: target: actionId: action:
     let
@@ -208,6 +223,16 @@ let
         ++ artifactDependencies artifacts
       );
       actionCwd = sourceDirectory project;
+      # Sibling actions share one source tree. Excluding only the current
+      # action's outputs lets a concurrent sibling invalidate or greatly
+      # expand every other task's cache scan, so use the Nix-declared union for
+      # the complete target. Declared artifact outputs are semantic mutable
+      # trees too, so exclude them without package authors repeating paths.
+      cacheExcludes = unique (
+        concatLists (map (candidate: candidate.cacheExcludes) (attrValues target.actions))
+        ++ map (artifact: artifact.path) (attrValues target.artifacts.outputs)
+      );
+      sourceInputPatterns = map (pattern: joinPath actionCwd pattern) action.cacheInputs;
       artifactPaths = artifactEnvironmentPaths coordinate environment artifacts;
       profileArtifactPathCollisions = builtins.intersectAttrs profileEnvironmentPaths artifactPaths;
       environmentPaths =
@@ -242,14 +267,29 @@ let
           };
         }) artifacts.outputs
       );
-      # Use devenv's native content-hash task cache. It also tracks the
-      # generated command path and restores the last successful JSON output;
-      # these are the mutable project tree and exact consumed artifacts.
-      execIfModified = unique ([ actionCwd ] ++ artifactInputPaths artifacts);
+      # Devenv recursively hashes a matched directory, even when a descendant
+      # was excluded by the glob walker. Nix therefore emits positive file
+      # patterns only; preset-owned exclusions prune generated trees before
+      # matching. Devenv separately tracks the generated command path and
+      # restores the last successful JSON output.
+      execIfModified = unique (
+        sourceInputPatterns
+        ++ excludedSourceTrees actionCwd (
+          [
+            ".devenv"
+            ".direnv"
+            ".git"
+            ".nixspace"
+          ]
+          ++ cacheExcludes
+        )
+        ++ artifactInputPaths artifacts
+      );
       taskIdentity = {
         inherit (action) adapter requirements;
         inherit
           argv
+          cacheExcludes
           environment
           environmentPaths
           locks
@@ -257,6 +297,7 @@ let
           pathPrefixes
           toolProfileId
           ;
+        cacheInputs = action.cacheInputs;
         inherit packageId;
         inherit artifacts;
         inherit (target) variants;

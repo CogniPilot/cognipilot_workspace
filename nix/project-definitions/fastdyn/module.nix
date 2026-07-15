@@ -13,6 +13,10 @@
     customActions = {
       build = {
         kind = "build";
+        cacheExcludes = [
+          "build"
+          "src/fastdyn.egg-info"
+        ];
         toolProfile = "fastdyn-qemu-v1";
         argv = [
           "./setup.sh"
@@ -29,6 +33,10 @@
       };
       test = {
         kind = "test";
+        cacheExcludes = [
+          "build"
+          "src/fastdyn.egg-info"
+        ];
         dependsOn = [ "build" ];
         argv = [
           "build/venv/bin/python"

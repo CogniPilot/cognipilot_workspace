@@ -21,8 +21,8 @@ The native build tools keep their normal incremental directories.
 
 Profiles are product/persona composition, not a second package graph. They use
 single-parent chains plus reusable Nix modules so Devenv does not repeatedly
-expand diamond-shaped profile inheritance. `simulation`, for example, extends
-CUBS2 and adds the Qualisys module and supervised processes. The base shell
+expand diamond-shaped profile inheritance. The `cubs2` profile contains the
+vehicle's simulation, ground-station, and Qualisys processes. The base shell
 remains small.
 
 Use a project flake when the repository owns a reproducible immutable package

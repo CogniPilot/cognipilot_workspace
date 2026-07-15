@@ -194,60 +194,6 @@ in
       };
     };
 
-    ground-station = {
-      extends = [ "modelica" ];
-      module =
-        { config, ... }:
-        let
-          healthPort = config.processes.ground-station.ports.health.value;
-          telemetryPort = config.processes.ground-station.ports.telemetry.value;
-          lanRequestPort = config.processes.ground-station.ports.lan-request.value;
-        in
-        {
-          tasks."ground-station:state" = {
-            description = "Create mutable ground-station runtime state.";
-            exec = "mkdir -p ${lib.escapeShellArg (config.env.DEVENV_STATE + "/ground-station")}";
-            before = [ "devenv:processes:ground-station" ];
-          };
-
-          processes.ground-station = {
-            cwd = source "electrode_web";
-            exec = "exec ./target/debug/electrode-ground-station --addr 127.0.0.1:${toString healthPort}";
-            after = [ "electrode-web:build" ];
-            ports = {
-              health.allocate = 8790;
-              telemetry.allocate = 7447;
-              lan-request.allocate = 7448;
-            };
-            env = {
-              ELECTRODE_GCS_AUTOPILOT_FILE = config.env.DEVENV_STATE + "/ground-station/autopilot.json";
-              ELECTRODE_GCS_MAPPING_FILE = config.env.DEVENV_STATE + "/ground-station/mapping.json";
-              ELECTRODE_GCS_SIMULATION_FILE = config.env.DEVENV_STATE + "/ground-station/simulation.json";
-              ELECTRODE_GCS_LAN_REQUEST_LISTEN = "ws/0.0.0.0:${toString lanRequestPort}";
-              ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = "udp/192.168.10.2:7447";
-              ELECTRODE_GCS_ZENOH_LISTEN = "udp/127.0.0.1:${toString telemetryPort}";
-              ELECTRODE_GCS_ZENOH_WS_LISTEN = "ws/127.0.0.1:${toString telemetryPort}";
-              ELECTRODE_GCS_VELOCITY_BUDGET_CSV = config.env.DEVENV_STATE + "/ground-station/velocity-budget.csv";
-              ELECTRODE_GCS_VELOCITY_BUDGET_DB =
-                config.env.DEVENV_STATE + "/ground-station/velocity-budget-db.json";
-            };
-            ready = {
-              http.get = {
-                port = healthPort;
-                path = "/gcs/health";
-              };
-              initial_delay = 1;
-              period = 1;
-              timeout = 300;
-            };
-            restart = {
-              on = "on_failure";
-              max = 3;
-            };
-          };
-        };
-    };
-
     qualisys = {
       extends = [ "synapse" ];
       module = qualisysModule;
@@ -269,27 +215,64 @@ in
     };
 
     cubs2 = {
-      extends = [ "ground-station" ];
-      module = zephyr;
-    };
-
-    rdd2 = {
-      extends = [ "ground-station" ];
-      module = zephyr;
-    };
-
-    simulation = {
-      extends = [ "cubs2" ];
+      extends = [ "modelica" ];
       module =
         { config, ... }:
         let
+          healthPort = config.processes.ground-station.ports.health.value;
           telemetryPort = config.processes.ground-station.ports.telemetry.value;
+          lanRequestPort = config.processes.ground-station.ports.lan-request.value;
           endpoint = "udp/127.0.0.1:${toString telemetryPort}";
         in
         {
-          imports = [ qualisysModule ];
+          imports = [
+            zephyr
+            qualisysModule
+          ];
+
+          tasks."ground-station:state" = {
+            description = "Create mutable ground-station runtime state.";
+            exec = "mkdir -p ${lib.escapeShellArg (config.env.DEVENV_STATE + "/ground-station")}";
+            before = [ "devenv:processes:ground-station" ];
+          };
 
           processes = {
+            ground-station = {
+              cwd = source "electrode_web";
+              exec = "exec ./target/debug/electrode-ground-station --addr 127.0.0.1:${toString healthPort}";
+              after = [ "electrode-web:build" ];
+              ports = {
+                health.allocate = 8790;
+                telemetry.allocate = 7447;
+                lan-request.allocate = 7448;
+              };
+              env = {
+                ELECTRODE_GCS_AUTOPILOT_FILE = config.env.DEVENV_STATE + "/ground-station/autopilot.json";
+                ELECTRODE_GCS_MAPPING_FILE = config.env.DEVENV_STATE + "/ground-station/mapping.json";
+                ELECTRODE_GCS_SIMULATION_FILE = config.env.DEVENV_STATE + "/ground-station/simulation.json";
+                ELECTRODE_GCS_LAN_REQUEST_LISTEN = "ws/0.0.0.0:${toString lanRequestPort}";
+                ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = lib.mkForce "";
+                ELECTRODE_GCS_ZENOH_LISTEN = "udp/127.0.0.1:${toString telemetryPort}";
+                ELECTRODE_GCS_ZENOH_WS_LISTEN = "ws/127.0.0.1:${toString telemetryPort}";
+                ELECTRODE_GCS_VELOCITY_BUDGET_CSV = config.env.DEVENV_STATE + "/ground-station/velocity-budget.csv";
+                ELECTRODE_GCS_VELOCITY_BUDGET_DB =
+                  config.env.DEVENV_STATE + "/ground-station/velocity-budget-db.json";
+              };
+              ready = {
+                http.get = {
+                  port = healthPort;
+                  path = "/gcs/health";
+                };
+                initial_delay = 1;
+                period = 1;
+                timeout = 300;
+              };
+              restart = {
+                on = "on_failure";
+                max = 3;
+              };
+            };
+
             simulation = {
               cwd = source "electrode_web";
               exec = ''
@@ -309,8 +292,6 @@ in
               };
             };
 
-            ground-station.env.ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = lib.mkForce "";
-
             qualisys-bridge = {
               after = lib.mkAfter [ "devenv:processes:ground-station@ready" ];
               exec = lib.mkForce ''
@@ -324,10 +305,15 @@ in
         };
     };
 
+    rdd2 = {
+      extends = [ "modelica" ];
+      module = zephyr;
+    };
+
     fastdyn.module = fastdyn;
 
     release = {
-      extends = [ "simulation" ];
+      extends = [ "cubs2" ];
       module = {
         packages = with pkgs; [
           clang-tools

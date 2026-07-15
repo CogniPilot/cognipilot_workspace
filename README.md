@@ -48,8 +48,6 @@ Select a complete environment with a normal Devenv profile:
 ```sh
 devenv --profile cubs2 shell
 devenv --profile rdd2 shell
-devenv --profile ground-station shell
-devenv --profile simulation shell
 ```
 
 Inside or outside the shell, run the native Devenv tasks:
@@ -57,7 +55,7 @@ Inside or outside the shell, run the native Devenv tasks:
 ```sh
 devenv --profile cubs2 tasks run cubs2:build
 devenv --profile cubs2 tasks run cubs2:test
-devenv --profile ground-station tasks run electrode-web:test
+devenv --profile cubs2 tasks run electrode-web:test
 devenv --profile release tasks run release:all
 ```
 
@@ -72,16 +70,15 @@ workspace-wide version.
 Start supervised processes with Devenv itself:
 
 ```sh
-devenv --profile ground-station up
-devenv --profile simulation up
-devenv --profile simulation processes list
-devenv --profile simulation down
+devenv --profile cubs2 up
+devenv --profile cubs2 processes list
+devenv --profile cubs2 down
 ```
 
-Available profiles include `cubs2`, `rdd2`, `ground-station`, `simulation`,
-`modelica`, `qualisys`, `zros`, `ros2`, `ppm`, `fastdyn`, `diagnostics`,
-`release`, `rust`, `web`, and `zephyr`. Set a personal default without changing
-the repository:
+Available profiles include `cubs2`, `rdd2`, `modelica`, `qualisys`, `zros`,
+`ros2`, `ppm`, `fastdyn`, `diagnostics`, `release`, `rust`, `web`, and `zephyr`.
+The CUBS2 profile includes its simulation, ground station, and Qualisys
+processes. Set a personal default without changing the repository:
 
 ```yaml
 # devenv.local.yaml (ignored)

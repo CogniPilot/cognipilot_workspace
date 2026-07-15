@@ -47,6 +47,6 @@
     echo "CogniPilot workspace"
     echo "  devenv tasks list"
     echo "  devenv --profile cubs2 shell"
-    echo "  devenv --profile simulation up"
+    echo "  devenv --profile cubs2 up"
   '';
 }

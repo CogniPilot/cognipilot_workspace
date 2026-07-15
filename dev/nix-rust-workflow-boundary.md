@@ -46,12 +46,14 @@ This division also fixes caching semantics:
 
 `nixspace` is a real standalone product, not a repository-local Cargo xtask.
 The crate and binary are both named `nixspace`, have their own lock, build
-without Nix or any workspace source dependency, and are publishable so a user
-can run `cargo install nixspace`. Its role is analogous to colcon's role over
-project build tools: it presents one workspace UX while delegating actual
-semantics and execution. The important difference is that Nix evaluates the
-complete, versioned workspace interface; `nixspace` does not scan directories
-or infer a second graph.
+without Nix or any workspace source dependency, and are publishable. The
+checkout installs with `cargo install --locked --path tools/nixspace`; the
+standard `cargo install nixspace` command becomes available after the initial
+crates.io release. Its role is analogous to colcon's role over project build
+tools: it presents one workspace UX while delegating actual semantics and
+execution. The important difference is that Nix evaluates the complete,
+versioned workspace interface; `nixspace` does not scan directories or infer a
+second graph.
 
 The generic interface contains packages, targets, actions, artifacts,
 resources, executables, launches, precomputed plans, and external-tool

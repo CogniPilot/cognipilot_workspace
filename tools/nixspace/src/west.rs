@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{CliError, Result};
 
-const WEST_PLAN_INTERFACE_VERSION: u64 = 2;
+const WEST_PLAN_INTERFACE_VERSION: u64 = 3;
 const WEST_CACHE_LAYOUT_VERSION: u64 = 2;
 const STORE_TOOL_INTERFACE_VERSION: u64 = 2;
 const PROJECT_PATH_ENVIRONMENT_INTERFACE_VERSION: u64 = 1;
@@ -36,6 +36,11 @@ pub(crate) enum WestCommand {
     },
     /// Refresh the immutable checkout with native West and rebuild its local view.
     Sync {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove old plan-owned generations according to the Nix-declared retention policy.
+    Gc {
         #[arg(long)]
         json: bool,
     },
@@ -134,6 +139,7 @@ struct ManifestBinding {
 struct CachePolicy {
     layout_version: u64,
     namespace: String,
+    retained_generations: usize,
     root: RootPolicy,
     native_path_cache: bool,
     narrow_update: bool,
@@ -271,12 +277,25 @@ struct WestStatus<'a> {
     ready: bool,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WestGcReport<'a> {
+    interface_version: u64,
+    product: &'a str,
+    workspace: &'a str,
+    current_generation: String,
+    retained_generations: usize,
+    kept_generations: Vec<String>,
+    removed_generations: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LockedMarker {
     interface_version: u64,
     product: String,
     workspace: String,
+    content_key: String,
     manifest_resource: String,
     manifest_sha256: String,
 }
@@ -287,6 +306,7 @@ struct LocalMarker {
     interface_version: u64,
     product: String,
     workspace: String,
+    content_key: String,
     manifest_sha256: String,
     policy_id: String,
     overrides: BTreeMap<String, String>,
@@ -348,6 +368,27 @@ pub(crate) fn run(root: &Path, explicit_plan: Option<PathBuf>, command: WestComm
         WestCommand::Sync { json } => {
             materialize(&workspace_root, &plan, &paths, true)?;
             emit_status(&workspace_root, &plan, &paths, json)
+        }
+        WestCommand::Gc { json } => {
+            let report = garbage_collect(&plan, &paths)?;
+            if json {
+                super::write_json(&report)
+            } else {
+                println!("current generation: {}", report.current_generation);
+                println!(
+                    "retained generations: {}",
+                    report.kept_generations.join(", ")
+                );
+                println!(
+                    "removed generations: {}",
+                    if report.removed_generations.is_empty() {
+                        "none".into()
+                    } else {
+                        report.removed_generations.join(", ")
+                    }
+                );
+                Ok(())
+            }
         }
         WestCommand::Status { json } => emit_status(&workspace_root, &plan, &paths, json),
         WestCommand::Path { mode } => {
@@ -469,6 +510,11 @@ fn validate_plan(plan: &WestPlan, source: &Path) -> Result<()> {
             "West cache layout version {} is unsupported; nixspace supports version {}",
             plan.cache.layout_version, WEST_CACHE_LAYOUT_VERSION
         )));
+    }
+    if plan.cache.retained_generations == 0 {
+        return Err(CliError(
+            "West cache retention must keep at least one generation".into(),
+        ));
     }
     if plan.product.interface_version == 0 {
         return Err(CliError(
@@ -807,6 +853,133 @@ fn materialize(root: &Path, plan: &WestPlan, paths: &WestPaths, force: bool) -> 
     Ok(())
 }
 
+fn garbage_collect<'a>(plan: &'a WestPlan, paths: &WestPaths) -> Result<WestGcReport<'a>> {
+    let _lease = PublicationLease::acquire_exclusive(&paths.lock)?;
+    let active = require_ready_workspace(plan, paths)?;
+    let mut generations = generation_names(&paths.generations)?;
+    generations.extend(generation_names(&paths.local_generations)?);
+    generations.insert(active.generation.clone());
+
+    let mut candidates = generations
+        .into_iter()
+        .filter(|generation| generation != &active.generation)
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|generation| generation_key(generation));
+    candidates.reverse();
+
+    // A foreign entry must not consume a retention slot and thereby cause an owned generation to
+    // be removed. Prove the full candidate set before choosing either the kept or removed set.
+    for generation in &candidates {
+        validate_owned_generation(plan, paths, generation)?;
+    }
+
+    let additionally_retained = plan.cache.retained_generations.saturating_sub(1);
+    let mut kept_generations = vec![active.generation.clone()];
+    kept_generations.extend(candidates.iter().take(additionally_retained).cloned());
+    let mut removed_generations = candidates
+        .into_iter()
+        .skip(additionally_retained)
+        .collect::<Vec<_>>();
+    removed_generations.sort_by_key(|generation| generation_key(generation));
+
+    for generation in &removed_generations {
+        remove_if_exists(&paths.local_generations.join(generation))?;
+        remove_if_exists(&paths.generations.join(generation))?;
+    }
+
+    Ok(WestGcReport {
+        interface_version: WEST_PLAN_INTERFACE_VERSION,
+        product: &plan.product.id,
+        workspace: &plan.workspace.id,
+        current_generation: active.generation,
+        retained_generations: plan.cache.retained_generations,
+        kept_generations,
+        removed_generations,
+    })
+}
+
+fn generation_names(root: &Path) -> Result<BTreeSet<String>> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(error) => {
+            return Err(CliError(format!(
+                "cannot inspect West generation root {}: {error}",
+                root.display()
+            )))
+        }
+    };
+    let mut generations = BTreeSet::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            CliError(format!(
+                "cannot inspect an entry in West generation root {}: {error}",
+                root.display()
+            ))
+        })?;
+        if let Some(name) = entry
+            .file_name()
+            .to_str()
+            .filter(|name| valid_generation(name))
+        {
+            generations.insert(name.to_owned());
+        }
+    }
+    Ok(generations)
+}
+
+fn validate_owned_generation(plan: &WestPlan, paths: &WestPaths, generation: &str) -> Result<()> {
+    let published = paths.generations.join(generation);
+    let local = paths.local_generations.join(generation);
+    let published_metadata = optional_metadata(&published)?;
+    let local_metadata = optional_metadata(&local)?;
+    if published_metadata.is_none() && local_metadata.is_none() {
+        return Err(CliError(format!(
+            "West generation `{generation}` disappeared before garbage collection"
+        )));
+    }
+
+    if let Some(metadata) = published_metadata {
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(not_owned_generation(generation, &published));
+        }
+        let gc_root = published.join(&paths.generation_gc_root);
+        let metadata = optional_metadata(&gc_root)?
+            .filter(|metadata| metadata.file_type().is_symlink())
+            .ok_or_else(|| not_owned_generation(generation, &published))?;
+        debug_assert!(metadata.file_type().is_symlink());
+        let locked =
+            fs::canonicalize(&gc_root).map_err(|_| not_owned_generation(generation, &published))?;
+        if !locked_ready(plan, &locked) {
+            return Err(not_owned_generation(generation, &published));
+        }
+    }
+    if let Some(metadata) = local_metadata {
+        if !metadata.is_dir() || metadata.file_type().is_symlink() || !local_ready(plan, &local) {
+            return Err(not_owned_generation(generation, &local));
+        }
+    }
+    Ok(())
+}
+
+fn optional_metadata(path: &Path) -> Result<Option<fs::Metadata>> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(CliError(format!(
+            "cannot inspect West generation path {}: {error}",
+            path.display()
+        ))),
+    }
+}
+
+fn not_owned_generation(generation: &str, path: &Path) -> CliError {
+    CliError(format!(
+        "refusing to remove West generation `{generation}` because {} is not owned by this exact Nix plan",
+        path.display()
+    ))
+}
+
 fn publish_generation(root: &Path, plan: &WestPlan, paths: &WestPaths) -> Result<ActiveWorkspace> {
     fs::create_dir_all(&paths.generations).map_err(|error| {
         CliError(format!(
@@ -1013,6 +1186,7 @@ fn initialize_locked(plan: &WestPlan, locked: &Path, path_cache: Option<&Path>) 
         interface_version: WEST_PLAN_INTERFACE_VERSION,
         product: plan.product.id.clone(),
         workspace: plan.workspace.id.clone(),
+        content_key: plan.workspace.content_key.clone(),
         manifest_resource: plan.workspace.manifest.resource.clone(),
         manifest_sha256: plan.workspace.manifest.sha256.clone(),
     };
@@ -1193,6 +1367,7 @@ fn install_local_view(
             interface_version: WEST_PLAN_INTERFACE_VERSION,
             product: plan.product.id.clone(),
             workspace: plan.workspace.id.clone(),
+            content_key: plan.workspace.content_key.clone(),
             manifest_sha256: plan.workspace.manifest.sha256.clone(),
             policy_id: plan.local_view.policy_id.clone(),
             overrides: projection.overrides.clone(),
@@ -1294,6 +1469,7 @@ fn locked_ready(plan: &WestPlan, locked: &Path) -> bool {
         marker.interface_version == WEST_PLAN_INTERFACE_VERSION
             && marker.product == plan.product.id
             && marker.workspace == plan.workspace.id
+            && marker.content_key == plan.workspace.content_key
             && marker.manifest_resource == plan.workspace.manifest.resource
             && marker.manifest_sha256 == plan.workspace.manifest.sha256
             && locked.join(".west/config").is_file()
@@ -1305,6 +1481,7 @@ fn local_ready(plan: &WestPlan, local: &Path) -> bool {
         marker.interface_version == WEST_PLAN_INTERFACE_VERSION
             && marker.product == plan.product.id
             && marker.workspace == plan.workspace.id
+            && marker.content_key == plan.workspace.content_key
             && marker.manifest_sha256 == plan.workspace.manifest.sha256
             && marker.policy_id == plan.local_view.policy_id
             && local.join(".west/config").is_file()
@@ -1334,6 +1511,7 @@ fn local_projection_matches(
     if marker.interface_version != WEST_PLAN_INTERFACE_VERSION
         || marker.product != plan.product.id
         || marker.workspace != plan.workspace.id
+        || marker.content_key != plan.workspace.content_key
         || marker.manifest_sha256 != plan.workspace.manifest.sha256
         || marker.policy_id != plan.local_view.policy_id
         || marker.overrides != projection.overrides
@@ -1767,12 +1945,21 @@ fn valid_environment_name(value: &str) -> bool {
 }
 
 fn valid_generation(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && !value.starts_with('.')
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte) || byte == b'-')
+    generation_key(value).is_some()
+}
+
+fn generation_key(value: &str) -> Option<(u128, u128, u128)> {
+    if value.is_empty() || value.len() > 128 {
+        return None;
+    }
+    let mut components = value.split('-');
+    let elapsed = u128::from_str_radix(components.next()?, 16).ok()?;
+    let process = u128::from_str_radix(components.next()?, 16).ok()?;
+    let sequence = u128::from_str_radix(components.next()?, 16).ok()?;
+    if components.next().is_some() {
+        return None;
+    }
+    Some((elapsed, process, sequence))
 }
 
 fn valid_sha256(value: &str) -> bool {
@@ -2082,7 +2269,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn sealed_generations_survive_failed_sync_and_local_path_repairs_poisoned_view() {
+    fn sealed_generations_survive_sync_until_safe_explicit_gc() {
         use std::os::unix::fs::PermissionsExt;
 
         let base = env::temp_dir().join(format!(
@@ -2129,7 +2316,7 @@ mod tests {
 
         let key = "c".repeat(64);
         let policy = "b".repeat(64);
-        let plan = WestPlan {
+        let mut plan = WestPlan {
             api_version: WEST_API_VERSION.into(),
             kind: WEST_KIND.into(),
             interface_version: WEST_PLAN_INTERFACE_VERSION,
@@ -2160,6 +2347,7 @@ mod tests {
             cache: CachePolicy {
                 layout_version: WEST_CACHE_LAYOUT_VERSION,
                 namespace: "test-product".into(),
+                retained_generations: 2,
                 root: RootPolicy {
                     base: RootBase::PlatformCache,
                     path: PathBuf::from("nixspace/test-product"),
@@ -2268,6 +2456,27 @@ mod tests {
         assert!(first.locked.join("zephyr").is_dir());
         assert!(first.local.join("zephyr").is_symlink());
         assert!(second.locked.join("zephyr").is_dir());
+
+        let first_published = paths.generations.join(&first.generation);
+        let foreign = paths
+            .generations
+            .join("ffffffffffffffffffffffffffffffff-1-0");
+        fs::create_dir_all(&foreign).unwrap();
+        let error = garbage_collect(&plan, &paths).unwrap_err();
+        assert!(error.0.contains("not owned by this exact Nix plan"));
+        assert!(first_published.is_dir());
+        assert!(first.local.is_dir());
+        fs::remove_dir(&foreign).unwrap();
+
+        plan.cache.retained_generations = 1;
+        let report = garbage_collect(&plan, &paths).unwrap();
+        assert_eq!(report.current_generation, second.generation);
+        assert_eq!(report.kept_generations, vec![second.generation.clone()]);
+        assert_eq!(report.removed_generations, vec![first.generation.clone()]);
+        assert!(!first_published.exists());
+        assert!(!first.local.exists());
+        assert!(paths.generations.join(&second.generation).is_dir());
+        assert!(second.local.is_dir());
 
         let sealed = store_seal.with_extension("store");
         fn make_writable(path: &Path) {

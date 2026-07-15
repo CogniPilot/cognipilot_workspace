@@ -29,7 +29,7 @@ let
   launchClosure = evaluateIndex (projectFixtures + /golden/resolution-launch-closure.nix);
   variantPaths = evaluateIndex (projectFixtures + /golden/variant-output-paths.nix);
 
-  presetActions = {
+  presetActionNames = {
     cargo = [
       "build"
       "test"
@@ -68,9 +68,322 @@ let
   };
   actualPresetActions = lib.mapAttrs (
     name: _:
-    builtins.attrNames
-      (evaluateIndex (projectFixtures + "/golden/${name}.nix")).projects.example.targets.default.actions
-  ) presetActions;
+    (evaluateIndex (projectFixtures + "/golden/${name}.nix")).projects.example.targets.default.actions
+  ) presetActionNames;
+  emptyRequirements = {
+    cpu = null;
+    memoryMiB = null;
+    exclusiveLocks = [ ];
+  };
+  expectedAction =
+    {
+      adapter,
+      argv,
+      dependsOn ? [ ],
+      environment ? { },
+      kind,
+      toolProfile ? null,
+    }:
+    {
+      inherit
+        adapter
+        argv
+        dependsOn
+        environment
+        kind
+        toolProfile
+        ;
+      requirements = emptyRequirements;
+    };
+  inProjectShell =
+    argv:
+    [
+      "nix"
+      "develop"
+      "--no-pure-eval"
+      "."
+      "-c"
+    ]
+    ++ argv;
+  westTwister =
+    output: extra:
+    [
+      "nixspace"
+      "west"
+      "run"
+      "--cwd"
+      "."
+      "--"
+      "nix"
+      "develop"
+      "--no-pure-eval"
+      "./manifest#default"
+      "-c"
+      "west"
+      "twister"
+      "-T"
+      "modules/lib/example/tests"
+      "-p"
+      "native_sim/native/64"
+      "--force-platform"
+      "--outdir"
+      "modules/lib/example/build/twister/${output}"
+      "--no-clean"
+    ]
+    ++ extra;
+  expectedPresetActions = {
+    cargo = {
+      build = expectedAction {
+        kind = "build";
+        adapter = "cargo-v1";
+        argv = inProjectShell [
+          "cargo"
+          "build"
+          "--workspace"
+        ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "cargo-v1";
+        dependsOn = [ "build" ];
+        argv = inProjectShell [
+          "cargo"
+          "test"
+          "--workspace"
+        ];
+      };
+    };
+    cargo-npm = {
+      npm-install = expectedAction {
+        kind = "build";
+        adapter = "npm-v1";
+        argv = inProjectShell [
+          "npm"
+          "ci"
+        ];
+      };
+      cargo-build = expectedAction {
+        kind = "build";
+        adapter = "cargo-v1";
+        dependsOn = [ "npm-install" ];
+        argv = inProjectShell [
+          "cargo"
+          "build"
+          "--locked"
+          "--workspace"
+        ];
+      };
+      npm-build = expectedAction {
+        kind = "build";
+        adapter = "npm-v1";
+        dependsOn = [ "npm-install" ];
+        argv = inProjectShell [
+          "npm"
+          "run"
+          "build"
+        ];
+      };
+      npm-test = expectedAction {
+        kind = "test";
+        adapter = "npm-v1";
+        dependsOn = [ "npm-build" ];
+        argv = inProjectShell [
+          "npm"
+          "run"
+          "ci"
+        ];
+      };
+      cargo-test = expectedAction {
+        kind = "test";
+        adapter = "cargo-v1";
+        dependsOn = [
+          "cargo-build"
+          "npm-test"
+        ];
+        argv = inProjectShell [
+          "cargo"
+          "test"
+          "--locked"
+          "--workspace"
+        ];
+      };
+    };
+    cmake = {
+      configure = expectedAction {
+        kind = "generate";
+        adapter = "cmake-v1";
+        toolProfile = "cmake-v1";
+        argv = [
+          "cmake"
+          "-S"
+          "."
+          "-B"
+          "build"
+          "-G"
+          "Ninja"
+        ];
+      };
+      build = expectedAction {
+        kind = "build";
+        adapter = "cmake-v1";
+        toolProfile = "cmake-v1";
+        dependsOn = [ "configure" ];
+        argv = [
+          "cmake"
+          "--build"
+          "build"
+        ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "cmake-v1";
+        toolProfile = "cmake-v1";
+        dependsOn = [ "build" ];
+        argv = [
+          "ctest"
+          "--test-dir"
+          "build"
+          "--output-on-failure"
+        ];
+      };
+    };
+    npm = {
+      build = expectedAction {
+        kind = "build";
+        adapter = "npm-v1";
+        argv = inProjectShell [
+          "npm"
+          "run"
+          "build"
+        ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "npm-v1";
+        dependsOn = [ "build" ];
+        argv = inProjectShell [
+          "npm"
+          "test"
+        ];
+      };
+    };
+    rumoca = {
+      compiler-build = expectedAction {
+        kind = "build";
+        adapter = "nix-flake-package-v1";
+        argv = [
+          "nix"
+          "build"
+          "--no-pure-eval"
+          ".#rumoca"
+          "--out-link"
+          "result-rumoca"
+        ];
+      };
+      python-build = expectedAction {
+        kind = "build";
+        adapter = "nix-flake-package-v1";
+        argv = [
+          "nix"
+          "build"
+          "--no-pure-eval"
+          ".#rumoca-python-env"
+          "--out-link"
+          "result-rumoca-python"
+        ];
+      };
+      javascript-build = expectedAction {
+        kind = "build";
+        adapter = "npm-v1";
+        argv = inProjectShell [
+          "npm"
+          "--prefix"
+          "packages/rumoca"
+          "run"
+          "build:dev"
+        ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "nix-flake-check-v1";
+        argv = [
+          "nix"
+          "flake"
+          "check"
+          "--no-pure-eval"
+          "."
+        ];
+      };
+    };
+    twister = {
+      build = expectedAction {
+        kind = "build";
+        adapter = "twister-v1";
+        environment = {
+          NIX_HARDENING_ENABLE = "";
+          ZEPHYR_TOOLCHAIN_VARIANT = "host";
+        };
+        argv = westTwister "build" [ "--build-only" ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "twister-v1";
+        dependsOn = [ "build" ];
+        environment = {
+          NIX_HARDENING_ENABLE = "";
+          ZEPHYR_TOOLCHAIN_VARIANT = "host";
+        };
+        argv = westTwister "test" [ ];
+      };
+    };
+    west.build = expectedAction {
+      kind = "build";
+      adapter = "west-v1";
+      argv = inProjectShell [
+        "west"
+        "build"
+      ];
+    };
+    zephyr-native-sim = {
+      build = expectedAction {
+        kind = "build";
+        adapter = "nixspace-west-v1";
+        environment.ZEPHYR_TOOLCHAIN_VARIANT = "host";
+        argv = [
+          "nixspace"
+          "west"
+          "exec"
+          "build"
+          "-b"
+          "native_sim/native/64"
+          "-d"
+          "example/build-native_sim_native_64_sil"
+          "example"
+          "-p"
+          "auto"
+          "--"
+          "-DEXTRA_CONF_FILE=example/boards/native_sim_sil.conf"
+        ];
+      };
+      test = expectedAction {
+        kind = "test";
+        adapter = "nixspace-west-app-v1";
+        dependsOn = [ "build" ];
+        argv = [
+          "nixspace"
+          "west"
+          "run"
+          "--"
+          "env"
+          "CUBS2_WORKSPACE_ROOT=."
+          "nix"
+          "run"
+          "--no-pure-eval"
+          "./example#native-sim-64-sil-test"
+        ];
+      };
+    };
+  };
 
   support = { lib, ... }: {
     options.perSystem = lib.mkOption {
@@ -101,8 +414,12 @@ let
       expected = true;
     };
     testPresetActionSurface = {
+      expr = lib.mapAttrs (_: actions: builtins.attrNames actions) actualPresetActions;
+      expected = presetActionNames;
+    };
+    testPresetActionSemantics = {
       expr = actualPresetActions;
-      expected = presetActions;
+      expected = expectedPresetActions;
     };
     testExternalDefinitionMatchesInTreeDefinition = {
       expr = externalCargo;

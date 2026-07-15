@@ -18,6 +18,7 @@ in
     {
       config,
       pkgs,
+      system,
       ...
     }:
     let
@@ -62,6 +63,11 @@ in
         devenv.modules = lib.mkBefore [
           {
             devenv.root = workspaceRoot;
+            # Devenv's fallback resolves devenv-tasks by fetching and importing
+            # its own locked Nixpkgs during evaluation.  The flake input already
+            # exports the exact package for every supported system, so bind it
+            # explicitly and keep flake/check evaluation free of native IFD.
+            task.package = devenv.packages.${system}.devenv-tasks;
           }
         ];
         devShells = lib.mapAttrs (_: evaluated: evaluated.shell) config.devenv.shells;

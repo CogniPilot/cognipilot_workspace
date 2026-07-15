@@ -17,6 +17,8 @@ in
       ...
     }:
     let
+      projectOutput = import ./fixtures/project-output/tests.nix { inherit pkgs; };
+      releaseProduct = import ./fixtures/release-product/tests.nix { inherit pkgs; };
       reports = {
         fixtures = import ./nix/fixture-contracts.nix {
           inherit inputs pkgs system;
@@ -60,11 +62,15 @@ in
             ${pkgs.runtimeShell} -n "$source/ws"
             touch "$out"
           '';
-      componentChecks = reportChecks // {
-        cognipilot-contract-github-actions = actionlint;
-        cognipilot-contract-bootstrap-shell = bootstrapSyntax;
-      };
-      aggregate = pkgs.linkFarm "cognipilot-nix-rust-contract-tests" (
+      fixtureRuntimeChecks = projectOutput.checks // releaseProduct.checks;
+      componentChecks =
+        reportChecks
+        // fixtureRuntimeChecks
+        // {
+          cognipilot-contract-github-actions = actionlint;
+          cognipilot-contract-bootstrap-shell = bootstrapSyntax;
+        };
+      aggregate = pkgs.linkFarm "cognipilot-nix-contract-tests" (
         lib.mapAttrsToList (name: path: { inherit name path; }) componentChecks
       );
     in

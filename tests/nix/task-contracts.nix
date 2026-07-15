@@ -4,6 +4,7 @@ let
   inherit (pkgs) lib;
   index = import ../fixtures/devenv-tasks/index.nix;
   generate = import ../../nix/cognipilot/devenv-task-generator.nix { inherit lib; };
+  actionGenerationLayout = import ../../nix/nixspace/action-generation-layout.nix;
   nixspaceExecutable = "/nix/store/00000000000000000000000000000000-nixspace/bin/nixspace";
 
   tasksFor =
@@ -18,6 +19,17 @@ let
       // overrides
     );
   tasks = tasksFor { };
+  presetIndex =
+    (lib.evalModules {
+      modules = [ ../fixtures/project-flakes/golden/cargo.nix ];
+    }).config.cognipilot.validatedIndex;
+  presetTasks = generate {
+    index = presetIndex;
+    inherit nixspaceExecutable;
+    taskStateRoot = ".state/tasks";
+    workspaceRoot = "/workspace";
+    sourceBindings.example_source = "/checkouts/example";
+  };
 
   alpha = index.projects.alpha-definition;
   alphaTarget = alpha.targets.default;
@@ -96,6 +108,129 @@ let
       environment.PKG_CONFIG_PATH = "/nix/store/22222222222222222222222222222222-library/lib/pkgconfig";
       environmentPaths.SCCACHE_DIR = ".state/sccache";
     };
+  };
+
+  expectedBuildArtifacts = {
+    inputs = { };
+    outputs.bundle = {
+      producedBy = "build";
+      kind = "directory";
+      path = "dist";
+      contract = {
+        name = "alpha-api";
+        version = 1;
+      };
+    };
+  };
+  expectedBuildArgv = [
+    "nix"
+    "develop"
+    "--no-pure-eval"
+    "."
+    "-c"
+    "cargo"
+    "build"
+    "--workspace"
+  ];
+  expectedBuildLocks = [
+    ".state/tasks/locks/cargo-target.lock"
+    ".state/tasks/locks/shared-cache.lock"
+  ];
+  expectedBuildOutputs = [
+    {
+      coordinate = "alpha:default:bundle";
+      path = "/checkouts/alpha/dist";
+      kind = "directory";
+      contract = {
+        name = "alpha-api";
+        version = 1;
+      };
+      proof = {
+        kind = "nix-nar-sha256";
+        argvPrefix = [
+          "nix"
+          "hash"
+          "path"
+          "--type"
+          "sha256"
+          "--sri"
+          "--"
+        ];
+      };
+    }
+  ];
+  expectedBuildDeclaration = {
+    actionId = "build";
+    adapter = "cargo-v1";
+    argv = expectedBuildArgv;
+    artifacts = expectedBuildArtifacts;
+    environment = { };
+    environmentPaths = { };
+    locks = expectedBuildLocks;
+    outputs = expectedBuildOutputs;
+    packageId = "alpha";
+    pathPrefixes = [ ];
+    requirements = {
+      cpu = 2;
+      memoryMiB = 1024;
+      exclusiveLocks = [
+        "shared-cache"
+        "cargo-target"
+      ];
+    };
+    source = {
+      coordinate = "alpha-source:.";
+      input = "alpha-source";
+      localPath = "/checkouts/alpha";
+      root = ".";
+      visibility = "private";
+    };
+    targetId = "default";
+    toolProfileId = null;
+    variants = {
+      allowedCombinations = [ ];
+      dimensions.mode = {
+        default = "debug";
+        values = [
+          "debug"
+          "release"
+        ];
+      };
+    };
+  };
+  expectedBuildGeneration = {
+    apiVersion = "nixspace/v1";
+    kind = "ActionGenerationStore";
+    interfaceVersion = 2;
+    root = ".state/tasks/devel/${builtins.hashString "sha256" "alpha:default:build"}";
+    layout = actionGenerationLayout;
+    identity = {
+      apiVersion = "nixspace/v1";
+      kind = "ActionTaskIdentity";
+      interfaceVersion = 1;
+      declaration = expectedBuildDeclaration;
+    };
+  };
+  expectedBuildResult = {
+    packageId = "alpha";
+    targetId = "default";
+    actionId = "build";
+    task = "alpha:default:build";
+    artifacts = expectedBuildArtifacts.outputs;
+  };
+  expectedBuildPlan = {
+    apiVersion = "nixspace/v1";
+    kind = "ActionTask";
+    interfaceVersion = 3;
+    cwd = "/checkouts/alpha";
+    argv = expectedBuildArgv;
+    environment = { };
+    environmentPaths = { };
+    generation = expectedBuildGeneration;
+    locks = expectedBuildLocks;
+    outputs = expectedBuildOutputs;
+    pathPrefixes = [ ];
+    result = expectedBuildResult;
   };
 
   tests = {
@@ -183,6 +318,81 @@ let
         };
         cwd = "/checkouts/alpha";
         modified = [ "/checkouts/alpha" ];
+      };
+    };
+    testCanonicalActionTaskPlanAndExec = {
+      expr = {
+        input = tasks."alpha:default:build".input;
+        exec = tasks."alpha:default:build".exec;
+      };
+      expected = {
+        input = expectedBuildDeclaration // {
+          generation = expectedBuildGeneration;
+        };
+        exec = lib.escapeShellArgs [
+          nixspaceExecutable
+          "_run-task"
+          "--plan-json"
+          (builtins.toJSON expectedBuildPlan)
+        ];
+      };
+    };
+    testRealPresetFlowsIntoTaskProducer = {
+      expr = {
+        build = {
+          inherit (presetTasks."example:default:build") after cwd;
+          inherit (presetTasks."example:default:build".input)
+            adapter
+            argv
+            environment
+            toolProfileId
+            ;
+        };
+        test = {
+          inherit (presetTasks."example:default:test") after cwd;
+          inherit (presetTasks."example:default:test".input)
+            adapter
+            argv
+            environment
+            toolProfileId
+            ;
+        };
+      };
+      expected = {
+        build = {
+          after = [ ];
+          cwd = "/checkouts/example";
+          adapter = "cargo-v1";
+          argv = [
+            "nix"
+            "develop"
+            "--no-pure-eval"
+            "."
+            "-c"
+            "cargo"
+            "build"
+            "--workspace"
+          ];
+          environment = { };
+          toolProfileId = null;
+        };
+        test = {
+          after = [ "example:default:build" ];
+          cwd = "/checkouts/example";
+          adapter = "cargo-v1";
+          argv = [
+            "nix"
+            "develop"
+            "--no-pure-eval"
+            "."
+            "-c"
+            "cargo"
+            "test"
+            "--workspace"
+          ];
+          environment = { };
+          toolProfileId = null;
+        };
       };
     };
     testArtifactConsumptionIsScoped = {

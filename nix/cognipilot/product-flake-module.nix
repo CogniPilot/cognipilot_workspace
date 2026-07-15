@@ -523,70 +523,76 @@ in
           // {
             sccacheVersion = pkgs.sccache.version;
           };
-        publicCacheRoot = pkgs.linkFarm "${productName}-public-cache-root" (
-          [
-            {
-              name = "workspace";
-              path = publicWorkspace;
-            }
-            {
-              name = "nixspace-index";
-              path = nixspaceIndexPackage;
-            }
-            {
-              name = "nixspace";
-              path = nixspace;
-            }
-            {
-              name = "nixspace-completions";
-              path = config.packages.nixspace-completions;
-            }
-            {
-              name = "sccache-tools";
-              path = sccacheTools;
-            }
-            {
-              # `./setup` realizes this exact convenience wrapper next.  Its
-              # references also retain every generated plan used at runtime.
-              name = "ws";
-              path = config.packages.ws;
-            }
-          ]
-          ++ lib.optional (config.packages ? nixspace-host) {
-            # Products that import the generic host interface retain the exact
-            # app wrapper `setup` realizes before `ws` exists. Pure release
-            # consumers need not import or synthesize a host policy.
-            name = "nixspace-host";
-            path = config.packages.nixspace-host;
+        publicCacheLinks = [
+          {
+            name = "workspace";
+            path = publicWorkspace;
           }
-          ++ lib.optional (config.packages ? nixspace-benchmark-plan) {
-            name = "nixspace-benchmark-plan";
-            path = config.packages.nixspace-benchmark-plan;
+          {
+            name = "nixspace-index";
+            path = nixspaceIndexPackage;
           }
-          ++ lib.optional (config.packages ? nixspace-host-plan) {
-            name = "nixspace-host-plan";
-            path = config.packages.nixspace-host-plan;
+          {
+            name = "nixspace";
+            path = nixspace;
           }
-          ++ lib.optional (config.packages ? nixspace-launch-plan) {
-            name = "nixspace-launch-plan";
-            path = config.packages.nixspace-launch-plan;
+          {
+            name = "nixspace-completions";
+            path = config.packages.nixspace-completions;
           }
-          ++ lib.optional (config.packages ? nixspace-resolution-plan) {
-            name = "nixspace-resolution-plan";
-            path = config.packages.nixspace-resolution-plan;
+          {
+            name = "sccache-tools";
+            path = sccacheTools;
           }
-          ++ lib.optional (config.packages ? nixspace-source-plan) {
-            name = "nixspace-source-plan";
-            path = config.packages.nixspace-source-plan;
+          {
+            # `./setup` realizes this exact convenience wrapper next.  Its
+            # references also retain every generated plan used at runtime.
+            name = "ws";
+            path = config.packages.ws;
           }
-          ++ lib.optional (config.packages ? nixspace-west-plan) {
-            name = "nixspace-west-plan";
-            path = config.packages.nixspace-west-plan;
-          }
-          ++ publicSelectedInputLinks
-          ++ publicReleaseLinks
-          ++ publicCheckLinks
-        );
+        ]
+        ++ lib.optional (config.packages ? nixspace-host) {
+          # Products that import the generic host interface retain the exact
+          # app wrapper `setup` realizes before `ws` exists. Pure release
+          # consumers need not import or synthesize a host policy.
+          name = "nixspace-host";
+          path = config.packages.nixspace-host;
+        }
+        ++ lib.optional (config.packages ? nixspace-benchmark-plan) {
+          name = "nixspace-benchmark-plan";
+          path = config.packages.nixspace-benchmark-plan;
+        }
+        ++ lib.optional (config.packages ? nixspace-host-plan) {
+          name = "nixspace-host-plan";
+          path = config.packages.nixspace-host-plan;
+        }
+        ++ lib.optional (config.packages ? nixspace-launch-plan) {
+          name = "nixspace-launch-plan";
+          path = config.packages.nixspace-launch-plan;
+        }
+        ++ lib.optional (config.packages ? nixspace-resolution-plan) {
+          name = "nixspace-resolution-plan";
+          path = config.packages.nixspace-resolution-plan;
+        }
+        ++ lib.optional (config.packages ? nixspace-source-plan) {
+          name = "nixspace-source-plan";
+          path = config.packages.nixspace-source-plan;
+        }
+        ++ lib.optional (config.packages ? nixspace-west-plan) {
+          name = "nixspace-west-plan";
+          path = config.packages.nixspace-west-plan;
+        }
+        ++ publicSelectedInputLinks
+        ++ publicReleaseLinks
+        ++ publicCheckLinks;
+        publicCacheRoot = pkgs.linkFarm "${productName}-public-cache-root" publicCacheLinks // {
+          passthru.projection = {
+            links = map (link: link.name) publicCacheLinks;
+            selectedInputs = map (link: link.name) publicSelectedInputLinks;
+            releases = map (link: link.name) publicReleaseLinks;
+            checks = publicCheckNames;
+          };
+        };
 
         productSourceIdentity = selectedInputIdentity "self";
         nixpkgsIdentity = selectedInputIdentity "nixpkgs";

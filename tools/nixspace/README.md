@@ -12,8 +12,11 @@ systems, or plan builds in Rust.
 ## Install
 
 ```console
-cargo install nixspace
+cargo install --locked --path tools/nixspace
 ```
+
+The crate is publishable but has not had its initial crates.io release yet.
+After that release, install it from the registry with `cargo install nixspace`.
 
 ## Provider contract
 
@@ -193,6 +196,11 @@ verify or reconstruct the managed projection before exposing it. Persistent cach
 paths and the indexed environment protocol for trusting exact sealed project
 paths are Nix plan data; nixspace does not mutate user-global Git
 configuration.
+
+`nixspace west gc` explicitly applies the Nix-declared retained-generation
+count. It always keeps the selected generation and refuses to delete any
+generation that cannot be proved to belong to the exact plan; ordinary syncs
+do not invalidate previously printed paths implicitly.
 
 Local path flakes must have tracked `flake.nix`, `flake.lock`, and cleanly
 Git-filtered local path inputs before refresh. Remote flake references are

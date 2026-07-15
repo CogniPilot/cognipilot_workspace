@@ -86,9 +86,11 @@ that private checkout is intended.
   workspaces. Devenv and process-compose own process supervision.
 - The supported flake systems are `x86_64-linux`, `aarch64-linux`, and
   `aarch64-darwin`.
-- `nixspace` is an independently locked, publishable Cargo package. It may be
-  installed with `cargo install nixspace`; `ws` is only CogniPilot's
-  Nix-provided alias.
+- `nixspace` is an independently locked, publishable Cargo package. Until its
+  initial crates.io release, install this checkout with
+  `cargo install --locked --path tools/nixspace`; afterward the standard
+  command is `cargo install nixspace`. `ws` is only CogniPilot's Nix-provided
+  alias.
 - Workspace contracts are tested by `nix flake check`; client behavior is
   tested by Cargo. Python remains allowed only inside project-native `src/`
   trees, never as workspace orchestration or a workspace test harness.

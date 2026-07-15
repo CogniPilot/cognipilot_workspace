@@ -5,6 +5,8 @@
 }:
 
 let
+  projectOutput = import ../fixtures/project-output/tests.nix { inherit pkgs; };
+  releaseProduct = import ../fixtures/release-product/tests.nix { inherit pkgs; };
   portableSuites = {
     devenv-launch = import ../fixtures/devenv-launch/tests.nix { inherit pkgs; };
     static-interface = import ../cognipilot-static-interface.nix { inherit pkgs; };
@@ -13,8 +15,11 @@ let
     project-output-cardinality = import ../fixtures/project-output/standalone-count-tests.nix {
       inherit pkgs;
     };
+    project-output = projectOutput.report;
+    release-product = releaseProduct.report;
     source-workspace = import ../fixtures/source-workspace/tests.nix { inherit pkgs; };
     west-workspace = import ../fixtures/west-plan/tests.nix { inherit pkgs; };
+    workspace-policy = import ../fixtures/workspace-policy/tests.nix { inherit pkgs; };
   };
   upstreamDevenvSuites = {
     devenv-launch-pinned = import ../fixtures/devenv-launch/pinned-devenv.nix {
@@ -38,5 +43,7 @@ builtins.deepSeq suites {
   inherit checksUpstreamDevenv;
   suiteCount = builtins.length (builtins.attrNames suites);
   names = builtins.attrNames suites;
+  projectOutput = portableSuites.project-output;
   projectOutputCardinality = portableSuites.project-output-cardinality;
+  releaseProduct = portableSuites.release-product;
 }

@@ -1294,10 +1294,12 @@ fn complete(index_path: &Path, words: &[String]) -> Result<()> {
                 "validate",
                 "ensure",
                 "sync",
+                "gc",
                 "status",
                 "path",
                 "extra-modules",
                 "exec",
+                "run",
             ]),
             _ => {}
         }

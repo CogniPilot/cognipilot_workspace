@@ -17,9 +17,11 @@ let
     perSystem = lib.mkOption { type = lib.types.raw; };
   };
 
+  westModule = root + /nix/nixspace/west-workspace-module.nix;
+
   modules = [
     support
-    (root + /nix/nixspace/west-workspace-module.nix)
+    westModule
   ];
 
   evaluate =
@@ -77,7 +79,7 @@ let
 in
 assert plan.apiVersion == "nixspace/v1";
 assert plan.kind == "WestWorkspace";
-assert plan.interfaceVersion == 2;
+assert plan.interfaceVersion == 3;
 assert
   plan.product == {
     id = "demo-product";
@@ -88,7 +90,8 @@ assert plan.workspace.source.input == "demo_source";
 assert plan.workspace.source.root == ".";
 assert plan.workspace.manifest.resource == "demo-app:west-manifest";
 assert plan.workspace.manifest.relativePath == "west.yml";
-assert lib.hasPrefix "/nix/store/" plan.workspace.manifest.storePath;
+assert lib.hasPrefix "${builtins.storeDir}/" plan.workspace.manifest.storePath;
+assert !(lib.hasInfix ''startswith("/nix/store/")'' (builtins.readFile westModule));
 assert builtins.stringLength plan.workspace.contentKey == 64;
 assert builtins.stringLength plan.workspace.manifest.sha256 == 64;
 assert !(plan.workspace ? projects);
@@ -101,6 +104,7 @@ assert
   plan.cache == {
     layoutVersion = 2;
     namespace = "demo-product";
+    retainedGenerations = 2;
     root = {
       base = "platform-cache";
       path = "nixspace";

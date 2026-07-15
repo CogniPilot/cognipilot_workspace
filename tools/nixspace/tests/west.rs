@@ -27,7 +27,7 @@ impl Fixture {
         let document = json!({
             "apiVersion": "nixspace/v1",
             "kind": "WestWorkspace",
-            "interfaceVersion": 2,
+            "interfaceVersion": 3,
             "product": {
                 "id": "test-product",
                 "interfaceVersion": 1
@@ -55,6 +55,7 @@ impl Fixture {
             "cache": {
                 "layoutVersion": 2,
                 "namespace": "test-product",
+                "retainedGenerations": 2,
                 "root": {"base": "platform-cache", "path": "nixspace"},
                 "nativePathCache": true,
                 "narrowUpdate": true,
@@ -149,7 +150,7 @@ fn validate_consumes_the_versioned_nix_plan_without_a_project_index() {
     let output = fixture.command(&["validate", "--json"]);
     assert!(output.status.success(), "{}", stderr(&output));
     let status: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(status["interfaceVersion"], 2);
+    assert_eq!(status["interfaceVersion"], 3);
     assert_eq!(status["product"], "test-product");
     assert_eq!(status["workspace"], "test-app");
     assert_eq!(status["ready"], false);
@@ -208,6 +209,22 @@ fn unsupported_plan_versions_have_no_compatibility_path() {
     let output = fixture.command(&["status"]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains("interface version 0 is unsupported"));
+}
+
+#[test]
+fn zero_generation_retention_is_rejected() {
+    let fixture = Fixture::new();
+    let mut document = fixture.document();
+    document["cache"]["retainedGenerations"] = 0.into();
+    fixture.write_document(&document);
+
+    let output = fixture.command(&["gc", "--json"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("retention must keep at least one generation"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]

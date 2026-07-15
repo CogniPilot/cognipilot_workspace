@@ -2,6 +2,7 @@
 
 let
   cfg = config.cognipilot.workspacePolicy;
+  evaluatePolicy = import ./workspace-policy.nix { inherit lib; };
   relativeFiles =
     if cfg.source == null then
       [ ]
@@ -9,83 +10,18 @@ let
       map (path: lib.removePrefix "${toString cfg.source}/" (toString path)) (
         lib.filesystem.listFilesRecursive cfg.source
       );
-  allowedPython = path: lib.hasPrefix "src/" path;
-  allowedShellFiles = [
-    ".envrc"
-    "setup"
-    "ws"
-  ];
-  shellSuffixes = [
-    ".ash"
-    ".bash"
-    ".bat"
-    ".cmd"
-    ".csh"
-    ".dash"
-    ".fish"
-    ".ksh"
-    ".mksh"
-    ".nu"
-    ".ps1"
-    ".sh"
-    ".tcsh"
-    ".yash"
-    ".zsh"
-  ];
-  firstLine =
-    path: builtins.head (lib.splitString "\n" (builtins.readFile (cfg.source + "/${path}")));
-  hasShellShebang =
-    path:
-    builtins.match "^#!.*(/|[[:space:]])(ash|bash|csh|dash|fish|ksh|mksh|nu|pwsh|sh|tcsh|yash|zsh)([[:space:]].*)?$" (
-      firstLine path
-    ) != null;
-  hasPythonShebang =
-    path:
-    builtins.match "^#!.*(/|[[:space:]])(python([0-9]+([.][0-9]+)*)?|uv)([[:space:]].*)?$" (
-      firstLine path
-    ) != null;
-  isShell =
-    path: builtins.any (suffix: lib.hasSuffix suffix path) shellSuffixes || hasShellShebang path;
-  isPython = path: lib.hasSuffix ".py" path || lib.hasSuffix ".pyw" path || hasPythonShebang path;
-  forbiddenExact = [
-    "devenv.lock"
-    "devenv.nix"
-    "devenv.yaml"
-    "nix/components/default.nix"
-    "nix/products.nix"
-    "nix/tasks.nix"
-    "workspace.lock.json"
-  ];
-  forbiddenPrefixes = [
-    "completions/"
-    "launch/"
-    "scripts/"
-  ];
-  violations = builtins.filter (
-    path:
-    (isPython path && !(allowedPython path))
-    || (isShell path && !(builtins.elem path allowedShellFiles))
-    || builtins.elem path forbiddenExact
-    || builtins.any (prefix: lib.hasPrefix prefix path) forbiddenPrefixes
-  ) relativeFiles;
-  report = {
-    schemaVersion = 1;
-    compliant = violations == [ ];
-    policy = {
-      python = "project-native-under-src-only";
-      shell = "exact-bootstrap-allowlist";
-      inherit allowedShellFiles;
-      staticAuthority = "nix";
-    };
-    inherit violations;
-  };
+  files = map (path: {
+    inherit path;
+    firstLine = builtins.head (lib.splitString "\n" (builtins.readFile (cfg.source + "/${path}")));
+  }) relativeFiles;
+  report = evaluatePolicy { inherit files; };
   validatedReport =
-    if violations == [ ] then
+    if report.violations == [ ] then
       report
     else
       throw ''
         workspace control-plane policy violations:
-        - ${lib.concatStringsSep "\n- " violations}
+        - ${lib.concatStringsSep "\n- " report.violations}
       '';
 in
 {

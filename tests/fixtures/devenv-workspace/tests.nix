@@ -79,6 +79,11 @@ let
             (pinnedModules + "/top-level.nix")
             {
               _module.args.pkgs = pkgs;
+              # This fixture validates the upstream module contract, not
+              # Devenv's private package resolver.  Supplying a package keeps
+              # evaluation pure; production binds the exact package exported
+              # by the pinned Devenv flake input.
+              task.package = pkgs.writeShellScriptBin "devenv-tasks" "exit 0";
               devenv = {
                 flakesIntegration = true;
                 root = "/workspace";
@@ -168,7 +173,7 @@ let
       defaultShell.devenv.cli.version == null
       && defaultShell.task.package != null
       && defaultShell.env.DEVENV_TASKS == ""
-      && builtins.pathExists defaultShell.task.config
+      && lib.hasPrefix "/nix/store/" (toString defaultShell.task.config)
       && lib.hasPrefix "/nix/store/" (toString defaultShell.procfileScript);
     minimal-default-shell =
       builtins.elem current.packages.nixspace defaultShell.packages

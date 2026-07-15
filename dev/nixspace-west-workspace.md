@@ -21,7 +21,7 @@ Nix emits this as versioned `flake.nixspaceWestPlan` data. The per-system
 one versioned, exact argv contract that atomically ingests the checkout and
 installs its generation GC root.
 This plan is self-identifying as `apiVersion = "nixspace/v1"`,
-`kind = "WestWorkspace"`, `interfaceVersion = 2`, and contains no West project
+`kind = "WestWorkspace"`, `interfaceVersion = 3`, and contains no West project
 list. Nixspace rejects any other transport identity; there is no compatibility
 decoder.
 
@@ -55,6 +55,13 @@ generation root, and local execution lock. The cache namespace is part of each
 cache-relative path even when the runtime cache root is overridden. Rust adds
 only runtime generation IDs and rejects equal or ancestor-overlapping plan
 paths.
+
+The plan also declares a positive retained-generation count. Cleanup is
+deliberately explicit: `nixspace west gc` takes the publication lease, retains
+the selected generation plus the newest plan-selected history, proves every
+candidate is owned by this exact West plan, and only then removes old local
+views and generation GC roots. A sync never invalidates a path merely because
+another command previously printed it.
 
 The runtime protocol is intentionally small and has no legacy names:
 

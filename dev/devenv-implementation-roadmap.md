@@ -58,14 +58,15 @@ At the user's direction, the cold QEMU and complete post-cutover warm-build
 matrix are explicitly deferred; no passing result is inferred for an unrun
 build. The workspace test control plane is now Nix-native: four independently
 diagnosable flake-check reports cover 19 golden modules, 74 fail-closed module
-fixtures, generated tasks, generic/provider interfaces, host policy, west,
-launch rendering, source plans, bootstrap syntax, and GitHub workflow syntax.
+fixtures, exact preset/task payloads, generic/provider interfaces, host policy,
+west, launch rendering, source plans, bootstrap and GitHub workflow policy,
+standalone external definitions, and realized release/promotion isolation.
 Pure contracts evaluate for every supported flake system; Devenv's
 target-independent upstream process-manager integration is evaluated once on
 the `x86_64-linux` reference row because upstream constructs its option types
 with native import-from-derivation.
 There is no Python test runner or nested private Nix store. The separate Rust
-package passes all 147 tests with its locked dependency graph, passes clippy
+package passes all 148 tests with its locked dependency graph, passes clippy
 with warnings denied, and packages as one standalone Cargo crate. The
 Nix-emitted lightweight matrix
 passes all eight default cases plus both explicit evaluator cases (20/20
@@ -190,7 +191,7 @@ Resolution requirements:
       correction. Static producer semantics are checked directly by Nix: the
       aggregate links four domain reports, including 19 golden and 74 invalid
       module fixtures. Executable client semantics remain in the independently
-      locked Rust package's 147 tests. The replaced Python harness and its
+      locked Rust package's 148 tests. The replaced Python harness and its
       nested evaluator store were deleted in the same cutover.
 - [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
       cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
@@ -553,6 +554,11 @@ Implemented read-only slice:
       status/path/completion behavior.
 - [x] Complete the `nixspace` rename, publishable Cargo package metadata, and
       non-CogniPilot reuse fixture.
+- [ ] Publish the initial `nixspace` crate release and verify the registry
+      command `cargo install nixspace`. The independently locked crate already
+      packages without path/Git dependencies and installs from this checkout
+      with `cargo install --locked --path tools/nixspace`; crates.io ownership
+      and publication are external release evidence, not inferred locally.
 
 Proposed new files/directories after the composition spike:
 
@@ -1129,7 +1135,7 @@ Nix substituter, including a later self-hosted Attic deployment.
       shell requires impure `PWD` by upstream design and is deliberately not
       misrepresented as a cross-host immutable root. The complete local
       `x86_64-linux` root realized successfully at `062b89b`, including the
-      then-current contract root and all 147 Rust tests. The current contract
+      then-current contract root and all 148 Rust tests. The current contract
       root is Nix-native and has no Python runtime. The two other systems and a
       successful remote three-system realization are not claimed.
 - [ ] Push complete build/runtime closures and archive public flake input store

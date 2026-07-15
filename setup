@@ -33,6 +33,10 @@ load_nix() {
 }
 
 if ! command -v nix >/dev/null 2>&1; then
+  load_nix
+fi
+
+if ! command -v nix >/dev/null 2>&1; then
   if [ "$check" = true ]; then
     printf '%s\n' 'setup: Nix is not installed; run ./setup' >&2
     exit 1

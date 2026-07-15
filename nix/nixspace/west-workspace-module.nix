@@ -34,9 +34,7 @@ let
     && !lib.hasInfix "\r" value
     && builtins.all (part: part != "" && part != "..") (lib.splitString "/" value);
   validRootRelativePath =
-    value:
-    validRelativePath value
-    && builtins.all (part: part != ".") (lib.splitString "/" value);
+    value: validRelativePath value && builtins.all (part: part != ".") (lib.splitString "/" value);
   joinPath =
     base: relative:
     if relative == "." then lib.removeSuffix "/" base else "${lib.removeSuffix "/" base}/${relative}";
@@ -100,7 +98,7 @@ let
       {
         apiVersion = "nixspace/v1";
         kind = "WestWorkspace";
-        interfaceVersion = 2;
+        interfaceVersion = 3;
         product = {
           id = cfg.product.id;
           interfaceVersion = cfg.product.interfaceVersion;
@@ -124,6 +122,7 @@ let
         cache = {
           layoutVersion = 2;
           namespace = cfg.cacheNamespace;
+          retainedGenerations = cfg.retainedGenerations;
           root = {
             base = "platform-cache";
             path = cfg.cacheRootPath;
@@ -251,6 +250,16 @@ in
       description = "Request native West's narrow update mode.";
     };
 
+    retainedGenerations = mkOption {
+      type = types.ints.positive;
+      default = 2;
+      description = ''
+        Total number of published West generations retained when the user
+        explicitly runs nixspace west gc. The selected generation is always
+        retained.
+      '';
+    };
+
     localOverrides = mkOption {
       default = { };
       description = ''
@@ -348,16 +357,17 @@ in
               jq -e '
                 .apiVersion == "nixspace/v1"
                 and .kind == "WestWorkspace"
-                and .interfaceVersion == 2
+                and .interfaceVersion == 3
                 and .cache.layoutVersion == 2
+                and .cache.retainedGenerations == 2
                 and (.workspace.contentKey | test("^[0-9a-f]{64}$"))
                 and (.workspace.manifest.sha256 | test("^[0-9a-f]{64}$"))
-                and (.workspace.manifest.storePath | startswith("/nix/store/"))
-                and (.tools.west | startswith("/nix/store/"))
+                and (.workspace.manifest.storePath | startswith("${builtins.storeDir}/"))
+                and (.tools.west | startswith("${builtins.storeDir}/"))
                 and .tools.store.interfaceVersion == 2
                 and .tools.store.seal.output == "store-path"
                 and ([.tools.store.seal.argv[].parameter // empty] == ["source", "gc-root"])
-                and (.tools.store.seal.argv[0].literal | startswith("/nix/store/"))
+                and (.tools.store.seal.argv[0].literal | startswith("${builtins.storeDir}/"))
                 and .tools.projectPathEnvironment.interfaceVersion == 1
                 and .tools.projectPathEnvironment.countVariable == "GIT_CONFIG_COUNT"
                 and ((.cache.paths.generations | split("/")[0]) == .cache.namespace)

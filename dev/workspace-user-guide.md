@@ -59,9 +59,11 @@ completion are generated from Clap:
 ./ws launch --help
 ```
 
-The generic client can also be installed with `cargo install nixspace`. A
-standalone installation needs explicit paths to the versioned index and plans;
-the CogniPilot `ws` package supplies those paths automatically.
+The generic client can be installed from this checkout with
+`cargo install --locked --path tools/nixspace`. After its initial crates.io
+release, `cargo install nixspace` is the registry command. A standalone
+installation needs explicit paths to the versioned index and plans; the
+CogniPilot `ws` package supplies those paths automatically.
 
 ### Inspect the Nix interface
 

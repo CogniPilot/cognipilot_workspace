@@ -19,10 +19,11 @@ edges first generate local Synapse and Rumoca artifacts, then pass their exact
 editable paths to downstream Cargo, npm, Modelica, CUBS2, and RDD2 commands.
 The native build tools keep their normal incremental directories.
 
-Profiles are product/persona composition, not a second package graph. For
-example, `cubs2` extends the shared Zephyr, Synapse, ground-station, PPM, and
-ZROS environments; `simulation` extends CUBS2 and Qualisys and adds the three
-supervised processes. The base shell remains small.
+Profiles are product/persona composition, not a second package graph. They use
+single-parent chains plus reusable Nix modules so Devenv does not repeatedly
+expand diamond-shaped profile inheritance. `simulation`, for example, extends
+CUBS2 and adds the Qualisys module and supervised processes. The base shell
+remains small.
 
 Use a project flake when the repository owns a reproducible immutable package
 or a complex project-specific command. Use a root Devenv task for the editable

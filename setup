@@ -41,7 +41,7 @@ fi
 
 devenv_ref='github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c'
 if ! command -v devenv >/dev/null 2>&1 ||
-  ! devenv version 2>/dev/null | grep -q '^devenv 2\.1\.3 '
+  ! devenv version 2>/dev/null | grep -q '^devenv 2\.1\.3+407080f '
 then
   nix profile remove devenv >/dev/null 2>&1 || true
   nix profile add "$devenv_ref"

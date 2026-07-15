@@ -16,6 +16,7 @@ concurrency:
 jobs:
   validate:
     name: Validate Devenv (${{ matrix.system }})
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +36,7 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: cachix/install-nix-action@a49548c11d9846ad46ecc0115273879b045f001c # v31
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
 
       - name: Configure public binary caches
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -52,11 +53,6 @@ jobs:
 
       - name: Test the canonical workspace
         run: devenv --profile ci test
-
-      - name: Realize cacheable tool environments
-        run: |
-          devenv --profile release test
-          devenv --profile fastdyn test
 
       - name: Evaluate every supported profile
         shell: bash

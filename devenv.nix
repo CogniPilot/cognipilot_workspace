@@ -22,19 +22,16 @@
   # Keep the unprofiled shell intentionally small. Project compilers and SDKs
   # are selected with ordinary Devenv profiles.
   packages = with pkgs; [
-    actionlint
-    deadnix
     git
     jq
-    nixfmt-rfc-style
-    shellcheck
-    statix
     python3Packages.west
   ];
 
   env = {
-    CCACHE_DIR = config.env.DEVENV_STATE + "/ccache";
-    SCCACHE_DIR = config.env.DEVENV_STATE + "/sccache";
+    # Compiler caches are deliberately shared by every profile. Profile state
+    # remains isolated under DEVENV_STATE, while identical compiles are reused.
+    CCACHE_DIR = config.git.root + "/.devenv/cache/ccache";
+    SCCACHE_DIR = config.git.root + "/.devenv/cache/sccache";
     WEST_CONFIG_LOCAL = config.git.root + "/.west/config";
   };
 

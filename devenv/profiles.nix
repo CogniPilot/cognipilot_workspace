@@ -110,6 +110,45 @@ let
       PYTHONPATH = "${pkgs.python3Packages.distlib}/${pkgs.python3.sitePackages}";
     };
   };
+
+  qualisysModule =
+    { config, ... }:
+    let
+      dashboardPort = config.processes.qualisys-bridge.ports.dashboard.value;
+    in
+    {
+      packages = with pkgs; [
+        openssl
+        playwright-test
+        zenoh
+      ];
+
+      processes.qualisys-bridge = {
+        cwd = source "synapse_qualisys_bridge";
+        exec = ''
+          exec ./target/debug/synapse-qualisys-bridge \
+            --zenoh-mode client \
+            --zenoh-connect udp/127.0.0.1:7447 \
+            --web-bind 127.0.0.1:${toString dashboardPort}
+        '';
+        after = [ "qualisys-bridge:build" ];
+        ports.dashboard.allocate = 8787;
+        env.SYNAPSE_QUALISYS_BRIDGE_CONFIG = config.env.DEVENV_STATE + "/qualisys-bridge.toml";
+        ready = {
+          http.get = {
+            port = dashboardPort;
+            path = "/";
+          };
+          initial_delay = 1;
+          period = 1;
+          timeout = 300;
+        };
+        restart = {
+          on = "on_failure";
+          max = 3;
+        };
+      };
+    };
 in
 {
   profiles = {
@@ -142,10 +181,7 @@ in
     };
 
     modelica = {
-      extends = [
-        "rust"
-        "web"
-      ];
+      extends = [ "synapse" ];
       module = {
         packages = with pkgs; [
           julia_111
@@ -159,14 +195,13 @@ in
     };
 
     ground-station = {
-      extends = [
-        "modelica"
-        "synapse"
-      ];
+      extends = [ "modelica" ];
       module =
         { config, ... }:
         let
           healthPort = config.processes.ground-station.ports.health.value;
+          telemetryPort = config.processes.ground-station.ports.telemetry.value;
+          lanRequestPort = config.processes.ground-station.ports.lan-request.value;
         in
         {
           tasks."ground-station:state" = {
@@ -179,12 +214,19 @@ in
             cwd = source "electrode_web";
             exec = "exec ./target/debug/electrode-ground-station --addr 127.0.0.1:${toString healthPort}";
             after = [ "electrode-web:build" ];
-            ports.health.allocate = 8790;
+            ports = {
+              health.allocate = 8790;
+              telemetry.allocate = 7447;
+              lan-request.allocate = 7448;
+            };
             env = {
               ELECTRODE_GCS_AUTOPILOT_FILE = config.env.DEVENV_STATE + "/ground-station/autopilot.json";
               ELECTRODE_GCS_MAPPING_FILE = config.env.DEVENV_STATE + "/ground-station/mapping.json";
               ELECTRODE_GCS_SIMULATION_FILE = config.env.DEVENV_STATE + "/ground-station/simulation.json";
+              ELECTRODE_GCS_LAN_REQUEST_LISTEN = "ws/0.0.0.0:${toString lanRequestPort}";
               ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = "udp/192.168.10.2:7447";
+              ELECTRODE_GCS_ZENOH_LISTEN = "udp/127.0.0.1:${toString telemetryPort}";
+              ELECTRODE_GCS_ZENOH_WS_LISTEN = "ws/127.0.0.1:${toString telemetryPort}";
               ELECTRODE_GCS_VELOCITY_BUDGET_CSV = config.env.DEVENV_STATE + "/ground-station/velocity-budget.csv";
               ELECTRODE_GCS_VELOCITY_BUDGET_DB =
                 config.env.DEVENV_STATE + "/ground-station/velocity-budget-db.json";
@@ -208,44 +250,7 @@ in
 
     qualisys = {
       extends = [ "synapse" ];
-      module =
-        { config, ... }:
-        let
-          dashboardPort = config.processes.qualisys-bridge.ports.dashboard.value;
-        in
-        {
-          packages = with pkgs; [
-            openssl
-            playwright-test
-            zenoh
-          ];
-
-          processes.qualisys-bridge = {
-            cwd = source "synapse_qualisys_bridge";
-            exec = ''
-              exec ./target/debug/synapse-qualisys-bridge \
-                --zenoh-mode client \
-                --zenoh-connect udp/127.0.0.1:7447 \
-                --web-bind 127.0.0.1:${toString dashboardPort}
-            '';
-            after = [ "qualisys-bridge:build" ];
-            ports.dashboard.allocate = 8787;
-            env.SYNAPSE_QUALISYS_BRIDGE_CONFIG = config.env.DEVENV_STATE + "/qualisys-bridge.toml";
-            ready = {
-              http.get = {
-                port = dashboardPort;
-                path = "/";
-              };
-              initial_delay = 1;
-              period = 1;
-              timeout = 300;
-            };
-            restart = {
-              on = "on_failure";
-              max = 3;
-            };
-          };
-        };
+      module = qualisysModule;
     };
 
     ppm = {
@@ -254,79 +259,60 @@ in
     };
 
     zros = {
-      extends = [
-        "synapse"
-        "zephyr"
-      ];
-      module = { };
+      extends = [ "synapse" ];
+      module = zephyr;
     };
 
     ros2 = {
-      extends = [
-        "rust"
-        "synapse"
-      ];
+      extends = [ "synapse" ];
       module = { };
     };
 
     cubs2 = {
-      extends = [
-        "ground-station"
-        "ppm"
-        "synapse"
-        "zephyr"
-        "zros"
-      ];
-      module = { };
+      extends = [ "ground-station" ];
+      module = zephyr;
     };
 
     rdd2 = {
-      extends = [
-        "ground-station"
-        "synapse"
-        "zephyr"
-        "zros"
-      ];
-      module = { };
+      extends = [ "ground-station" ];
+      module = zephyr;
     };
 
     simulation = {
-      extends = [
-        "cubs2"
-        "qualisys"
-      ];
+      extends = [ "cubs2" ];
       module =
         { config, ... }:
         let
-          telemetryPort = config.processes.simulation.ports.telemetry.value;
+          telemetryPort = config.processes.ground-station.ports.telemetry.value;
           endpoint = "udp/127.0.0.1:${toString telemetryPort}";
         in
         {
+          imports = [ qualisysModule ];
+
           processes = {
             simulation = {
               cwd = source "electrode_web";
               exec = ''
                 exec ./target/debug/electrode-fake-sim \
-                  --role both \
-                  --mode router \
+                  --role autopilot \
+                  --mode client \
                   --endpoint ${endpoint} \
-                  --ws-endpoint ws/127.0.0.1:${toString telemetryPort}
+                  --ws-endpoint ""
               '';
-              after = [ "electrode-web:build" ];
-              ports.telemetry.allocate = 7447;
+              after = [
+                "electrode-web:build"
+                "devenv:processes:ground-station@ready"
+              ];
               restart = {
                 on = "on_failure";
                 max = 3;
               };
             };
 
-            ground-station = {
-              after = [ "devenv:processes:simulation@started" ];
-              env.ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = lib.mkForce endpoint;
-            };
+            ground-station.env.ELECTRODE_GCS_TELEMETRY_ZENOH_CONNECT = lib.mkForce "";
 
             qualisys-bridge = {
-              after = [ "devenv:processes:simulation@started" ];
+              after = lib.mkAfter [ "devenv:processes:ground-station@ready" ];
               exec = lib.mkForce ''
                 exec ./target/debug/synapse-qualisys-bridge \
                   --zenoh-mode client \
@@ -341,17 +327,13 @@ in
     fastdyn.module = fastdyn;
 
     release = {
-      extends = [
-        "cubs2"
-        "diagnostics"
-        "qualisys"
-        "rdd2"
-        "ros2"
-      ];
+      extends = [ "simulation" ];
       module = {
         packages = with pkgs; [
+          clang-tools
           cargo-release
           cachix
+          hyperfine
         ];
       };
     };

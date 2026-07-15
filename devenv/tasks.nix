@@ -1,4 +1,4 @@
-{ config, ... }:
+{ config, lib, ... }:
 
 let
   root = config.git.root;
@@ -10,7 +10,47 @@ let
   synapseRust = "${source "synapse_fbs"}/target/xtask/packages/rust";
   synapseC = "${source "synapse_fbs"}/target/xtask/artifacts-work/synapse_fbs-c";
   synapseJavascript = "${source "synapse_fbs"}/target/xtask/packages/js";
-  rumocaJavascript = "${source "rumoca"}/packages/rumoca/dist/dev-core";
+  rumocaJavascript = "${source "rumoca"}/packages/rumoca/dist/dev-full-web";
+  cacheFlakeOutputs = [
+    {
+      repository = "cerebri_cubs2";
+      attribute = "default";
+    }
+    {
+      repository = "cerebri_rdd2";
+      attribute = "default";
+    }
+    {
+      repository = "csyn";
+      attribute = "default";
+    }
+    {
+      repository = "csyn_ros2_bridge";
+      attribute = "default";
+    }
+    {
+      repository = "qualisys_rust_sdk";
+      attribute = "default";
+    }
+    {
+      repository = "rumoca";
+      attribute = "rumoca";
+    }
+    {
+      repository = "rumoca";
+      attribute = "rumoca-python-env";
+    }
+  ];
+  cacheFlakeTasks = builtins.listToAttrs (
+    map (
+      output:
+      lib.nameValuePair "cache:${output.repository}:${output.attribute}" (
+        task output.repository "Realize ${output.repository}#${output.attribute} for Cachix." ''
+          nix build --no-link .#${output.attribute}
+        ''
+      )
+    ) cacheFlakeOutputs
+  );
 in
 {
   tasks = {
@@ -91,20 +131,20 @@ in
       };
 
     "rumoca:compiler" = task "rumoca" "Build the local Rumoca compiler." ''
-      nix build --no-pure-eval .#rumoca --out-link result-rumoca
+      nix build .#rumoca --out-link result-rumoca
     '';
 
     "rumoca:python" = task "rumoca" "Build the local Rumoca Python environment." ''
-      nix build --no-pure-eval .#rumoca-python-env --out-link result-rumoca-python
+      nix build .#rumoca-python-env --out-link result-rumoca-python
     '';
 
     "rumoca:javascript" = task "rumoca" "Build the local Rumoca JavaScript package." ''
-      npm --prefix packages/rumoca run build:dev
+      npm --prefix packages/rumoca run build:dev:full-web
     '';
 
     "rumoca:test" =
       (task "rumoca" "Run the Rumoca flake checks." ''
-        nix flake check --no-pure-eval
+        nix flake check
       '')
       // {
         after = [
@@ -116,7 +156,7 @@ in
 
     "modelica-models:build" =
       (task "modelica_models" "Build the Modelica model checker with the editable Rumoca source." ''
-        nix build --no-pure-eval --override-input rumoca "path:${source "rumoca"}" .#default --out-link result-default
+        nix build --override-input rumoca "git+file://${source "rumoca"}" .#default --out-link result-default
       '')
       // {
         after = [ "rumoca:compiler" ];
@@ -124,7 +164,7 @@ in
 
     "modelica-models:test" =
       (task "modelica_models" "Run the Modelica checks with the editable Rumoca source." ''
-        nix run --no-pure-eval --override-input rumoca "path:${source "rumoca"}" .#default
+        nix run --override-input rumoca "git+file://${source "rumoca"}" .#default
       '')
       // {
         after = [ "modelica-models:build" ];
@@ -133,7 +173,7 @@ in
     "csyn:build" =
       (task "csyn" "Build CSyn against the generated local Synapse Rust package." ''
         cargo build --locked --manifest-path rust/Cargo.toml \
-          --config "patch.crates-io.synapse_fbs.path='${synapseRust}'"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "synapse-fbs:build" ];
@@ -142,7 +182,7 @@ in
     "csyn:test" =
       (task "csyn" "Test CSyn against the generated local Synapse Rust package." ''
         cargo test --locked --manifest-path rust/Cargo.toml \
-          --config "patch.crates-io.synapse_fbs.path='${synapseRust}'"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "csyn:build" ];
@@ -179,7 +219,7 @@ in
     "electrode-web:cargo-build" =
       (task "electrode_web" "Build the Electrode Rust workspace against local Synapse." ''
         cargo build --locked --workspace \
-          --config "patch.crates-io.synapse_fbs.paths=['${synapseRust}']"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [
@@ -208,7 +248,7 @@ in
       (task "electrode_web" "Run the Electrode Rust and JavaScript tests." ''
         npm run ci
         cargo test --locked --workspace \
-          --config "patch.crates-io.synapse_fbs.paths=['${synapseRust}']"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "electrode-web:build" ];
@@ -216,7 +256,7 @@ in
 
     "cubs2:build" =
       (task "cerebri_cubs2" "Build the CUBS2 native simulator against local generated packages." ''
-        nix run --no-pure-eval .#build-native-sim-64 -- -p auto -- \
+        nix run .#build-native-sim-64 -- -p auto -- \
           "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
       '')
       // {
@@ -234,7 +274,7 @@ in
 
     "cubs2:test" =
       (task "cerebri_cubs2" "Run the project-owned CUBS2 native simulator SIL tests." ''
-        nix run --no-pure-eval .#native-sim-64-sil-test
+        nix run .#native-sim-64-sil-test
       '')
       // {
         after = [ "cubs2:build" ];
@@ -247,19 +287,25 @@ in
 
     "cubs2:build-hardware" =
       (task "cerebri_cubs2" "Build CUBS2 firmware for the default hardware target." ''
-        nix run --no-pure-eval .#build
+        nix run .#build -- -p auto -- \
+          "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
       '')
       // {
-        after = [ "workspace:links" ];
+        after = [
+          "workspace:links"
+          "rumoca:python"
+          "synapse-fbs:build"
+        ];
         env = {
           CUBS2_ALLOW_FOREIGN_WEST = "1";
+          CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
           CUBS2_WORKSPACE_ROOT = root;
         };
       };
 
     "cubs2:flash" =
       (task "cerebri_cubs2" "Flash the previously built CUBS2 firmware." ''
-        nix run --no-pure-eval .#flash
+        nix run .#flash
       '')
       // {
         after = [ "cubs2:build-hardware" ];
@@ -271,7 +317,7 @@ in
 
     "rdd2:build" =
       (task "cerebri_rdd2" "Build the RDD2 native simulator against local generated packages." ''
-        nix run --no-pure-eval .#build-native-sim -- -p auto -- \
+        nix run .#build-native-sim -- -p auto -- \
           -DRDD2_RUMOCA_VERSION=workspace \
           "-DRDD2_RUMOCA_EXECUTABLE=${source "rumoca"}/result-rumoca/bin/rumoca" \
           "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
@@ -290,10 +336,17 @@ in
 
     "rdd2:build-hardware" =
       (task "cerebri_rdd2" "Build RDD2 firmware for the default hardware target." ''
-        nix run --no-pure-eval .#build
+        nix run .#build -- -p auto -- \
+          -DRDD2_RUMOCA_VERSION=workspace \
+          "-DRDD2_RUMOCA_EXECUTABLE=${source "rumoca"}/result-rumoca/bin/rumoca" \
+          "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
       '')
       // {
-        after = [ "workspace:links" ];
+        after = [
+          "workspace:links"
+          "rumoca:compiler"
+          "synapse-fbs:build"
+        ];
         env = {
           RDD2_ALLOW_FOREIGN_WEST = "1";
           RDD2_WORKSPACE_ROOT = root;
@@ -302,7 +355,7 @@ in
 
     "rdd2:flash" =
       (task "cerebri_rdd2" "Flash the previously built RDD2 firmware." ''
-        nix run --no-pure-eval .#flash
+        nix run .#flash
       '')
       // {
         after = [ "rdd2:build-hardware" ];
@@ -390,7 +443,7 @@ in
     "qualisys-bridge:build" =
       (task "synapse_qualisys_bridge" "Build the Qualisys bridge against local Synapse." ''
         cargo build --locked --bin synapse-qualisys-bridge \
-          --config "patch.crates-io.synapse_fbs.path='${synapseRust}'"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "synapse-fbs:build" ];
@@ -399,7 +452,7 @@ in
     "qualisys-bridge:test" =
       (task "synapse_qualisys_bridge" "Test the Qualisys bridge against local Synapse." ''
         cargo test --locked \
-          --config "patch.crates-io.synapse_fbs.path='${synapseRust}'"
+          --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "qualisys-bridge:build" ];
@@ -420,20 +473,24 @@ in
         };
       };
 
-    "ppm:build" = task "synapse_ppm_bridge" "Build the PPM bridge." ''
-      cargo build --locked
-    '';
+    "ppm:build" =
+      (task "synapse_ppm_bridge" "Build the PPM bridge against local Synapse." ''
+        cargo build --locked --config "paths=['${synapseRust}']"
+      '')
+      // {
+        after = [ "synapse-fbs:build" ];
+      };
 
     "ppm:test" =
       (task "synapse_ppm_bridge" "Test the PPM bridge." ''
-        cargo test --locked
+        cargo test --locked --config "paths=['${synapseRust}']"
       '')
       // {
         after = [ "ppm:build" ];
       };
 
     "ros2:test" = task "csyn_ros2_bridge" "Run the project-owned colcon/ROS 2 CI application." ''
-      nix run --no-pure-eval .#ci
+      nix run .#ci
     '';
 
     "fastdyn:build" = task "FastDyn" "Run the project-owned FastDyn/QEMU setup." ''
@@ -449,7 +506,39 @@ in
         after = [ "fastdyn:build" ];
       };
 
-    "release:check" = {
+    "cache:all" = {
+      description = "Realize the bounded project flake outputs uploaded by dedicated cache CI.";
+      after = (map (output: "cache:${output.repository}:${output.attribute}") cacheFlakeOutputs) ++ [
+        "modelica-models:build"
+      ];
+    };
+
+    "release:compliance" =
+      (task "synapse_fbs" "Require every Rust consumer to use the generated Synapse version." ''
+        expected="$(cargo metadata --no-deps --format-version 1 \
+          --manifest-path target/xtask/packages/rust/Cargo.toml | jq -r '.packages[0].version')"
+        failed=0
+        for manifest in \
+          ../csyn/rust/Cargo.toml \
+          ../electrode_web/Cargo.toml \
+          ../synapse_qualisys_bridge/Cargo.toml \
+          ../synapse_ppm_bridge/Cargo.toml
+        do
+          requirement="$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" |
+            jq -r '.packages[0].dependencies[] | select(.name == "synapse_fbs") | .req')"
+          if test "$requirement" != "^$expected"; then
+            printf '%s requires synapse_fbs %s; workspace requires ^%s\n' \
+              "$manifest" "$requirement" "$expected" >&2
+            failed=1
+          fi
+        done
+        test "$failed" -eq 0
+      '')
+      // {
+        after = [ "synapse-fbs:build" ];
+      };
+
+    "release:qualify" = {
       description = "Run every bounded release qualification task without publishing.";
       after = [
         "cerebri-modules:test"
@@ -463,8 +552,61 @@ in
         "rdd2:build"
         "ros2:test"
         "rumoca:test"
+        "release:compliance"
         "synapse-fbs:test"
         "zros:test"
+      ];
+    };
+
+    "release:synapse-fbs" =
+      (task "synapse_fbs" "Build every Synapse package-manager and archive artifact." ''
+        cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
+      '')
+      // {
+        after = [ "release:qualify" ];
+      };
+
+    "release:rumoca" =
+      (task "rumoca" "Build Rumoca packages and dry-run both npm publications." ''
+        nix build --no-link .#rumoca .#rumoca-python-env
+        npm --prefix packages/rumoca run publish:release:core:dry-run
+        npm --prefix packages/rumoca run publish:release:full-web:dry-run
+      '')
+      // {
+        after = [ "release:qualify" ];
+      };
+
+    "release:modelica-models" = {
+      description = "Qualify the Modelica model package and local Rumoca integration.";
+      after = [
+        "release:qualify"
+        "modelica-models:test"
+      ];
+    };
+
+    "release:electrode-web" = {
+      description = "Qualify the Electrode application and Pages payload.";
+      after = [
+        "release:qualify"
+        "electrode-web:test"
+      ];
+    };
+
+    "release:qualisys-bridge" =
+      (task "synapse_qualisys_bridge" "Build the host Qualisys bridge release binary." ''
+        cargo build --release --locked --bin synapse-qualisys-bridge \
+          --config "paths=['${synapseRust}']"
+      '')
+      // {
+        after = [ "release:qualify" ];
+      };
+
+    "release:firmware" = {
+      description = "Build CUBS2 and RDD2 hardware firmware against workspace dependencies.";
+      after = [
+        "release:qualify"
+        "cubs2:build-hardware"
+        "rdd2:build-hardware"
       ];
     };
 
@@ -473,7 +615,7 @@ in
         cargo publish --locked --dry-run
       '')
       // {
-        after = [ "release:check" ];
+        after = [ "release:qualify" ];
       };
 
     "release:csyn" =
@@ -481,7 +623,7 @@ in
         cargo publish --locked --dry-run --manifest-path rust/Cargo.toml
       '')
       // {
-        after = [ "release:check" ];
+        after = [ "release:qualify" ];
       };
 
     "release:qualisys-sdk" =
@@ -489,16 +631,23 @@ in
         cargo publish --locked --dry-run
       '')
       // {
-        after = [ "release:check" ];
+        after = [ "release:qualify" ];
       };
 
     "release:all" = {
-      description = "Complete every configured release dry run; this never publishes.";
+      description = "Complete every configured release qualification; this never publishes.";
       after = [
         "release:csyn"
+        "release:electrode-web"
+        "release:firmware"
+        "release:modelica-models"
         "release:ppm"
+        "release:qualisys-bridge"
         "release:qualisys-sdk"
+        "release:rumoca"
+        "release:synapse-fbs"
       ];
     };
-  };
+  }
+  // cacheFlakeTasks;
 }

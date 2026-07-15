@@ -6,18 +6,28 @@ integration. Each project keeps authority over its own build and release tools.
 
 ## Start
 
-With Nix installed:
+Install Git and curl, then run:
 
 ```sh
 ./setup
 ```
 
-The script only installs or updates Devenv and enters `devenv shell`. It does
-not edit system Nix configuration. To install manually instead:
+The script installs Nix when it is missing, installs the workspace's pinned
+Devenv release, and enters `devenv shell`. It does not edit an existing Nix
+configuration. To install Devenv manually instead:
 
 ```sh
 nix profile add github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c
 devenv shell
+```
+
+If Nix reports that cache settings are restricted, trust the public caches
+once at the host level (the command prompts for elevation when required):
+
+```sh
+nix run nixpkgs#cachix -- use cognipilot
+nix run nixpkgs#cachix -- use devenv
+nix run nixpkgs#cachix -- use ros
 ```
 
 Then fetch the editable repositories:
@@ -51,8 +61,13 @@ devenv --profile ground-station tasks run electrode-web:test
 devenv --profile release tasks run release:all
 ```
 
-`release:all` is deliberately a dry run. Publishing remains an explicit
-project-native command after the dry run succeeds.
+`release:all` runs the workspace integration checks, hardware firmware builds,
+and host package dry runs without publishing. Its compliance gate rejects Rust
+consumers that do not use the workspace Synapse version. Cross-platform
+archives, wheels, VSIX packages, and publication remain authoritative in each
+project's tag workflow. Projects have independent versions, so after this
+preflight create each project's own release tag rather than inventing one
+workspace-wide version.
 
 Start supervised processes with Devenv itself:
 
@@ -73,6 +88,9 @@ the repository:
 profile: cubs2
 ```
 
+The supported hosts are x86_64 Linux, AArch64 Linux, and Apple-silicon macOS.
+Zephyr firmware execution and flashing remain Linux/hardware-specific.
+
 ## Maintain
 
 ```sh
@@ -85,10 +103,14 @@ devenv gc
 
 The `cognipilot` Cachix cache stores Nix-built environments and packages.
 Native editable build directories are intentionally not Cachix artifacts;
-Cargo uses the shared Devenv sccache directory instead. `CACHIX_AUTH_TOKEN` is
-only a write credential for authorized CI or manual cache publication, never
-the public signing key. Main CI realizes the complete `release` and `fastdyn`
-tool environments before the Cachix action uploads new Nix-built paths.
+all profiles share workspace-local ccache and sccache directories instead.
+`CACHIX_AUTH_TOKEN` is only a write credential for authorized CI, never the
+public signing key. Fast PR CI only evaluates the workspace. The separate
+`Warm project Nix cache` workflow realizes tool environments and bounded
+project flake outputs on main, weekly, or by manual dispatch, then Cachix
+uploads every new Nix path. Protect its `cachix-write` GitHub environment and
+restrict the organization secret to repositories allowed to populate the
+trusted cache.
 
 See [Project environments](docs/project-environments.md) for the project-flake
 boundary and local cross-repository workflow.

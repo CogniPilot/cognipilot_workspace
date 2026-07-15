@@ -46,6 +46,10 @@ in
       minimumVersion = "2.18";
       settings = {
         accept-flake-config = true;
+        # Share byte-identical regular files between store paths.  Source
+        # boundaries still prevent mutable build trees from entering the
+        # store; this is a second, host-level defense for legitimate overlap.
+        auto-optimise-store = true;
         experimental-features = [
           "nix-command"
           "flakes"

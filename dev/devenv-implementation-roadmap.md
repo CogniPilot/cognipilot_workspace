@@ -73,6 +73,15 @@ passes all eight default cases plus both explicit evaluator cases (20/20
 p50/p95 gates); the strict lifecycle matrix adds four passing cases and eight
 passing p50/p95 gates. Reports and per-command logs are retained under
 `dev/benchmarks/nixspace/`.
+The store-source boundary is now explicit: the canonical Git-filtered root is
+about 6.7 MB and excludes `src/`, `.git`, and `.devenv`; project revisions are
+independent locked inputs, while editable actions use runtime checkout paths.
+A forensic audit found ten dead 9-48 GB snapshots (368.3 GiB total) created by
+explicit unfiltered `path:` ingestion of the editable root. Devenv's two
+implicit container roots are forced to share the canonical filtered `self`, a
+Nix contract rejects filtered roots containing editable state, and host setup
+enables `auto-optimise-store`. Standard `nix store gc` reclaims dead paths;
+Cachix was not the source of the duplication.
 
 ## Non-goals
 
@@ -194,7 +203,7 @@ Resolution requirements:
       locked Rust package's 148 tests. The replaced Python harness and its
       nested evaluator store were deleted in the same cutover.
 - [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
-      cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
+      cases. The selected `x86_64-linux` BenchmarkPlan now owns all twelve
       non-QEMU package budgets and exact typed build commands with no
       per-package runner. Execution results are tracked once at the Phase 2
       pilot/matrix gate below. Existing evidence is

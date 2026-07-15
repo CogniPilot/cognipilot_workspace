@@ -27,6 +27,7 @@ let
   );
   promotionSbom = systemConfig.packages.promotion-sbom.passthru.document;
   cacheProjection = systemConfig.packages.public-cache-root.passthru.projection;
+  defaultDevenvShell = systemConfig.devenv.shells.default;
 
   expectedCatalogIds = [
     "cerebri_cubs2"
@@ -290,6 +291,24 @@ let
   ws = builtins.readFile (sourceRoot + "/ws");
 
   tests = {
+    testDevenvDoesNotSnapshotEditableWorkspace = {
+      expr = {
+        shellContainerRoots = map toString defaultDevenvShell.containers.shell.copyToRoot;
+        processContainerRoots = map toString defaultDevenvShell.containers.processes.copyToRoot;
+        filteredSelfExcludesEditableState = builtins.all (
+          name: !(builtins.pathExists "${inputs.self.outPath}/${name}")
+        ) [
+          ".devenv"
+          ".git"
+          "src"
+        ];
+      };
+      expected = {
+        shellContainerRoots = [ (toString inputs.self.outPath) ];
+        processContainerRoots = [ (toString inputs.self.outPath) ];
+        filteredSelfExcludesEditableState = true;
+      };
+    };
     testCachePolicyIsSingleAuthority = {
       expr = {
         flake = flakeNixConfig;
@@ -300,6 +319,7 @@ let
         observedStores = hostPlan.readiness.cache.stores;
         observedRoots = hostPlan.readiness.cache.roots;
         trust = cachePolicy.hostPlan.nix.settings.trusted-users;
+        autoOptimiseStore = cachePolicy.hostPlan.nix.settings.auto-optimise-store;
         devenvPin = cachePolicy.devenvPin;
         devenvTool = cachePolicy.hostPlan.tools.devenv;
       };
@@ -332,6 +352,7 @@ let
           }
         ];
         trust = [ "*" ];
+        autoOptimiseStore = true;
         devenvPin = {
           revision = inputs.devenv.rev;
           version =

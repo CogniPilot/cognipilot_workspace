@@ -70,6 +70,17 @@ in
         devenv.modules = lib.mkBefore [
           {
             devenv.root = workspaceRoot;
+            # Devenv 2.1.2 declares implicit `shell` and `processes`
+            # containers even when this integration exports no containers.
+            # Their upstream copyToRoot default evaluates an unfiltered
+            # builtins.path over the `self` module argument.  Explicitly bind
+            # the unused container roots to the canonical Git-filtered flake
+            # source so both containers share it and no invocation mode can
+            # re-import a mutable workspace through the container default.
+            # Project sources remain independent locked inputs; editable
+            # actions continue to use their runtime checkout paths.
+            containers.shell.copyToRoot = lib.mkForce [ inputs.self.outPath ];
+            containers.processes.copyToRoot = lib.mkForce [ inputs.self.outPath ];
             # Devenv's fallback resolves devenv-tasks by fetching and importing
             # its own locked Nixpkgs during evaluation.  The flake input already
             # exports the exact package for every supported system, so bind it

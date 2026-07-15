@@ -138,6 +138,17 @@ The shared locked-Cargo actions use the Nix-selected `sccache` wrapper and share
 `.nixspace/state/sccache`; CI exercises the same compiler-cache boundary with
 GitHub's standard cache backend. Project definitions do not configure it.
 
+To reclaim unreachable local store paths, use Nix's standard collector:
+
+```sh
+nix store gc
+```
+
+Setup enables store optimization so byte-identical files are hard-linked.
+Never pass the editable workspace as an explicit `path:$PWD` flake reference;
+use `.` or the checked-in `./ws` entry point so Git excludes `src/` and mutable
+build state from the flake source.
+
 ## More detail
 
 - [Workspace user guide](dev/workspace-user-guide.md)

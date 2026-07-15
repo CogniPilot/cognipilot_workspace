@@ -60,6 +60,9 @@ jobs:
       - name: Qualify every documented build and test command
         run: devenv --profile workspace tasks run ci:documented
 
+      - name: Build workspace container
+        run: devenv --profile workspace container build shell
+
       - name: Build and publish versioned container
         if: github.event_name == 'push'
         env:

@@ -222,11 +222,15 @@ in
       module = {
         packages = with pkgs; [
           julia_111
-          python312
-          python312Packages.ipython
-          python312Packages.numpy
-          python312Packages.pandas
-          python312Packages.sympy
+          lld
+          (python312.withPackages (
+            pythonPackages: with pythonPackages; [
+              ipython
+              numpy
+              pandas
+              sympy
+            ]
+          ))
         ];
       };
     };

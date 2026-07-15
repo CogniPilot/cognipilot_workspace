@@ -14,6 +14,11 @@ let
   resultRoot = "${root}/.devenv/state/results";
   cubs2West = "${root}/.devenv/state/west/cubs2";
   rdd2West = "${root}/.devenv/state/west/rdd2";
+  cubs2NativeTwisterEnv = {
+    WEST_TOPDIR = cubs2West;
+    ZEPHYR_BASE = "${cubs2West}/zephyr";
+    ZEPHYR_TOOLCHAIN_VARIANT = "host";
+  };
   editableZephyrModules = lib.concatStringsSep ";" [
     (source "cerebri_modules")
     (source "zros")
@@ -571,10 +576,7 @@ in
             --outdir ${source "cerebri_modules"}/build/twister/build \
             --no-clean --build-only
         '';
-        env = {
-          WEST_TOPDIR = cubs2West;
-          ZEPHYR_BASE = "${cubs2West}/zephyr";
-        };
+        env = cubs2NativeTwisterEnv;
       };
 
       "cerebri-modules:test" = {
@@ -588,10 +590,7 @@ in
             --outdir ${source "cerebri_modules"}/build/twister/test \
             --no-clean
         '';
-        env = {
-          WEST_TOPDIR = cubs2West;
-          ZEPHYR_BASE = "${cubs2West}/zephyr";
-        };
+        env = cubs2NativeTwisterEnv;
       };
 
       "zros:build" = {
@@ -605,10 +604,7 @@ in
             --outdir ${source "zros"}/build/twister/build \
             --no-clean --build-only
         '';
-        env = {
-          WEST_TOPDIR = cubs2West;
-          ZEPHYR_BASE = "${cubs2West}/zephyr";
-        };
+        env = cubs2NativeTwisterEnv;
       };
 
       "zros:test" = {
@@ -622,10 +618,7 @@ in
             --outdir ${source "zros"}/build/twister/test \
             --no-clean
         '';
-        env = {
-          WEST_TOPDIR = cubs2West;
-          ZEPHYR_BASE = "${cubs2West}/zephyr";
-        };
+        env = cubs2NativeTwisterEnv;
       };
 
       "csyn:qualification" = {
@@ -643,10 +636,7 @@ in
             --outdir ${source "csyn"}/build/twister/qualification \
             --no-clean
         '';
-        env = {
-          WEST_TOPDIR = cubs2West;
-          ZEPHYR_BASE = "${cubs2West}/zephyr";
-        };
+        env = cubs2NativeTwisterEnv;
       };
 
       "qualisys-sdk:build" = task "qualisys_rust_sdk" "Build the Qualisys Rust SDK and simulator." ''

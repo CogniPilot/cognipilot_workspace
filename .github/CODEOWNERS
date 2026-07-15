@@ -5,5 +5,4 @@
 /devenv.yaml @CogniPilot/admins
 /devenv.lock @CogniPilot/admins
 /devenv/ @CogniPilot/admins
-/manifest/ @CogniPilot/admins
 /setup @CogniPilot/admins

@@ -46,7 +46,7 @@ jobs:
           github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
 
       - name: Synchronize pinned projects
-        run: devenv tasks run workspace:sync
+        run: devenv tasks run sources:sync
 
       - name: Realize complete tool environments
         run: |

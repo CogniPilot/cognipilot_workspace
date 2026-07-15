@@ -184,7 +184,7 @@ in
           nix-instantiate --parse devenv.nix >/dev/null
           nix-instantiate --parse devenv/tasks.nix >/dev/null
           nix-instantiate --parse devenv/profiles.nix >/dev/null
-          for path in manifest modules models zephyr .west src/modules src/models; do
+          for path in manifest modules models zephyr .west src/modules src/models src/*/.nixspace; do
             if test -e "$path"; then
               printf 'unexpected shared workspace path: %s\n' "$path" >&2
               exit 1
@@ -194,12 +194,14 @@ in
       };
 
       "synapse-fbs:build" = task "synapse_fbs" "Generate all local Synapse language packages." ''
-        cargo run --locked --manifest-path xtask/Cargo.toml -- build --release-name local
+        nix develop --command \
+          cargo run --locked --manifest-path xtask/Cargo.toml -- build --release-name local
       '';
 
       "synapse-fbs:test" =
         (task "synapse_fbs" "Run Synapse package checks." ''
-          cargo run --locked --manifest-path xtask/Cargo.toml -- check
+          nix develop --command \
+            cargo run --locked --manifest-path xtask/Cargo.toml -- check
         '')
         // {
           after = [ "synapse-fbs:build" ];
@@ -350,6 +352,8 @@ in
             "-DCUBS2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DCUBS2_ZROS_ROOT=${source "zros"}" \
             "-DCUBS2_CSYN_ROOT=${source "csyn"}" \
+            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            -DZEPHYR_TOOLCHAIN_VARIANT=host \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -365,6 +369,7 @@ in
             CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "host";
           };
         };
 
@@ -374,6 +379,8 @@ in
             "-DCUBS2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DCUBS2_ZROS_ROOT=${source "zros"}" \
             "-DCUBS2_CSYN_ROOT=${source "csyn"}" \
+            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            -DZEPHYR_TOOLCHAIN_VARIANT=host \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -389,6 +396,7 @@ in
             CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "host";
           };
         };
 
@@ -405,6 +413,7 @@ in
             CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "host";
           };
         };
 
@@ -414,6 +423,8 @@ in
             "-DCUBS2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DCUBS2_ZROS_ROOT=${source "zros"}" \
             "-DCUBS2_CSYN_ROOT=${source "csyn"}" \
+            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -429,6 +440,7 @@ in
             CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -444,6 +456,7 @@ in
             CUBS2_CSYN_ROOT = source "csyn";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -469,6 +482,8 @@ in
             "-DRDD2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DRDD2_ZROS_ROOT=${source "zros"}" \
             "-DRDD2_CSYN_ROOT=${source "csyn"}" \
+            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            -DZEPHYR_TOOLCHAIN_VARIANT=host \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -482,6 +497,7 @@ in
             RDD2_CSYN_ROOT = source "csyn";
             RDD2_WEST_WORKSPACE = rdd2West;
             RDD2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "host";
           };
         };
 
@@ -493,6 +509,8 @@ in
             "-DRDD2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DRDD2_ZROS_ROOT=${source "zros"}" \
             "-DRDD2_CSYN_ROOT=${source "csyn"}" \
+            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -506,6 +524,7 @@ in
             RDD2_CSYN_ROOT = source "csyn";
             RDD2_WEST_WORKSPACE = rdd2West;
             RDD2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -525,7 +544,7 @@ in
         exec = ''
           west twister -T ${source "cerebri_modules"}/tests \
             -p native_sim/native/64 --force-platform \
-            --extra-args "ZEPHYR_MODULES=${editableZephyrModules}" \
+            --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "cerebri_modules"}/build/twister/build \
             --no-clean --build-only
         '';
@@ -542,7 +561,7 @@ in
         exec = ''
           west twister -T ${source "cerebri_modules"}/tests \
             -p native_sim/native/64 --force-platform \
-            --extra-args "ZEPHYR_MODULES=${editableZephyrModules}" \
+            --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "cerebri_modules"}/build/twister/test \
             --no-clean
         '';
@@ -559,7 +578,7 @@ in
         exec = ''
           west twister -T ${source "zros"}/tests \
             -p native_sim/native/64 --force-platform \
-            --extra-args "ZEPHYR_MODULES=${editableZephyrModules}" \
+            --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "zros"}/build/twister/build \
             --no-clean --build-only
         '';
@@ -576,7 +595,7 @@ in
         exec = ''
           west twister -T ${source "zros"}/tests \
             -p native_sim/native/64 --force-platform \
-            --extra-args "ZEPHYR_MODULES=${editableZephyrModules}" \
+            --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "zros"}/build/twister/test \
             --no-clean
         '';
@@ -596,7 +615,7 @@ in
         exec = ''
           west twister -T ${source "csyn"}/zephyr/tests \
             -p native_sim/native/64 --force-platform \
-            --extra-args "ZEPHYR_MODULES=${editableZephyrModules}" \
+            --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "csyn"}/build/twister/qualification \
             --no-clean
         '';
@@ -738,7 +757,8 @@ in
 
       "release:synapse-fbs" =
         (task "synapse_fbs" "Build every Synapse package-manager and archive artifact." ''
-          cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
+          nix develop --command \
+            cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
         '')
         // {
           after = [ "release:qualify" ];
@@ -824,6 +844,15 @@ in
           "release:qualisys-sdk"
           "release:rumoca"
           "release:synapse-fbs"
+        ];
+      };
+
+      "ci:documented" = {
+        description = "Run every terminating build and test workflow documented in the README.";
+        after = [
+          "cubs2:build-native-32"
+          "fastdyn:test"
+          "release:all"
         ];
       };
     };

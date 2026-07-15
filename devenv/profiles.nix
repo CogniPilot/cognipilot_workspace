@@ -76,7 +76,6 @@ let
       );
     env = {
       NIX_HARDENING_ENABLE = "";
-      ZEPHYR_TOOLCHAIN_VARIANT = "host";
     };
   };
 
@@ -331,6 +330,20 @@ in
           cachix
           hyperfine
         ];
+      };
+    };
+
+    workspace = {
+      extends = [
+        "release"
+        "fastdyn"
+      ];
+      module = {
+        containers.shell = {
+          name = "cognipilot-workspace";
+          registry = "docker://ghcr.io/cognipilot/";
+          version = "latest";
+        };
       };
     };
 

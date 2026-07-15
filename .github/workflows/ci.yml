@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: read
@@ -43,8 +45,8 @@ jobs:
         with:
           name: cognipilot
           extraPullNames: devenv,ros
-          authToken: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
-          skipPush: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+          authToken: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && secrets.CACHIX_AUTH_TOKEN || '' }}
+          skipPush: ${{ github.event_name != 'push' || (github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')) }}
 
       - name: Install Devenv
         run: >-
@@ -59,8 +61,8 @@ jobs:
         run: |
           set -euo pipefail
           for profile in \
-            cubs2 rdd2 ground-station simulation modelica qualisys \
-            zros ros2 ppm fastdyn diagnostics release rust web zephyr
+            ci cubs2 diagnostics fastdyn modelica ppm qualisys rdd2 release \
+            ros2 rust synapse web workspace zephyr zros
           do
             devenv --profile "$profile" eval packages >/dev/null
           done

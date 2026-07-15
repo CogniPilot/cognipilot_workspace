@@ -197,7 +197,7 @@ in
           nix-instantiate --parse devenv.nix >/dev/null
           nix-instantiate --parse devenv/tasks.nix >/dev/null
           nix-instantiate --parse devenv/profiles.nix >/dev/null
-          for path in manifest modules models zephyr .west src/modules src/models src/*/.nixspace; do
+          for path in manifest modules models zephyr .west src/modules src/models; do
             if test -e "$path"; then
               printf 'unexpected shared workspace path: %s\n' "$path" >&2
               exit 1

@@ -293,6 +293,8 @@ pub struct EndpointTemplate {
     pub protocol: String,
     pub host_parameter: Option<String>,
     pub port_parameter: Option<String>,
+    pub path: Option<String>,
+    pub expected_status: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

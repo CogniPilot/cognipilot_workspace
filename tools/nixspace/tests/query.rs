@@ -217,7 +217,13 @@ fn workspace_index() -> Value {
                     "workingDirectory": ".",
                     "dependencies": {},
                     "endpoints": {
-                        "api": {"protocol": "http", "hostParameter": null, "portParameter": "port"}
+                        "api": {
+                            "protocol": "http",
+                            "hostParameter": null,
+                            "portParameter": "port",
+                            "path": "/health",
+                            "expectedStatus": 204
+                        }
                     },
                     "readiness": {"kind": "endpoint", "endpoint": "api", "timeoutMs": 30000},
                     "restart": {"policy": "never", "maxAttempts": 0, "backoffMs": 0},
@@ -599,6 +605,11 @@ fn launch_plan_resolves_only_runtime_values_and_redacts_secrets() {
         json!(["--fixed", "--port", "8123"])
     );
     assert_eq!(plan["processes"][0]["endpoints"]["api"]["port"], 8123);
+    assert_eq!(plan["processes"][0]["endpoints"]["api"]["path"], "/health");
+    assert_eq!(
+        plan["processes"][0]["endpoints"]["api"]["expectedStatus"],
+        204
+    );
     assert_eq!(
         plan["processes"][0]["environment"]["SERVICE_TOKEN"],
         json!({

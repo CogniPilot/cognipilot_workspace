@@ -115,10 +115,13 @@ pub struct ProcessDocument {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct EndpointDocument {
     protocol: String,
     host: Option<Value>,
     port: Option<u64>,
+    path: Option<String>,
+    expected_status: Option<u16>,
 }
 
 pub fn build_plan(
@@ -674,6 +677,8 @@ fn resolve_endpoint(
         protocol: endpoint.protocol.clone(),
         host,
         port,
+        path: endpoint.path.clone(),
+        expected_status: endpoint.expected_status,
     })
 }
 

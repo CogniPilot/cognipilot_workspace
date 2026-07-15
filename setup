@@ -1,10 +1,7 @@
 #!/bin/sh
 set -eu
 
-root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-client="$root/.nixspace/ws/bin/ws"
 check=false
-
 case "${1:-}" in
   "") ;;
   --check) check=true ;;
@@ -24,7 +21,6 @@ load_nix() {
     "$HOME/.nix-profile/etc/profile.d/nix.sh"
   do
     if [ -r "$profile" ]; then
-      # The official installer creates these environment fragments.
       # shellcheck disable=SC1090
       . "$profile"
       break
@@ -32,40 +28,27 @@ load_nix() {
   done
 }
 
+command -v nix >/dev/null 2>&1 || load_nix
 if ! command -v nix >/dev/null 2>&1; then
-  load_nix
-fi
-
-if ! command -v nix >/dev/null 2>&1; then
-  if [ "$check" = true ]; then
-    printf '%s\n' 'setup: Nix is not installed; run ./setup' >&2
-    exit 1
-  fi
   command -v curl >/dev/null 2>&1 || {
     printf '%s\n' 'setup: curl is required to install Nix' >&2
     exit 1
   }
-  printf '%s\n' 'Installing Nix with the official multi-user installer...'
   curl --fail --location --proto '=https' --tlsv1.2 \
     https://nixos.org/nix/install | sh -s -- --daemon
   load_nix
 fi
 
-if [ "$check" = true ]; then
-  if [ ! -x "$client" ]; then
-    printf '%s\n' 'setup: the cached workspace client is missing; run ./setup' >&2
-    exit 1
-  fi
-  exec "$client" --workspace-root "$root" setup --check
+devenv_ref='github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c'
+if ! command -v devenv >/dev/null 2>&1 ||
+  ! devenv version 2>/dev/null | grep -q '^devenv 2\.1\.3 '
+then
+  nix profile remove devenv >/dev/null 2>&1 || true
+  nix profile add "$devenv_ref"
 fi
 
-nix --extra-experimental-features 'nix-command flakes' \
-  run --accept-flake-config "$root#nixspace-host" -- \
-  --workspace-root "$root" setup
+if [ "$check" = true ]; then
+  exec devenv test
+fi
 
-mkdir -p "$root/.nixspace"
-nix --extra-experimental-features 'nix-command flakes' \
-  build --accept-flake-config --out-link "$root/.nixspace/ws" \
-  "$root#ws"
-
-exec "$client" --workspace-root "$root" doctor
+exec devenv shell

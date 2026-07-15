@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: Apache-2.0
+
+manifest:
+  remotes:
+    - name: cognipilot
+      url-base: https://github.com/CogniPilot
+    - name: jgoppert
+      url-base: https://github.com/jgoppert
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: synapse_fbs
+      remote: cognipilot
+      revision: f6efaadf1a1cf0c48608b9b104b578da51322979
+      path: src/synapse_fbs
+    - name: cerebri_cubs2
+      remote: cognipilot
+      revision: 8c4e2f29928445448ab2bef897d2135d0be8c1ea
+      path: src/cerebri_cubs2
+    - name: electrode_web
+      remote: cognipilot
+      revision: bda10981cddd91ba12c216df67d34081fa21730b
+      path: src/electrode_web
+    - name: rumoca
+      remote: cognipilot
+      revision: 25ca822383954db4e71d2e522b56a81f0f3a6161
+      path: src/rumoca
+    - name: modelica_models
+      remote: cognipilot
+      revision: 8e0c1ddd0a48e2a7106f6b79137d4a04fcc94b37
+      path: src/modelica_models
+    - name: csyn
+      remote: cognipilot
+      revision: 46debf42bb2b310c00ed5723f61989f1a2705634
+      path: src/csyn
+    - name: cerebri_modules
+      remote: cognipilot
+      revision: ef73a4f8adeb4385c34af4344c9af27e43e02033
+      path: src/cerebri_modules
+    - name: zros
+      remote: cognipilot
+      revision: 32df0f27ef2fac9e30d48e9a78ddf0c9f45dfe9c
+      path: src/zros
+    - name: zros_drivers
+      remote: cognipilot
+      revision: e0b37b4ae5f03f9bc985bf6f00fce2aee16b8e84
+      path: src/zros_drivers
+    - name: qualisys_rust_sdk
+      remote: cognipilot
+      revision: a8ed1ac40bfb3007828cb581c8631fd6f79b2f9d
+      path: src/qualisys_rust_sdk
+    - name: synapse_qualisys_bridge
+      remote: cognipilot
+      revision: 4017e56ed132fd8527d5386fe208d7927c6c9bef
+      path: src/synapse_qualisys_bridge
+    - name: synapse_ppm_bridge
+      remote: cognipilot
+      revision: 5fb6919e100f899cc7a029d6f71c06d1c9b89b16
+      path: src/synapse_ppm_bridge
+    - name: cerebri_rdd2
+      remote: cognipilot
+      revision: 10bb0de2b443d3292b50e2b7ccccfe73e9192184
+      path: src/cerebri_rdd2
+    - name: csyn_ros2_bridge
+      remote: cognipilot
+      revision: e709f66869dc7ea90dcf48cc4e800c0613eb4d4e
+      path: src/csyn_ros2_bridge
+      submodules: true
+    - name: FastDyn
+      remote: jgoppert
+      revision: 376ad4e3adc2085e02837a2d38c2472b52f5ea98
+      path: src/FastDyn
+
+  self:
+    path: manifest
+    import: zephyr.yml

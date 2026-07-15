@@ -1,3 +1,0 @@
-ROS 2 is selected, but https://ros.cachix.org is not a trusted Nix substituter.
-Configure its trusted-substituters and trusted-public-keys entries as documented
-in README.md before building; otherwise Nix would rebuild ROS Jazzy from source.

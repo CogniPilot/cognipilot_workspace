@@ -1,9 +1,0 @@
-[package]
-name = "nixspace-sccache-pilot"
-version = "0.0.0"
-edition = "2021"
-publish = false
-
-[[bin]]
-name = "nixspace-sccache-pilot"
-path = "src/main.rs"

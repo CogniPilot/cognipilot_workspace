@@ -1,12 +1,9 @@
-# Workspace-interface, product-selection, release, and CI policy changes require
-# review from the organization administrators who own the CogniPilot platform.
+# Development environment, source pins, bootstrap, and CI are platform policy.
 /.github/CODEOWNERS @CogniPilot/admins
-/flake.nix @CogniPilot/admins
-/flake.lock @CogniPilot/admins
-/nix/cognipilot/ @CogniPilot/admins
-/nix/nixspace/ @CogniPilot/admins
-/nix/project-definitions/ @CogniPilot/admins
-/tools/nixspace/ @CogniPilot/admins
-/setup @CogniPilot/admins
-/ws @CogniPilot/admins
 /.github/workflows/ @CogniPilot/admins
+/devenv.nix @CogniPilot/admins
+/devenv.yaml @CogniPilot/admins
+/devenv.lock @CogniPilot/admins
+/devenv/ @CogniPilot/admins
+/manifest/ @CogniPilot/admins
+/setup @CogniPilot/admins

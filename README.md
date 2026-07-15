@@ -1,158 +1,94 @@
-# CogniPilot workspace
+# CogniPilot development workspace
 
-A Nix-first development workspace for CogniPilot. Project flakes define the
-package graph, tools, actions, artifacts, launches, and source selection.
-flake-parts composes those definitions and Nix generates the editable task
-graph. The standalone Rust [`nixspace`](tools/nixspace/) client exposes that
-Nix-generated interface as `ws`; it does not maintain a second workspace model.
+This is a standard [Devenv](https://devenv.sh/) polyrepo workspace. Devenv
+provides the shells, profiles, task DAG, processes, completion, and Cachix
+integration. Each project keeps authority over its own build and release tools.
 
-## Start here
+## Start
 
-Install `git` and `curl`, then run:
+With Nix installed:
 
 ```sh
-git clone https://github.com/CogniPilot/cognipilot_workspace.git
-cd cognipilot_workspace
 ./setup
 ```
 
-`./setup` is the only setup command. It bootstraps Nix if necessary, delegates
-host configuration to the Nix-built client, and realizes the Nix-built `ws`
-entrypoint. Nix substitutes it from the configured caches when available and
-otherwise builds it locally. Setup finishes by running `ws doctor`. To verify an
-already configured host without changing it:
+The script only installs or updates Devenv and enters `devenv shell`. It does
+not edit system Nix configuration. To install manually instead:
 
 ```sh
-./setup --check
+nix profile add github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c
+devenv shell
 ```
 
-After setup, use `./ws` directly; do not install devenv by hand or source a
-workspace setup script. The CLI uses Clap, so `./ws --help` and each
-subcommand's `--help` are the command reference.
-
-## Common commands
+Then fetch the editable repositories:
 
 ```sh
-./ws doctor
-./ws cache coverage --json
-./ws benchmark                 # bounded default performance cases
-./ws benchmark --all           # all opt-in cases, including native builds
-devenv shell -- ./ws benchmark native-warm-synapse_fbs
-./ws package list
-./ws package show electrode_web
-./ws graph --dot
-
-./ws sync                     # clone missing public repositories
-./ws status                   # public repository status; no fetch
-./ws update PACKAGE           # checked fast-forward update
-
-./ws build --plan PACKAGE     # inspect Nix-selected devenv task roots
-./ws build PACKAGE
-./ws test PACKAGE
-./ws env PACKAGE --explain    # show exact LOCAL/LOCKED selections and bindings
-./ws package prefix PACKAGE
-./ws resource PACKAGE/NAME
-./ws run electrode_web/ground-station -- --help
-
-./ws launch list
-./ws launch show electrode_web/ground-station
-./ws launch plan electrode_web/ground-station --set health-port=8791
-./ws launch up electrode_web/ground-station --name demo --detach
-./ws launch status demo
-./ws launch logs demo
-./ws launch down demo
+devenv tasks run workspace:sync
 ```
 
-Source commands default to the Nix-emitted public repository set. Explicit
-`./ws sync all`, `status all`, or `update all` opts into every declared source,
-including FastDyn's separately locked private source checkout; use it only when
-that private checkout is intended.
+West pins each repository once in [`manifest/west.yml`](manifest/west.yml) and
+its [`zephyr.yml`](manifest/zephyr.yml) submanifest.
+Editable Cargo targets, CMake build trees, node modules, and West workspaces
+stay outside `/nix/store` and retain their native incremental behavior.
 
-## Project model
+## Work
 
-- A source repository may export `flakeModules.default`; otherwise an external
-  flake or downstream fork can define it without modifying upstream. The
-  product lock selects exactly one complete definition.
-- Shared Cargo, npm, CMake, west/Zephyr, and Twister presets generate routine
-  actions and state paths. Projects declare only meaningful native differences.
-- Generated devenv tasks run editable actions while native tools keep their
-  incremental build state. Devenv's task cache tracks declared inputs. The
-  Nix-built client validates typed artifact results and publishes an atomic
-  generation that readers hold through use.
-- Each command uses one Nix-generated local/locked resolution. Missing,
-  incompatible, stale, or unsafe mixed selections fail explicitly; a selected
-  local result never falls back to a locked result after failure.
-- West owns Zephyr workspace operations in isolated, content-addressed product
-  workspaces. Devenv and process-compose own process supervision.
-- The supported flake systems are `x86_64-linux`, `aarch64-linux`, and
-  `aarch64-darwin`.
-- `nixspace` is an independently locked, publishable Cargo package. Until its
-  initial crates.io release, install this checkout with
-  `cargo install --locked --path tools/nixspace`; afterward the standard
-  command is `cargo install nixspace`. `ws` is only CogniPilot's Nix-provided
-  alias.
-- Workspace contracts are tested by `nix flake check`; client behavior is
-  tested by Cargo. Python remains allowed only inside project-native `src/`
-  trees, never as workspace orchestration or a workspace test harness.
-
-## Caching
-
-The public cache contract is the union of `cache.nixos.org` and the
-`cognipilot` Cachix cache: upstream paths need not be mirrored into Cognipilot.
-Main-only CI is configured to build and push the explicit
-`.#public-cache-root`; it does not scan arbitrary flake outputs. No successful
-remote union publication proof is retained yet. The root includes public
-project inputs, the public product definition, checks, workspace tools, and
-promoted immutable outputs (currently `synapse_ppm_bridge/default`). Editable
-Cargo, npm, CMake, west, and ROS builds keep native incremental state and use
-sccache where configured; they are intentionally not Cachix products. The root
-also contains the exact `nixspace-host` and `ws` wrappers used by `./setup`,
-their generated plans, and completions. First-run workspace tooling can be
-substituted as one closure after main CI successfully publishes it. Until the
-host trusts the public key, the initial bootstrap may compile the client. A
-local coverage report is an inventory, not proof of publication; only a
-successful main run and a complete union query establish that the closure is
-present. Protected `main` now
-requires the strict three-system GitHub Actions check matrix, a CODEOWNER
-approval, resolved conversations, and linear history; those controls protect
-the publisher but do not substitute for a successful publication run.
-
-FastDyn's separately locked source is private, and that source plus any private
-release output are excluded from the public cache root. Its integration
-definition is deliberately committed to this public product, so the definition
-and its declared checkout metadata are public. `private` protects source/output
-store closures; it cannot redact information intentionally committed to a
-public flake. A future private cache must use separate credentials and retention
-policy.
-
-Setup also trusts upstream caches for independently pinned tools. Host v4 and
-cache report v2 retain per-store diagnostics but decide completeness per path:
-every closure path must exist in at least one declared union store.
-
-Editable Cargo, npm, CMake/Ninja, west/Twister, and colcon outputs are mutable
-native build state, not Cachix content. `CACHIX_AUTH_TOKEN` is a CI write
-credential, not the public signing key; keep it in protected organization CI
-secrets, never in a flake, repository, or developer setup.
-
-The shared locked-Cargo actions use the Nix-selected `sccache` wrapper and share
-`.nixspace/state/sccache`; CI exercises the same compiler-cache boundary with
-GitHub's standard cache backend. Project definitions do not configure it.
-
-To reclaim unreachable local store paths, use Nix's standard collector:
+Select a complete environment with a normal Devenv profile:
 
 ```sh
-nix store gc
+devenv --profile cubs2 shell
+devenv --profile rdd2 shell
+devenv --profile ground-station shell
+devenv --profile simulation shell
 ```
 
-Setup enables store optimization so byte-identical files are hard-linked.
-Never pass the editable workspace as an explicit `path:$PWD` flake reference;
-use `.` or the checked-in `./ws` entry point so Git excludes `src/` and mutable
-build state from the flake source.
+Inside or outside the shell, run the native Devenv tasks:
 
-## More detail
+```sh
+devenv --profile cubs2 tasks run cubs2:build
+devenv --profile cubs2 tasks run cubs2:test
+devenv --profile ground-station tasks run electrode-web:test
+devenv --profile release tasks run release:all
+```
 
-- [Workspace user guide](dev/workspace-user-guide.md)
-- [Nix/Rust workflow boundary](dev/nix-rust-workflow-boundary.md)
-- [Project flake provider contract](dev/devenv-flake-provider-contract.md)
-- [Implementation roadmap](dev/devenv-implementation-roadmap.md)
-- [Promotion record](dev/cognipilot-promotion-record.md)
+`release:all` is deliberately a dry run. Publishing remains an explicit
+project-native command after the dry run succeeds.
+
+Start supervised processes with Devenv itself:
+
+```sh
+devenv --profile ground-station up
+devenv --profile simulation up
+devenv --profile simulation processes list
+devenv --profile simulation down
+```
+
+Available profiles include `cubs2`, `rdd2`, `ground-station`, `simulation`,
+`modelica`, `qualisys`, `zros`, `ros2`, `ppm`, `fastdyn`, `diagnostics`,
+`release`, `rust`, `web`, and `zephyr`. Set a personal default without changing
+the repository:
+
+```yaml
+# devenv.local.yaml (ignored)
+profile: cubs2
+```
+
+## Maintain
+
+```sh
+devenv tasks list
+devenv tasks run workspace:status
+devenv test
+devenv update
+devenv gc
+```
+
+The `cognipilot` Cachix cache stores Nix-built environments and packages.
+Native editable build directories are intentionally not Cachix artifacts;
+Cargo uses the shared Devenv sccache directory instead. `CACHIX_AUTH_TOKEN` is
+only a write credential for authorized CI or manual cache publication, never
+the public signing key. Main CI realizes the complete `release` and `fastdyn`
+tool environments before the Cachix action uploads new Nix-built paths.
+
+See [Project environments](docs/project-environments.md) for the project-flake
+boundary and local cross-repository workflow.

@@ -1,23 +1,22 @@
-.devenv*
+.devenv/
 .direnv/
-.nixspace/
+.west/
+.pre-commit-config.yaml
 devenv.local.nix
-__pycache__/
-*.py[cod]
+devenv.local.yaml
 result
 result-*
 
-# Component repositories are independent editable Git worktrees materialized
-# by `ws sync`; the workspace repository tracks their metadata, not their files.
-/src/
+# Local planning notes and transient development evidence.
+/dev/
 
-# Optional source-adjacent west workspaces. The default shared workspace lives
-# in the user cache, outside this Git worktree.
-.west/
-zephyr/
-modules/
-bootloader/
-/tools/*
-!/tools/nixspace/
-!/tools/nixspace/**
-/tools/nixspace/target/
+# West-managed editable project repositories.
+/src/
+/models/
+/modules/
+/zephyr/
+
+# Native project build state.
+**/node_modules/
+**/target/
+**/build/

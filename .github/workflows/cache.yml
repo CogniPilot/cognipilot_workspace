@@ -24,6 +24,13 @@ jobs:
     environment: cachix-write
 
     steps:
+      - name: Reclaim runner disk for Nix outputs
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          large-packages: false
+          tool-cache: false
+          swap-storage: false
+
       - name: Check out the workspace
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -33,6 +40,7 @@ jobs:
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
         with:
           github_access_token: ${{ github.token }}
+          install_options: --no-daemon
 
       - name: Configure binary caches
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17

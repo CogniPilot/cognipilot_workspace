@@ -14,6 +14,9 @@
   derivations.
 - Project flakes may provide immutable packages and project-owned applications.
   The root workspace may invoke them, but must not duplicate their build logic.
+- Each Zephyr application owns its West manifest and an isolated West
+  workspace. Do not create shared root `zephyr/`, `modules/`, or `models/`
+  trees, or add a root West manifest or `.west/` workspace.
 - Do not implement workspace control, tests, fixtures, or release orchestration
   in Python. Project-native Python remains allowed inside project repositories.
 - Keep shell in `setup` and Devenv task bodies short and declarative. Do not hide

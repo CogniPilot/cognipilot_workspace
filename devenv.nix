@@ -24,7 +24,6 @@
   packages = with pkgs; [
     git
     jq
-    python3Packages.west
   ];
 
   env = {
@@ -32,7 +31,6 @@
     # remains isolated under DEVENV_STATE, while identical compiles are reused.
     CCACHE_DIR = config.git.root + "/.devenv/cache/ccache";
     SCCACHE_DIR = config.git.root + "/.devenv/cache/sccache";
-    WEST_CONFIG_LOCAL = config.git.root + "/.west/config";
   };
 
   git-hooks.hooks = {

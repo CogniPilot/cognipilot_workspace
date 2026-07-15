@@ -200,8 +200,18 @@ in
     };
 
     ppm = {
-      extends = [ "rust" ];
-      module = { };
+      extends = [ "synapse" ];
+      module = {
+        processes.ppm-bridge = {
+          cwd = source "synapse_ppm_bridge";
+          exec = "exec ./target/debug/synapse-ppm-bridge";
+          after = [ "ppm:build" ];
+          restart = {
+            on = "on_failure";
+            max = 3;
+          };
+        };
+      };
     };
 
     zros = {

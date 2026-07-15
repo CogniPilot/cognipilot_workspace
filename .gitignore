@@ -1,6 +1,5 @@
 .devenv/
 .direnv/
-.west/
 .pre-commit-config.yaml
 devenv.local.nix
 devenv.local.yaml
@@ -10,11 +9,8 @@ result-*
 # Local planning notes and transient development evidence.
 /dev/
 
-# West-managed editable project repositories.
+# Editable top-level project repositories.
 /src/
-/models/
-/modules/
-/zephyr/
 
 # Native project build state.
 **/node_modules/

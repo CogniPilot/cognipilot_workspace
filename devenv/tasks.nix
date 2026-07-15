@@ -11,6 +11,7 @@ let
   synapseC = "${source "synapse_fbs"}/target/xtask/artifacts-work/synapse_fbs-c";
   synapseJavascript = "${source "synapse_fbs"}/target/xtask/packages/js";
   rumocaJavascript = "${source "rumoca"}/packages/rumoca/dist/dev-full-web";
+  resultRoot = "${root}/.devenv/state/results";
   cubs2West = "${root}/.devenv/state/west/cubs2";
   rdd2West = "${root}/.devenv/state/west/rdd2";
   editableZephyrModules = lib.concatStringsSep ";" [
@@ -176,6 +177,13 @@ in
         after = map (repository: "sources:status:${repository.name}") sourceRepositories;
       };
 
+      "results:prepare" = {
+        description = "Create the workspace-local Nix result directory.";
+        cwd = root;
+        status = "test -d .devenv/state/results";
+        exec = "mkdir -p .devenv/state/results";
+      };
+
       "workspace:validate" = {
         description = "Validate the Devenv configuration.";
         cwd = root;
@@ -207,13 +215,21 @@ in
           after = [ "synapse-fbs:build" ];
         };
 
-      "rumoca:compiler" = task "rumoca" "Build the local Rumoca compiler." ''
-        nix build .#rumoca --out-link result-rumoca
-      '';
+      "rumoca:compiler" =
+        (task "rumoca" "Build the local Rumoca compiler." ''
+          nix build .#rumoca --out-link ${resultRoot}/rumoca
+        '')
+        // {
+          after = [ "results:prepare" ];
+        };
 
-      "rumoca:python" = task "rumoca" "Build the local Rumoca Python environment." ''
-        nix build .#rumoca-python-env --out-link result-rumoca-python
-      '';
+      "rumoca:python" =
+        (task "rumoca" "Build the local Rumoca Python environment." ''
+          nix build .#rumoca-python-env --out-link ${resultRoot}/rumoca-python
+        '')
+        // {
+          after = [ "results:prepare" ];
+        };
 
       "rumoca:javascript" = task "rumoca" "Build the local Rumoca JavaScript package." ''
         npm --prefix packages/rumoca run build:dev:full-web
@@ -233,7 +249,8 @@ in
 
       "modelica-models:build" =
         (task "modelica_models" "Build the Modelica model checker with the editable Rumoca source." ''
-          nix build --override-input rumoca "git+file://${source "rumoca"}" .#default --out-link result-default
+          nix build --override-input rumoca "git+file://${source "rumoca"}" .#default \
+            --out-link ${resultRoot}/modelica-models
         '')
         // {
           after = [ "rumoca:compiler" ];
@@ -366,7 +383,7 @@ in
             CUBS2_MODELICA_ROOT = source "modelica_models";
             CUBS2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             CUBS2_CSYN_ROOT = source "csyn";
-            CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
+            CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
             ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -393,7 +410,7 @@ in
             CUBS2_MODELICA_ROOT = source "modelica_models";
             CUBS2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             CUBS2_CSYN_ROOT = source "csyn";
-            CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
+            CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
             ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -410,7 +427,7 @@ in
             CUBS2_MODELICA_ROOT = source "modelica_models";
             CUBS2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             CUBS2_CSYN_ROOT = source "csyn";
-            CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
+            CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
             ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -437,7 +454,7 @@ in
             CUBS2_MODELICA_ROOT = source "modelica_models";
             CUBS2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             CUBS2_CSYN_ROOT = source "csyn";
-            CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
+            CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
             ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
@@ -478,7 +495,7 @@ in
         (task "cerebri_rdd2" "Build the RDD2 native simulator against local generated packages." ''
           nix run .#build-native-sim -- -p auto -- \
             -DRDD2_RUMOCA_VERSION=workspace \
-            "-DRDD2_RUMOCA_EXECUTABLE=${source "rumoca"}/result-rumoca/bin/rumoca" \
+            "-DRDD2_RUMOCA_EXECUTABLE=${resultRoot}/rumoca/bin/rumoca" \
             "-DRDD2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DRDD2_ZROS_ROOT=${source "zros"}" \
             "-DRDD2_CSYN_ROOT=${source "csyn"}" \
@@ -505,7 +522,7 @@ in
         (task "cerebri_rdd2" "Build RDD2 firmware for the default hardware target." ''
           nix run .#build -- -p auto -- \
             -DRDD2_RUMOCA_VERSION=workspace \
-            "-DRDD2_RUMOCA_EXECUTABLE=${source "rumoca"}/result-rumoca/bin/rumoca" \
+            "-DRDD2_RUMOCA_EXECUTABLE=${resultRoot}/rumoca/bin/rumoca" \
             "-DRDD2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
             "-DRDD2_ZROS_ROOT=${source "zros"}" \
             "-DRDD2_CSYN_ROOT=${source "csyn"}" \
@@ -534,7 +551,13 @@ in
         '')
         // {
           after = [ "rdd2:build-hardware" ];
-          env.RDD2_WEST_WORKSPACE = rdd2West;
+          env = {
+            RDD2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
+            RDD2_CSYN_ROOT = source "csyn";
+            RDD2_WEST_WORKSPACE = rdd2West;
+            RDD2_ZROS_ROOT = source "zros";
+            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
+          };
         };
 
       "cerebri-modules:build" = {
@@ -616,6 +639,7 @@ in
           west twister -T ${source "csyn"}/zephyr/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
+            --extra-args "FETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}" \
             --outdir ${source "csyn"}/build/twister/qualification \
             --no-clean
         '';
@@ -690,9 +714,9 @@ in
         nix run .#ci
       '';
 
-      "fastdyn:build" = task "FastDyn" "Run the project-owned FastDyn/QEMU setup." ''
-        ./setup.sh --python python3 --venv build/venv --qemu-root build/qemu \
-          --build-qemu --skip-optifuzz --skip-qemu-workspace
+      "fastdyn:build" = task "FastDyn" "Create FastDyn's project-owned Python environment." ''
+        python -m venv build/venv
+        PATH="$PWD/build/venv/bin:$PATH" ./setup.sh
       '';
 
       "fastdyn:test" =
@@ -722,7 +746,8 @@ in
             ../synapse_ppm_bridge/Cargo.toml
           do
             requirement="$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" |
-              jq -r '.packages[0].dependencies[] | select(.name == "synapse_fbs") | .req')"
+              jq -r '[.packages[].dependencies[] | select(.name == "synapse_fbs") | .req] |
+                unique | join(",")')"
             if test "$requirement" != "^$expected"; then
               printf '%s requires synapse_fbs %s; workspace requires ^%s\n' \
                 "$manifest" "$requirement" "$expected" >&2

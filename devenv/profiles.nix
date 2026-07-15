@@ -9,6 +9,9 @@ let
   root = config.git.root;
   source = repository: "${root}/src/${repository}";
   linux = lib.optionals pkgs.stdenv.hostPlatform.isLinux;
+  emptyContainerHome = pkgs.runCommandLocal "cognipilot-workspace-container-home" { } ''
+    mkdir -p "$out"
+  '';
 
   rust = {
     packages =
@@ -343,6 +346,8 @@ in
           name = "cognipilot-workspace";
           registry = "docker://ghcr.io/cognipilot/";
           version = "latest";
+          copyToRoot = emptyContainerHome;
+          startupCommand = "bash";
         };
       };
     };

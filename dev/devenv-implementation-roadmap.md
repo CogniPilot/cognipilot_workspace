@@ -793,8 +793,9 @@ For each pilot:
 - [x] standalone project-flake behavior is tested where supported;
 - [x] current and proposed normalized plans agree or differences are intentional;
 - [ ] the Nix-emitted native warm matrix passes on the reference host. The plan
-      now declares every non-QEMU package row, one warmup, three unchanged
-      samples, and its historical p50/p95 budget. Generic Cargo implementation,
+      now declares every non-QEMU package with a build action, one warmup, three
+      unchanged samples, and its historical p50/p95 budget. Resource-only
+      packages are rejected from this matrix by a Nix contract. Generic Cargo implementation,
       interface-major, Zephyr variant, and launch lifecycle edit paths pass;
       `synapse_fbs` has a real 0.61-0.62s result and `synapse_ppm_bridge` has a
       1.34-1.35s result. The remaining rows have not been run after cutover and

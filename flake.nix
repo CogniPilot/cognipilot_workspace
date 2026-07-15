@@ -324,8 +324,12 @@
             synapse_ppm_bridge = 2000;
             synapse_qualisys_bridge = 2000;
             zros = 2000;
-            zros_drivers = 1000;
           };
+          nativeBuildTaskRoots =
+            config.packages.nixspace-index.passthru.document.actionPlans.actions.build.packages;
+          invalidNativeWarmPackages = builtins.filter (
+            package: !(builtins.hasAttr package nativeBuildTaskRoots) || nativeBuildTaskRoots.${package} == [ ]
+          ) (builtins.attrNames nativeWarmBudgets);
           nativeWarmCase = package: budget: {
             description = "Run the unchanged ${package} build through its exact Nix-generated devenv task roots.";
             context = {
@@ -369,6 +373,7 @@
             };
           };
           nativeWarmCases = lib.optionalAttrs (system == "x86_64-linux") (
+            assert invalidNativeWarmPackages == [ ];
             lib.mapAttrs' (package: budget: {
               name = "native-warm-${package}";
               value = nativeWarmCase package budget;

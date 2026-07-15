@@ -16,6 +16,10 @@ let
   hostPlan = rootConfig.flake.nixspaceHostPlan;
   workspacePolicy = rootConfig.cognipilot.workspacePolicy.report;
   benchmarkPlan = systemConfig.packages.nixspace-benchmark-plan.passthru.document;
+  nativeWarmCaseNames = builtins.filter (name: lib.hasPrefix "native-warm-" name) (
+    builtins.attrNames benchmarkPlan.cases
+  );
+  nativeWarmPackages = map (lib.removePrefix "native-warm-") nativeWarmCaseNames;
   promotionSbom = systemConfig.packages.promotion-sbom.passthru.document;
   cacheProjection = systemConfig.packages.public-cache-root.passthru.projection;
 
@@ -428,9 +432,11 @@ let
         inherit (benchmarkPlan) apiVersion interfaceVersion kind;
         inherit system;
         defaultCases = benchmarkPlan.defaultCases;
-        hasNativeWarmCases = builtins.any (name: lib.hasPrefix "native-warm-" name) (
-          builtins.attrNames benchmarkPlan.cases
-        );
+        inherit nativeWarmPackages;
+        allNativeWarmCasesBuildable = builtins.all (
+          package: genericIndex.actionPlans.actions.build.packages.${package} != [ ]
+        ) nativeWarmPackages;
+        hasNativeWarmCases = nativeWarmPackages != [ ];
       };
       expected = {
         apiVersion = "nixspace/v1";
@@ -447,6 +453,21 @@ let
           "module-index-100"
           "ws-build-plan"
         ];
+        nativeWarmPackages = lib.optionals (system == "x86_64-linux") [
+          "cerebri_cubs2"
+          "cerebri_modules"
+          "cerebri_rdd2"
+          "csyn"
+          "electrode_web"
+          "modelica_models"
+          "qualisys_rust_sdk"
+          "rumoca"
+          "synapse_fbs"
+          "synapse_ppm_bridge"
+          "synapse_qualisys_bridge"
+          "zros"
+        ];
+        allNativeWarmCasesBuildable = true;
         hasNativeWarmCases = system == "x86_64-linux";
       };
     };

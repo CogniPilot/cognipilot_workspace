@@ -770,29 +770,35 @@ in
         };
 
       "release:compliance:npm" =
-        task "electrode_web" "Require every npm consumer to use the generated Synapse version."
-          ''
-            expected="$(cargo metadata --no-deps --format-version 1 \
-              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
-            test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' package.json)" = "^$expected"
-            test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' packages/electrode-sdk/package.json)" = "^$expected"
-          '';
+        (task "electrode_web" "Require every npm consumer to use the generated Synapse version." ''
+          expected="$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+          test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' package.json)" = "^$expected"
+          test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' packages/electrode-sdk/package.json)" = "^$expected"
+        '')
+        // {
+          after = [ "synapse-fbs:build" ];
+        };
 
       "release:compliance:nix" =
-        task "cerebri_cubs2" "Require the CUBS2 Python package to use the generated Synapse version."
-          ''
-            expected="$(cargo metadata --no-deps --format-version 1 \
-              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
-            test "$(nix eval --raw .#synapse-fbs.version)" = "$expected"
-          '';
+        (task "cerebri_cubs2" "Require the CUBS2 Python package to use the generated Synapse version." ''
+          expected="$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+          test "$(nix eval --raw .#synapse-fbs.version)" = "$expected"
+        '')
+        // {
+          after = [ "synapse-fbs:build" ];
+        };
 
       "release:compliance:cmake" =
-        task "csyn" "Require the standalone CSyn C archive to use the generated Synapse version."
-          ''
-            expected="$(cargo metadata --no-deps --format-version 1 \
-              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
-            grep -F "/v$expected/synapse_fbs-c.tar.gz" zephyr/CMakeLists.txt >/dev/null
-          '';
+        (task "csyn" "Require the standalone CSyn C archive to use the generated Synapse version." ''
+          expected="$(cargo metadata --no-deps --format-version 1 \
+            --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+          grep -F "/v$expected/synapse_fbs-c.tar.gz" zephyr/CMakeLists.txt >/dev/null
+        '')
+        // {
+          after = [ "synapse-fbs:build" ];
+        };
 
       "release:compliance" = {
         description = "Require every package ecosystem to use the generated Synapse version.";
@@ -830,7 +836,10 @@ in
             cargo run --locked --manifest-path xtask/Cargo.toml -- ci --release-name local
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [
+            "release:compliance"
+            "synapse-fbs:test"
+          ];
         };
 
       "release:rumoca" =
@@ -840,23 +849,17 @@ in
           npm --prefix packages/rumoca run publish:release:full-web:dry-run
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [ "rumoca:test" ];
         };
 
       "release:modelica-models" = {
         description = "Qualify the Modelica model package and local Rumoca integration.";
-        after = [
-          "release:qualify"
-          "modelica-models:test"
-        ];
+        after = [ "modelica-models:test" ];
       };
 
       "release:electrode-web" = {
         description = "Qualify the Electrode application and Pages payload.";
-        after = [
-          "release:qualify"
-          "electrode-web:test"
-        ];
+        after = [ "electrode-web:test" ];
       };
 
       "release:qualisys-bridge" =
@@ -865,13 +868,12 @@ in
             --config "paths=['${synapseRust}']"
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [ "qualisys-bridge:e2e" ];
         };
 
       "release:firmware" = {
         description = "Build CUBS2 and RDD2 hardware firmware against workspace dependencies.";
         after = [
-          "release:qualify"
           "cubs2:build-hardware"
           "rdd2:build-hardware"
         ];
@@ -882,7 +884,7 @@ in
           cargo publish --locked --dry-run
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [ "ppm:test" ];
         };
 
       "release:csyn" =
@@ -890,7 +892,7 @@ in
           cargo publish --locked --dry-run --manifest-path rust/Cargo.toml
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [ "csyn:qualification" ];
         };
 
       "release:qualisys-sdk" =
@@ -898,12 +900,13 @@ in
           cargo publish --locked --dry-run
         '')
         // {
-          after = [ "release:qualify" ];
+          after = [ "qualisys-sdk:test" ];
         };
 
       "release:all" = {
         description = "Complete every configured release qualification; this never publishes.";
         after = [
+          "release:qualify"
           "release:csyn"
           "release:electrode-web"
           "release:firmware"

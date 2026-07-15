@@ -101,7 +101,6 @@ let
       python3
       python3Packages.distlib
       rustc
-      universal-ctags
       zlib
     ];
     env = {

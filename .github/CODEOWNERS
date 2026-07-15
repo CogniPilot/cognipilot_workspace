@@ -1,0 +1,8 @@
+# Development environment, source pins, bootstrap, and CI are platform policy.
+/.github/CODEOWNERS @CogniPilot/admins
+/.github/workflows/ @CogniPilot/admins
+/devenv.nix @CogniPilot/admins
+/devenv.yaml @CogniPilot/admins
+/devenv.lock @CogniPilot/admins
+/devenv/ @CogniPilot/admins
+/setup @CogniPilot/admins

@@ -1,0 +1,83 @@
+name: Publish workspace container
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-workspace-container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Qualify and publish ${{ github.ref_name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Validate release tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tags must have the form vX.Y.Z" >&2
+            exit 1
+          fi
+
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Configure binary caches
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: cognipilot
+          extraPullNames: devenv,ros
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: false
+
+      - name: Install Devenv
+        run: >-
+          nix profile add
+          github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
+
+      - name: Test workspace configuration
+        run: devenv --profile ci test
+
+      - name: Synchronize current project main branches
+        run: devenv tasks run sources:sync
+
+      - name: Qualify every documented build and test command
+        run: devenv --profile workspace tasks run ci:documented
+
+      - name: Build workspace container
+        run: devenv --profile workspace container build shell
+
+      - name: Build and publish versioned container
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          devenv --profile workspace
+          --option containers.shell.version:string "$GITHUB_REF_NAME"
+          container copy shell
+          --copy-args="--dest-creds $GITHUB_ACTOR:$GHCR_TOKEN"
+
+      - name: Publish latest container tag
+        if: github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          devenv --profile workspace
+          container copy shell
+          --copy-args="--dest-creds $GITHUB_ACTOR:$GHCR_TOKEN"

@@ -1,95 +1,68 @@
-name: Workspace CI
+name: Devenv workspace CI
 
 on:
   pull_request:
   push:
     branches:
       - main
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: read
 
+concurrency:
+  group: devenv-workspace-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
-    name: Validate workspace orchestration
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: DeterminateSystems/nix-installer-action@v22
-        with:
-          determinate: false
-      - name: Install pinned devenv
-        run: nix profile install --accept-flake-config github:cachix/devenv/v2.1.2
-      - name: Evaluate registry, profiles, tasks, and CLI
-        run: |
-          devenv shell -- bash -euo pipefail -c '
-            ws graph >/dev/null
-            ws profile list >/dev/null
-            ws launch list >/dev/null
-            ws _complete launch "" | grep -Fx simulation-stack >/dev/null
-            python -m unittest discover -s tests -v
-          '
-      - name: Evaluate composable launch profiles
-        run: |
-          devenv --profile simulation-stack eval processes >/dev/null
-          devenv \
-            --profile simulation \
-            --profile ground-station \
-            --profile mocap \
-            eval processes >/dev/null
-      - name: Validate release snapshot when present
-        run: |
-          if [[ -e workspace.lock.json ]]; then
-            jq -e '.schema == 1 and ((.components | length) > 0)' workspace.lock.json
-          fi
-      - name: Run orchestration linters
-        run: devenv --profile ci shell -- scripts/lint-workspace
+    name: Validate Devenv (${{ matrix.system }})
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: ubuntu-24.04
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
 
-  image-inputs:
-    name: Detect CUBS2 image changes
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.filter.outputs.image }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            image:
-              - 'scripts/render-workspace-dockerfile'
-              - '.dockerignore'
-              - 'completions/**'
-              - 'devenv.*'
-              - 'launch/**'
-              - 'nix/**'
-              - 'scripts/**'
 
-  image:
-    name: Validate CUBS2 image environment
-    needs: image-inputs
-    if: needs.image-inputs.outputs.changed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Configure public binary caches
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@v4
-      - name: Generate CUBS2 Dockerfile
-        run: scripts/render-workspace-dockerfile cubs2 "${RUNNER_TEMP}/cubs2.Dockerfile"
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ runner.temp }}/cubs2.Dockerfile
-          target: environment
-          platforms: linux/amd64
-          push: false
-          provenance: false
-          sbom: false
-          cache-from: type=gha,scope=cubs2-pr
-          cache-to: type=gha,mode=min,scope=cubs2-pr
+          name: cognipilot
+          extraPullNames: devenv,ros
+          authToken: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && secrets.CACHIX_AUTH_TOKEN || '' }}
+          skipPush: ${{ github.event_name != 'push' || (github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v')) }}
+
+      - name: Install Devenv
+        run: >-
+          nix profile add
+          github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.${{ matrix.system }}.default
+
+      - name: Test the canonical workspace
+        run: devenv --profile ci test
+
+      - name: Evaluate every supported profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          for profile in \
+            ci cubs2 diagnostics fastdyn modelica ppm qualisys rdd2 release \
+            ros2 rust synapse web workspace zephyr zros
+          do
+            devenv --profile "$profile" eval packages >/dev/null
+          done

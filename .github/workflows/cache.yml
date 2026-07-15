@@ -1,0 +1,57 @@
+name: Warm project Nix cache
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-project-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Build cacheable project outputs
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: cachix-write
+
+    steps:
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+
+      - name: Configure binary caches
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: cognipilot
+          extraPullNames: devenv,ros
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: false
+
+      - name: Install Devenv
+        run: >-
+          nix profile add
+          github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
+
+      - name: Synchronize pinned projects
+        run: devenv tasks run sources:sync
+
+      - name: Realize complete tool environments
+        run: |
+          devenv --profile release build shell
+          devenv --profile fastdyn build shell
+
+      - name: Realize project flake outputs
+        run: devenv --profile release tasks run cache:all

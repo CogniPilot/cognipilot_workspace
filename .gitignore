@@ -1,22 +1,18 @@
-.devenv*
+.devenv/
 .direnv/
+.pre-commit-config.yaml
 devenv.local.nix
-__pycache__/
-*.py[cod]
+devenv.local.yaml
 result
 result-*
 
-# Local scratch space for notes, reviews, and working documents.
+# Local planning notes and transient development evidence.
 /dev/
 
-# Component repositories are independent editable Git worktrees materialized
-# by `ws sync`; the workspace repository tracks their metadata, not their files.
+# Editable top-level project repositories.
 /src/
 
-# Optional source-adjacent west workspaces. The default shared workspace lives
-# in the user cache, outside this Git worktree.
-.west/
-zephyr/
-modules/
-bootloader/
-tools/
+# Native project build state.
+**/node_modules/
+**/target/
+**/build/

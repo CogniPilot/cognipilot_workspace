@@ -433,6 +433,7 @@ in
             CUBS2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             CUBS2_CSYN_ROOT = source "csyn";
             CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
+            CUBS2_SYNAPSE_C_ROOT = synapseC;
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
             ZEPHYR_TOOLCHAIN_VARIANT = "host";
@@ -833,10 +834,10 @@ in
         };
 
       "release:rumoca" =
-        (task "rumoca" "Build Rumoca packages and dry-run both npm publications." ''
+        (task "rumoca" "Build and pack both Rumoca npm packages without publishing." ''
           nix build --no-link .#rumoca .#rumoca-python-env
-          npm --prefix packages/rumoca run publish:release:core:dry-run
-          npm --prefix packages/rumoca run publish:release:full-web:dry-run
+          npm --prefix packages/rumoca run build:release:core:pack
+          npm --prefix packages/rumoca run build:release:full-web:pack
         '')
         // {
           after = [ "rumoca:test" ];

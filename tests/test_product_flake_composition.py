@@ -882,6 +882,19 @@ class ProductFlakeCompositionTests(unittest.TestCase):
                 "launch-plan",
                 "launch-start-readiness",
                 "module-index-100",
+                "native-warm-cerebri_cubs2",
+                "native-warm-cerebri_modules",
+                "native-warm-cerebri_rdd2",
+                "native-warm-csyn",
+                "native-warm-electrode_web",
+                "native-warm-modelica_models",
+                "native-warm-qualisys_rust_sdk",
+                "native-warm-rumoca",
+                "native-warm-synapse_fbs",
+                "native-warm-synapse_ppm_bridge",
+                "native-warm-synapse_qualisys_bridge",
+                "native-warm-zros",
+                "native-warm-zros_drivers",
                 "package-list",
                 "selected-flake-eval-cold",
                 "shell-eval-editable",
@@ -908,7 +921,10 @@ class ProductFlakeCompositionTests(unittest.TestCase):
                 case["warmupSamples"],
                 0 if case_id == "selected-flake-eval-cold" else 1,
             )
-            self.assertEqual(case["measuredSamples"], 7)
+            self.assertEqual(
+                case["measuredSamples"],
+                3 if case_id.startswith("native-warm-") else 7,
+            )
             self.assertIn("p50Milliseconds", case["gates"])
             self.assertIn("p95Milliseconds", case["gates"])
         for case_id in (
@@ -941,6 +957,13 @@ class ProductFlakeCompositionTests(unittest.TestCase):
             plan["cases"]["ws-build-plan"]["measure"][0]["argv"],
             ["./ws", "build", "synapse_fbs", "--plan", "--json"],
         )
+        native = plan["cases"]["native-warm-synapse_fbs"]
+        self.assertEqual(native["context"]["category"], "native-warm-build")
+        self.assertEqual(native["context"]["coordinate"], "synapse_fbs")
+        self.assertEqual(native["gates"]["p95Milliseconds"], 1000)
+        self.assertEqual(native["measure"][0]["argv"][-2:], ["build", "synapse_fbs"])
+        self.assertTrue(native["measure"][0]["inheritEnvironment"])
+        self.assertEqual(native["measure"][0]["timeoutMilliseconds"], 1800000)
         implementation = plan["cases"]["implementation-edit-cargo"]
         self.assertEqual(implementation["context"]["ecosystem"], "cargo")
         self.assertEqual(len(implementation["setup"]), 1)

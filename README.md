@@ -36,7 +36,8 @@ subcommand's `--help` are the command reference.
 ./ws doctor
 ./ws cache coverage --json
 ./ws benchmark                 # bounded default performance cases
-./ws benchmark --all           # include evaluator-heavy diagnostics
+./ws benchmark --all           # all opt-in cases, including native builds
+devenv shell -- ./ws benchmark native-warm-synapse_fbs
 ./ws package list
 ./ws package show electrode_web
 ./ws graph --dot
@@ -96,12 +97,17 @@ The public cache contract is the union of `cache.nixos.org` and the
 Main-only CI is configured to build and push the explicit
 `.#public-cache-root`; it does not scan arbitrary flake outputs. No successful
 remote union publication proof is retained yet. The root includes public
-project inputs/outputs, the public product definition, and the exact
-`nixspace-host` and `ws` wrappers used by `./setup`, their generated plans, and
-completions. First-run workspace tooling can therefore be substituted as one
-closure after main CI successfully publishes it. A local coverage report is an
-inventory, not proof of publication; only a successful main run and a complete
-union query establish that the closure is present. Protected `main` now
+project inputs, the public product definition, checks, workspace tools, and
+promoted immutable outputs (currently `synapse_ppm_bridge/default`). Editable
+Cargo, npm, CMake, west, and ROS builds keep native incremental state and use
+sccache where configured; they are intentionally not Cachix products. The root
+also contains the exact `nixspace-host` and `ws` wrappers used by `./setup`,
+their generated plans, and completions. First-run workspace tooling can be
+substituted as one closure after main CI successfully publishes it. Until the
+host trusts the public key, the initial bootstrap may compile the client. A
+local coverage report is an inventory, not proof of publication; only a
+successful main run and a complete union query establish that the closure is
+present. Protected `main` now
 requires the strict three-system GitHub Actions check matrix, a CODEOWNER
 approval, resolved conversations, and linear history; those controls protect
 the publisher but do not substitute for a successful publication run.

@@ -255,6 +255,8 @@
         let
           client = lib.getExe config.packages.nixspace;
           index = "${config.packages.nixspace-index}/share/nixspace/index.json";
+          resolutionPlan =
+            "${config.packages.nixspace-resolution-plan}/share/nixspace/resolution-plan.json";
           selectedSource = toString inputs.self.outPath;
           selectedFlake = "path:${selectedSource}";
           nix = lib.getExe pkgs.nix;
@@ -413,6 +415,78 @@
                 p95Milliseconds = budget;
               };
             };
+          # These are the historical unchanged-build SLOs for every selected
+          # native package that can be exercised without FastDyn's QEMU build.
+          # Keeping the map here makes the Nix-emitted BenchmarkPlan the only
+          # active authority; no package-local benchmark boilerplate is needed.
+          nativeWarmBudgets = {
+            cerebri_cubs2 = 6000;
+            cerebri_modules = 2000;
+            cerebri_rdd2 = 10000;
+            csyn = 2000;
+            electrode_web = 4000;
+            modelica_models = 2000;
+            qualisys_rust_sdk = 1000;
+            rumoca = 2000;
+            synapse_fbs = 1000;
+            synapse_ppm_bridge = 2000;
+            synapse_qualisys_bridge = 2000;
+            zros = 2000;
+            zros_drivers = 1000;
+          };
+          nativeWarmCase =
+            package: budget:
+            {
+              description =
+                "Run the unchanged ${package} build through its exact Nix-generated devenv task roots.";
+              context = {
+                category = "native-warm-build";
+                coordinate = package;
+                cacheState =
+                  "one recorded warmup establishes mutable native outputs; three measured samples are unchanged repeats";
+                invocation =
+                  "run from the generated devenv shell for direct task dispatch; bootstrap overhead is otherwise measured and expected to fail the native SLO";
+              };
+              beforeEach = [ ];
+              measure = [
+                {
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "--resolution-plan"
+                    resolutionPlan
+                    "build"
+                    package
+                  ];
+                  cwd = ".";
+                  environment = {
+                    NIXSPACE_INDEX = index;
+                    NIXSPACE_RESOLUTION_PLAN = resolutionPlan;
+                    NIXSPACE_WORKSPACE_ROOT = ".";
+                  };
+                  # DEVENV_TASK_FILE and the generated runner PATH are supplied
+                  # by the selected devenv shell. The fixed plan paths above
+                  # remain Nix-owned and do not depend on ambient discovery.
+                  inheritEnvironment = true;
+                  timeoutMilliseconds = 1800000;
+                  expectedExitCodes = [ 0 ];
+                }
+              ];
+              afterEach = [ ];
+              warmupSamples = 1;
+              measuredSamples = 3;
+              gates = {
+                p50Milliseconds = budget;
+                p95Milliseconds = budget;
+              };
+            };
+          nativeWarmCases = lib.optionalAttrs (system == "x86_64-linux") (
+            lib.mapAttrs' (package: budget: {
+              name = "native-warm-${package}";
+              value = nativeWarmCase package budget;
+            }) nativeWarmBudgets
+          );
         in
         {
           checks.cognipilot-contract-tests = contractTests;
@@ -447,7 +521,7 @@
               "module-index-100"
               "ws-build-plan"
             ];
-            cases = benchmarkFixtures.cases // {
+            cases = benchmarkFixtures.cases // nativeWarmCases // {
               help = cachedQuery {
                 coordinate = "nixspace/help";
                 description = "Render the cached native help tree.";

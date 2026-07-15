@@ -48,8 +48,9 @@ The complete non-FastDyn run is
 
 ## Current Nixspace lightweight matrix
 
-The retained 2026-07-14 lightweight BenchmarkReport v1 was generated from the
-then-current BenchmarkPlan v2 on host `storm` (AMD Ryzen 9 5950X, 32 logical
+The retained 2026-07-14 lightweight BenchmarkReport v1 is historical protocol
+evidence generated from the then-current BenchmarkPlan v2 on host `storm`
+(AMD Ryzen 9 5950X, 32 logical
 CPUs, Linux `x86_64`) with measured Nix 2.34.8 and outer plan evaluator Nix
 2.34.7. Each case has seven measured samples and, except for the explicitly
 evaluator-cold case, one warmup. The report records the exact root lock SHA-256,
@@ -80,13 +81,17 @@ The `./ws` row is retained with its own exact logs and argv in
 `dev/benchmarks/nixspace/20260714-ws-dispatch.json`; all other rows come from
 the v3 report above. The ordered plan defaults include this dispatch case and
 exclude the two evaluator-heavy cases, so ordinary `./ws benchmark` remains
-quick. Explicit case IDs or `./ws benchmark --all` select the evaluator cases
-without changing their Nix-owned definitions.
+quick. The current BenchmarkPlan v3 also contains opt-in `native-warm-*` cases
+for every declared non-QEMU warm budget. Run those from the generated devenv
+shell so dispatch stays on the direct task path. Explicit case IDs select only
+the requested rows; `./ws benchmark --all` includes both evaluator-heavy and
+native cases. FastDyn/QEMU is deliberately not in that plan.
 
 ## Current strict lifecycle matrix
 
 BenchmarkPlan v3 adds one-time setup/teardown plus per-sample before/measure/
-after phases. BenchmarkReport v2 records every lifecycle command and
+after phases. The retained BenchmarkReport v2 is historical protocol evidence;
+it records every lifecycle command and
 infrastructure error while including only the aggregate measure phase in the
 percentiles. All four focused cases and all eight p50/p95 gates passed on
 `storm` with seven measured samples after one warmup; exact commands and logs
@@ -146,6 +151,10 @@ The roadmap deliberately leaves these expensive gates open:
 - real-product launch multi-instance isolation and cleanup;
 - protected-main Cachix publication and empty-host substitution; and
 - the complete warm matrix after atomic legacy task deletion.
+
+The Nix plan now owns the complete non-QEMU budget map and exact commands; the
+remaining gap is executing and retaining that opt-in matrix, not rebuilding a
+second benchmark orchestrator.
 
 New results must name the host, exact flake lock, Nix version, cache state,
 task/launch coordinate, sample count, and p50/p95. Mutable native build results

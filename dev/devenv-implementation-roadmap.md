@@ -181,13 +181,13 @@ Resolution requirements:
 - [x] Run the complete current unit-test suite cleanly after the final
       correction. The explicit workspace suite passes all 125 tests; the
       independently locked Rust package passes all 147 tests.
-- [ ] Restore a passing full-workspace warm-build budget check against the
-      selected repository revisions. The corrected Nix-file-backed Devenv
-      runner now records `synapse_fbs` unchanged samples of 0.62s, 0.61s, and
-      0.61s against its 1s gate, but no complete post-cutover matrix result is
-      inferred. Cold QEMU and the remaining full matrix stay deferred at the
-      user's direction. `synapse_ppm_bridge` also passes its revised 2s gate at
-      1.34-1.35s after the duplicate mutable release action was deleted.
+- [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
+      cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
+      non-QEMU package budgets and exact typed build commands with no
+      per-package runner. The one remaining execution result is tracked once
+      at the Phase 2 pilot/matrix gate below. Existing evidence remains
+      `synapse_fbs` at 0.61-0.62s and `synapse_ppm_bridge` at 1.34-1.35s; no
+      complete result is inferred.
 
 The conflict should be resolved as its own reviewable change. Do not combine it
 with the new schema or CLI.
@@ -281,8 +281,10 @@ Required adversarial tests:
 
 - [x] No conflict markers remain.
 - [x] The current test suite has one clean post-correction full run.
-- [ ] The complete native warm target matrix passes; two corrected pilots now
-      pass, while cold QEMU and the remaining rows are deferred.
+- [x] Carry the deferred native performance result forward as one canonical
+      Phase 2 gate instead of maintaining a duplicate Phase 0 checkbox. The
+      Nix plan and retained pilot evidence are present; cold QEMU remains
+      explicitly outside ordinary verification.
 - [x] Tampering with any declared launch/build artifact causes a cache miss or
       explicit invalid-artifact error.
 - [x] The fake-simulator repair loop is correct.
@@ -770,12 +772,14 @@ For each pilot:
       allowing irreducible launch/variant data;
 - [x] standalone project-flake behavior is tested where supported;
 - [x] current and proposed normalized plans agree or differences are intentional;
-- [ ] current warm budget and pilot-specific edit-path budgets pass. The
-      generic Cargo implementation, interface-major, and Zephyr variant
-      control-plane gates now pass, `synapse_fbs` has a real 0.61-0.62s
-      unchanged result, and `synapse_ppm_bridge` has a 1.34-1.35s result after
-      its Nix release cutover. They are not substituted for an unrun complete
-      five-pilot native/edit matrix;
+- [ ] the Nix-emitted native warm matrix passes on the reference host. The plan
+      now declares every non-QEMU package row, one warmup, three unchanged
+      samples, and its historical p50/p95 budget. Generic Cargo implementation,
+      interface-major, Zephyr variant, and launch lifecycle edit paths pass;
+      `synapse_fbs` has a real 0.61-0.62s result and `synapse_ppm_bridge` has a
+      1.34-1.35s result. The remaining rows have not been run after cutover and
+      are not inferred from those pilots. FastDyn's cold QEMU prerequisite is a
+      separate explicitly deferred measurement;
 - [x] direct cutover deletes the replaced central definition atomically;
 - [x] central package-internal commands are removed rather than retained for
       an observation or compatibility period.
@@ -1071,8 +1075,11 @@ Nix substituter, including a later self-hosted Attic deployment.
       publisher.
 - [ ] Verify a protected `main` build pushes every system-specific
       `public-cache-root` to the `cognipilot` cache and reports complete
-      coverage. The credential-free endpoint inventory was incomplete, so
-      publication is correctly not claimed before the protected workflow runs.
+      coverage. At clean commit `263ecc2`, the realized `x86_64-linux` root had
+      206 paths and 3,643,505,128 NAR bytes. The public union covered 128 paths;
+      78 locally built paths were missing, and the `cognipilot` endpoint had
+      0/206. Publication is therefore correctly not claimed before the
+      protected workflow runs.
 - [x] Enforce an explicit public-cache closure boundary from source/output
       visibility; FastDyn's separately locked private source and any private
       output cannot enter `public-cache-root` through links or metadata string
@@ -1109,13 +1116,16 @@ Nix substituter, including a later self-hosted Attic deployment.
       release targets, contract checks, generated plans, and Nix-selected
       sccache toolchain without firmware or QEMU. The editable default devenv
       shell requires impure `PWD` by upstream design and is deliberately not
-      misrepresented as a cross-host immutable root. No successful remote
-      three-system realization is claimed.
+      misrepresented as a cross-host immutable root. The complete local
+      `x86_64-linux` root realized successfully at `263ecc2`, including 55
+      isolated contract tests and all 147 Rust tests; the two other systems and
+      a successful remote three-system realization are not claimed.
 - [ ] Push complete build/runtime closures and archive public flake input store
       paths. Every native row runs one blocking `cachix push` of its exact
       visibility-filtered root, whose direct public input links retain the
       selected archive paths, then requires complete endpoint coverage. No
-      successful main publication run has yet proved publication.
+      successful main publication run has yet proved publication; the exact
+      local coverage report above proves the current revision still needs it.
 - [x] Apply bounded retention to published development roots. CI pins
       `main-${system}` with 30 retained revisions; pull requests are read-only
       and create no branch roots. Workflow concurrency cancels an overlapping

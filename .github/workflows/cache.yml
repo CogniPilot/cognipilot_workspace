@@ -24,6 +24,13 @@ jobs:
     environment: cachix-write
 
     steps:
+      - name: Reclaim runner disk for Nix outputs
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          large-packages: false
+          tool-cache: false
+          swap-storage: false
+
       - name: Check out the workspace
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:

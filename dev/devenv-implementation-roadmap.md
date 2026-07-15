@@ -66,7 +66,7 @@ task executable is bound explicitly from its own pinned, upstream-cache-aligned
 flake output, so the complete three-system flake evaluates with
 import-from-derivation disabled.
 There is no Python test runner or nested private Nix store. The separate Rust
-package passes all 148 tests with its locked dependency graph, passes clippy
+package passes all 147 tests with its locked dependency graph, passes clippy
 with warnings denied, and packages as one standalone Cargo crate. The
 Nix-emitted lightweight matrix
 passes all eight default cases plus both explicit evaluator cases (20/20
@@ -191,7 +191,7 @@ Resolution requirements:
       correction. Static producer semantics are checked directly by Nix: the
       aggregate links four domain reports, including 19 golden and 74 invalid
       module fixtures. Executable client semantics remain in the independently
-      locked Rust package's 148 tests. The replaced Python harness and its
+      locked Rust package's 147 tests. The replaced Python harness and its
       nested evaluator store were deleted in the same cutover.
 - [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
       cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
@@ -557,8 +557,11 @@ Implemented read-only slice:
 - [ ] Publish the initial `nixspace` crate release and verify the registry
       command `cargo install nixspace`. The independently locked crate already
       packages without path/Git dependencies and installs from this checkout
-      with `cargo install --locked --path tools/nixspace`; crates.io ownership
-      and publication are external release evidence, not inferred locally.
+      with `cargo install --locked --path tools/nixspace`. At clean commit
+      `8aa3135`, `cargo publish --dry-run --locked` packaged 29 files and
+      compiled the registry-shaped archive successfully. Crates.io publication
+      and the subsequent registry install are external release evidence, not
+      inferred from that dry run.
 
 Proposed new files/directories after the composition spike:
 
@@ -1092,8 +1095,8 @@ Nix substituter, including a later self-hosted Attic deployment.
       publisher.
 - [ ] Verify a protected `main` build pushes every system-specific
       `public-cache-root` to the `cognipilot` cache and reports complete
-      coverage. At clean commit `da4254e`, the realized `x86_64-linux` root had
-      214 paths and 3,643,434,392 NAR bytes. The public union covered 128 paths;
+      coverage. At clean commit `8aa3135`, the realized `x86_64-linux` root had
+      214 paths and 3,643,409,408 NAR bytes. The public union covered 128 paths;
       86 locally built paths were missing, and the `cognipilot` endpoint had
       0/214. Publication is therefore correctly not claimed before the
       protected workflow runs.
@@ -1134,13 +1137,14 @@ Nix substituter, including a later self-hosted Attic deployment.
       sccache toolchain without firmware or QEMU. The editable default devenv
       shell requires impure `PWD` by upstream design and is deliberately not
       misrepresented as a cross-host immutable root. The complete local
-      `x86_64-linux` root realized successfully at `da4254e`; its clean dry run
-      required only 31 small generated metadata/check derivations after the
+      `x86_64-linux` root realized successfully at `8aa3135`; its clean dry run
+      required only 27 small generated metadata/check derivations after the
       Devenv task package was realigned with its upstream binary cache. The
       current contract root is Nix-native and has no Python runtime. The
-      independently locked Rust client passes all 148 tests. The two other
-      systems and a successful remote three-system realization are not
-      claimed.
+      independently locked Rust client passes all 147 tests. All declared
+      packages, checks, shells, and plans evaluate on the three supported
+      systems with IFD disabled; the two non-native systems and a successful
+      remote three-system realization are not claimed as built.
 - [ ] Push complete build/runtime closures and archive public flake input store
       paths. Every native row runs one blocking `cachix push` of its exact
       visibility-filtered root, whose direct public input links retain the

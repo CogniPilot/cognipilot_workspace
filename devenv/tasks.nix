@@ -710,9 +710,17 @@ in
           after = [ "ppm:build" ];
         };
 
-      "ros2:test" = task "csyn_ros2_bridge" "Run the project-owned colcon/ROS 2 CI application." ''
-        nix run .#ci
-      '';
+      "ros2:test" =
+        (task "csyn_ros2_bridge" "Run the project-owned colcon/ROS 2 CI application." ''
+          nix run .#ci
+        '')
+        // {
+          after = [ "synapse-fbs:build" ];
+          env = {
+            CSYN_SYNAPSE_FBS_DIR = "${source "synapse_fbs"}/fbs";
+            CSYN_SYNAPSE_FBS_RUST_DIR = synapseRust;
+          };
+        };
 
       "fastdyn:build" = task "FastDyn" "Create FastDyn's project-owned Python environment." ''
         python -m venv build/venv
@@ -734,13 +742,14 @@ in
         ];
       };
 
-      "release:compliance" =
+      "release:compliance:cargo" =
         (task "synapse_fbs" "Require every Rust consumer to use the generated Synapse version." ''
           expected="$(cargo metadata --no-deps --format-version 1 \
             --manifest-path target/xtask/packages/rust/Cargo.toml | jq -r '.packages[0].version')"
           failed=0
           for manifest in \
             ../csyn/rust/Cargo.toml \
+            ../csyn_ros2_bridge/csyn_ros2_bridge/Cargo.toml \
             ../electrode_web/Cargo.toml \
             ../synapse_qualisys_bridge/Cargo.toml \
             ../synapse_ppm_bridge/Cargo.toml
@@ -748,9 +757,9 @@ in
             requirement="$(cargo metadata --no-deps --format-version 1 --manifest-path "$manifest" |
               jq -r '[.packages[].dependencies[] | select(.name == "synapse_fbs") | .req] |
                 unique | join(",")')"
-            if test "$requirement" != "^$expected"; then
-              printf '%s requires synapse_fbs %s; workspace requires ^%s\n' \
-                "$manifest" "$requirement" "$expected" >&2
+            if test "$requirement" != "^$expected" && test "$requirement" != "=$expected"; then
+              printf '%s requires synapse_fbs %s; workspace requires ^%s or =%s\n' \
+                "$manifest" "$requirement" "$expected" "$expected" >&2
               failed=1
             fi
           done
@@ -759,6 +768,41 @@ in
         // {
           after = [ "synapse-fbs:build" ];
         };
+
+      "release:compliance:npm" =
+        task "electrode_web" "Require every npm consumer to use the generated Synapse version."
+          ''
+            expected="$(cargo metadata --no-deps --format-version 1 \
+              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+            test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' package.json)" = "^$expected"
+            test "$(jq -r '.dependencies["@cognipilot/synapse-fbs"]' packages/electrode-sdk/package.json)" = "^$expected"
+          '';
+
+      "release:compliance:nix" =
+        task "cerebri_cubs2" "Require the CUBS2 Python package to use the generated Synapse version."
+          ''
+            expected="$(cargo metadata --no-deps --format-version 1 \
+              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+            test "$(nix eval --raw .#synapse-fbs.version)" = "$expected"
+          '';
+
+      "release:compliance:cmake" =
+        task "csyn" "Require the standalone CSyn C archive to use the generated Synapse version."
+          ''
+            expected="$(cargo metadata --no-deps --format-version 1 \
+              --manifest-path ${synapseRust}/Cargo.toml | jq -r '.packages[0].version')"
+            grep -F "/v$expected/synapse_fbs-c.tar.gz" zephyr/CMakeLists.txt >/dev/null
+          '';
+
+      "release:compliance" = {
+        description = "Require every package ecosystem to use the generated Synapse version.";
+        after = [
+          "release:compliance:cargo"
+          "release:compliance:cmake"
+          "release:compliance:nix"
+          "release:compliance:npm"
+        ];
+      };
 
       "release:qualify" = {
         description = "Run every bounded release qualification task without publishing.";

@@ -152,81 +152,84 @@ in
               lib.nameValuePair rendered.outputName rendered
             ) selectedLaunches
           );
-          launchExecutionPlan = pkgs.writeTextDir "share/nixspace/launch-plan.json" (
-            builtins.toJSON {
-              apiVersion = "nixspace/v1";
-              kind = "LaunchExecution";
-              interfaceVersion = 4;
-              stateRoot = cfg.sessionStateRoot;
-              sessionLayout = cfg.sessionLayout;
-              launches = builtins.listToAttrs (
-                map (
-                  rendered:
-                  let
-                    shell = config.devenv.shells.${rendered.outputName};
-                    manager = shell.process.managers.process-compose;
-                    processCompose = lib.getExe manager.package;
-                    socket = {
-                      runtime = "sessionSocket";
+          launchExecutionPlanDocument = {
+            apiVersion = "nixspace/v1";
+            kind = "LaunchExecution";
+            interfaceVersion = 4;
+            stateRoot = cfg.sessionStateRoot;
+            sessionLayout = cfg.sessionLayout;
+            launches = builtins.listToAttrs (
+              map (
+                rendered:
+                let
+                  shell = config.devenv.shells.${rendered.outputName};
+                  manager = shell.process.managers.process-compose;
+                  processCompose = lib.getExe manager.package;
+                  socket = {
+                    runtime = "sessionSocket";
+                  };
+                  sessionLog = {
+                    runtime = "sessionLog";
+                  };
+                  clientPrefix = [
+                    processCompose
+                    "--unix-socket"
+                    socket
+                  ];
+                  upPrefix = [
+                    processCompose
+                    "--config"
+                    (toString manager.configFile)
+                    "--disable-dotenv"
+                    "--unix-socket"
+                    socket
+                    "--log-file"
+                    sessionLog
+                    "--ordered-shutdown"
+                  ];
+                in
+                lib.nameValuePair rendered.workspaceCoordinate {
+                  coordinate = rendered.coordinate;
+                  workspaceLaunch = rendered.workspaceCoordinate;
+                  parameters = rendered.parameters;
+                  declaredPorts = rendered.runtime.declaredPorts;
+                  processPolicies = rendered.runtime.processPolicies;
+                  sessionEnvironment = rendered.runtime.sessionEnvironment;
+                  runner = {
+                    kind = "devenv-process-compose";
+                    workingDirectory = cfg.workspaceRoot;
+                    sessionRootEnvironment = cfg.sessionRootEnvironment;
+                    commands = {
+                      up.argv = upPrefix ++ [
+                        "-t=true"
+                        "up"
+                      ];
+                      start.argv = upPrefix ++ [
+                        "--detached"
+                        "-t=false"
+                        "up"
+                      ];
+                      attach.argv = clientPrefix ++ [ "attach" ];
+                      status.argv = clientPrefix ++ [
+                        "project"
+                        "state"
+                      ];
+                      logs.argv = clientPrefix ++ [
+                        "process"
+                        "logs"
+                      ];
+                      down.argv = clientPrefix ++ [ "down" ];
                     };
-                    sessionLog = {
-                      runtime = "sessionLog";
-                    };
-                    clientPrefix = [
-                      processCompose
-                      "--unix-socket"
-                      socket
-                    ];
-                    upPrefix = [
-                      processCompose
-                      "--config"
-                      (toString manager.configFile)
-                      "--disable-dotenv"
-                      "--unix-socket"
-                      socket
-                      "--log-file"
-                      sessionLog
-                      "--ordered-shutdown"
-                    ];
-                  in
-                  lib.nameValuePair rendered.workspaceCoordinate {
-                    coordinate = rendered.coordinate;
-                    workspaceLaunch = rendered.workspaceCoordinate;
-                    parameters = rendered.parameters;
-                    declaredPorts = rendered.runtime.declaredPorts;
-                    processPolicies = rendered.runtime.processPolicies;
-                    sessionEnvironment = rendered.runtime.sessionEnvironment;
-                    runner = {
-                      kind = "devenv-process-compose";
-                      workingDirectory = cfg.workspaceRoot;
-                      sessionRootEnvironment = cfg.sessionRootEnvironment;
-                      commands = {
-                        up.argv = upPrefix ++ [
-                          "-t=true"
-                          "up"
-                        ];
-                        start.argv = upPrefix ++ [
-                          "--detached"
-                          "-t=false"
-                          "up"
-                        ];
-                        attach.argv = clientPrefix ++ [ "attach" ];
-                        status.argv = clientPrefix ++ [
-                          "project"
-                          "state"
-                        ];
-                        logs.argv = clientPrefix ++ [
-                          "process"
-                          "logs"
-                        ];
-                        down.argv = clientPrefix ++ [ "down" ];
-                      };
-                    };
-                  }
-                ) (builtins.attrValues renderedLaunches)
-              );
-            }
-          );
+                  };
+                }
+              ) (builtins.attrValues renderedLaunches)
+            );
+          };
+          launchExecutionPlan =
+            pkgs.writeTextDir "share/nixspace/launch-plan.json" (builtins.toJSON launchExecutionPlanDocument)
+            // {
+              passthru.document = launchExecutionPlanDocument;
+            };
         in
         {
           devenv.shells = lib.mapAttrs (_: rendered: {

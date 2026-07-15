@@ -18,7 +18,9 @@ in
     }:
     let
       reports = {
-        fixtures = import ./nix/fixture-contracts.nix { inherit inputs pkgs; };
+        fixtures = import ./nix/fixture-contracts.nix {
+          inherit inputs pkgs system;
+        };
         modules = import ./nix/module-contracts.nix { inherit pkgs; };
         root = import ./nix/root-contracts.nix {
           inherit

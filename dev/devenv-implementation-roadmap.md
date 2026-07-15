@@ -60,6 +60,10 @@ build. The workspace test control plane is now Nix-native: four independently
 diagnosable flake-check reports cover 19 golden modules, 74 fail-closed module
 fixtures, generated tasks, generic/provider interfaces, host policy, west,
 launch rendering, source plans, bootstrap syntax, and GitHub workflow syntax.
+Pure contracts evaluate for every supported flake system; Devenv's
+target-independent upstream process-manager integration is evaluated once on
+the `x86_64-linux` reference row because upstream constructs its option types
+with native import-from-derivation.
 There is no Python test runner or nested private Nix store. The separate Rust
 package passes all 147 tests with its locked dependency graph, passes clippy
 with warnings denied, and packages as one standalone Cargo crate. The

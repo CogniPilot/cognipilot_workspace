@@ -184,9 +184,7 @@ let
       && builtins.elem "devenv" defaultShell.cachix.pull;
     generated-index-is-authoritative =
       lib.hasPrefix "/nix/store/" defaultShell.env.NIXSPACE_INDEX
-      &&
-        (builtins.fromJSON (builtins.readFile defaultShell.env.NIXSPACE_INDEX))
-        == currentRoot.config.flake.nixspaceIndex;
+      && current.packages.nixspace-index.passthru.document == currentRoot.config.flake.nixspaceIndex;
     generic-index-envelope =
       currentRoot.config.flake.nixspaceIndex.apiVersion == "nixspace/v1"
       && currentRoot.config.flake.nixspaceIndex.kind == "Workspace"

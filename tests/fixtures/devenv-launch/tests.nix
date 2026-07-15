@@ -150,11 +150,7 @@ let
       };
     };
   };
-  executionPlan = builtins.fromJSON (
-    builtins.unsafeDiscardStringContext (
-      builtins.readFile "${moduleFragment.packages.nixspace-launch-plan}/share/nixspace/launch-plan.json"
-    )
-  );
+  executionPlan = moduleFragment.packages.nixspace-launch-plan.passthru.document;
   routerProcess = router.processes.router;
   monitorProcess = router.processes.monitor;
   includedRouter = stack.processes."base--router";

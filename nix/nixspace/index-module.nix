@@ -45,9 +45,11 @@ in
     perSystem =
       { config, pkgs, ... }:
       let
-        indexPackage = pkgs.writeTextDir "share/nixspace/index.json" (
-          builtins.toJSON validatedDocument
-        );
+        indexPackage =
+          pkgs.writeTextDir "share/nixspace/index.json" (builtins.toJSON validatedDocument)
+          // {
+            passthru.document = validatedDocument;
+          };
       in
       {
         packages.nixspace-index = indexPackage;

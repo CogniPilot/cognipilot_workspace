@@ -55,12 +55,14 @@ jobs:
       - name: Install Devenv
         run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
 
+      - name: Prepare the CI profile evaluator
+        run: devenv --profile ci print-paths
+
       # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
-      - name: Register the Devenv Nix compatibility sources
-        run: |
-          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.perl.drvPath" >/dev/null
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.nodejs_24.drvPath" >/dev/null
+      - name: Evaluate CI packages with host Nix
+        env:
+          DEVENV_PROFILE: ci
+        run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
       - name: Test workspace configuration
         run: devenv --profile ci test
@@ -144,15 +146,17 @@ jobs:
       - name: Install Devenv
         run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
 
+      - name: Prepare the selected profile evaluator
+        run: devenv --profile ${{ matrix.profile }} print-paths
+
       # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
-      - name: Register the Devenv Nix compatibility sources
-        run: |
-          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.perl.drvPath" >/dev/null
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.nodejs_24.drvPath" >/dev/null
+      - name: Evaluate selected profile packages with host Nix
+        env:
+          DEVENV_PROFILE: ${{ matrix.profile }}
+        run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
       - name: Synchronize current project main branches
-        run: devenv tasks run sources:sync
+        run: devenv --profile ${{ matrix.profile }} tasks run sources:sync
 
       - name: Run Devenv qualification tasks
         run: devenv --profile ${{ matrix.profile }} tasks run ${{ matrix.tasks }}
@@ -193,12 +197,14 @@ jobs:
       - name: Install Devenv
         run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
 
+      - name: Prepare the workspace profile evaluator
+        run: devenv --profile workspace print-paths
+
       # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
-      - name: Register the Devenv Nix compatibility sources
-        run: |
-          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.perl.drvPath" >/dev/null
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.nodejs_24.drvPath" >/dev/null
+      - name: Evaluate workspace packages with host Nix
+        env:
+          DEVENV_PROFILE: workspace
+        run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
       - name: Build workspace container
         run: devenv --profile workspace container build shell

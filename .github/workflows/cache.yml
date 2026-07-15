@@ -55,15 +55,19 @@ jobs:
           nix profile add
           github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
 
-      # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
-      - name: Register the Devenv Nix compatibility sources
+      - name: Prepare release profile evaluators
         run: |
-          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.perl.drvPath" >/dev/null
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.x86_64-linux.nodejs_24.drvPath" >/dev/null
+          devenv --profile release print-paths
+          devenv --profile fastdyn print-paths
+
+      # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
+      - name: Evaluate release packages with host Nix
+        run: |
+          DEVENV_PROFILE=release nix eval --impure --file devenv/host-eval.nix --json >/dev/null
+          DEVENV_PROFILE=fastdyn nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
       - name: Synchronize pinned projects
-        run: devenv tasks run sources:sync
+        run: devenv --profile release tasks run sources:sync
 
       - name: Realize complete tool environments
         run: |

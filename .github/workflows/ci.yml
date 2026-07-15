@@ -56,12 +56,14 @@ jobs:
           nix profile add
           github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.${{ matrix.system }}.default
 
+      - name: Prepare the CI profile evaluator
+        run: devenv --profile ci print-paths
+
       # Remove when Devenv links Nix >= 2.35: https://github.com/cachix/devenv/issues/2729
-      - name: Register the Devenv Nix compatibility sources
-        run: |
-          nixpkgs_rev=$(jq -r '.nodes["nixpkgs-src"].locked.rev' devenv.lock)
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.${{ matrix.system }}.perl.drvPath" >/dev/null
-          nix eval --raw "github:NixOS/nixpkgs/$nixpkgs_rev#legacyPackages.${{ matrix.system }}.nodejs_24.drvPath" >/dev/null
+      - name: Evaluate CI packages with host Nix
+        env:
+          DEVENV_PROFILE: ci
+        run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
       - name: Test the canonical workspace
         run: devenv --profile ci test
@@ -74,5 +76,8 @@ jobs:
             ci cubs2 diagnostics fastdyn modelica ppm qualisys rdd2 release \
             ros2 rust synapse web workspace zephyr zros
           do
+            devenv --profile "$profile" print-paths >/dev/null
+            DEVENV_PROFILE="$profile" \
+              nix eval --impure --file devenv/host-eval.nix --json >/dev/null
             devenv --profile "$profile" eval packages >/dev/null
           done

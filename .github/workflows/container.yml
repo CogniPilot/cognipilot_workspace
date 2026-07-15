@@ -14,11 +14,14 @@ concurrency:
   group: publish-workspace-container-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  DEVENV_REF: 407080febcc800abfd0fd688a0d513884aad620c
+
 jobs:
-  publish:
-    name: Qualify and publish ${{ github.ref_name }}
+  validate:
+    name: Validate release configuration
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 30
 
     steps:
       - name: Validate release tag
@@ -36,7 +39,9 @@ jobs:
           persist-credentials: false
 
       - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
+        with:
+          github_access_token: ${{ github.token }}
 
       - name: Configure binary caches
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
@@ -47,23 +52,120 @@ jobs:
           skipPush: false
 
       - name: Install Devenv
-        run: >-
-          nix profile add
-          github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
+        run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
 
       - name: Test workspace configuration
         run: devenv --profile ci test
 
+  qualify:
+    name: Qualify ${{ matrix.name }}
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Synapse release
+            profile: synapse
+            tasks: release:synapse-fbs release:compliance
+          - name: Modelica release
+            profile: modelica
+            tasks: release:rumoca release:modelica-models
+          - name: Electrode
+            profile: cubs2
+            tasks: release:electrode-web
+          - name: Qualisys
+            profile: qualisys
+            tasks: release:qualisys-sdk release:qualisys-bridge
+          - name: PPM bridge
+            profile: ppm
+            tasks: release:ppm
+          - name: Zephyr libraries
+            profile: zros
+            tasks: cerebri-modules:test zros:test release:csyn
+          - name: CUBS2 native 64-bit
+            profile: cubs2
+            tasks: cubs2:test
+          - name: CUBS2 native 32-bit
+            profile: cubs2
+            tasks: cubs2:build-native-32
+          - name: CUBS2 hardware
+            profile: cubs2
+            tasks: cubs2:build-hardware
+          - name: RDD2 native
+            profile: rdd2
+            tasks: rdd2:build
+          - name: RDD2 hardware
+            profile: rdd2
+            tasks: rdd2:build-hardware
+          - name: ROS 2 bridge
+            profile: ros2
+            tasks: ros2:test
+          - name: FastDyn
+            profile: fastdyn
+            tasks: fastdyn:test
+
+    steps:
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
+        with:
+          github_access_token: ${{ github.token }}
+
+      - name: Configure binary caches
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: cognipilot
+          extraPullNames: devenv,ros
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: false
+
+      - name: Install Devenv
+        run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
+
       - name: Synchronize current project main branches
         run: devenv tasks run sources:sync
 
-      - name: Qualify every documented build and test command
-        run: devenv --profile workspace tasks run ci:documented
+      - name: Run Devenv qualification tasks
+        run: devenv --profile ${{ matrix.profile }} tasks run ${{ matrix.tasks }}
+
+  container:
+    name: Build and publish ${{ github.ref_name }}
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the workspace
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
+        with:
+          github_access_token: ${{ github.token }}
+
+      - name: Configure binary caches
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
+        with:
+          name: cognipilot
+          extraPullNames: devenv,ros
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: false
+
+      - name: Install Devenv
+        run: nix profile add github:cachix/devenv/${{ env.DEVENV_REF }}#packages.x86_64-linux.default
 
       - name: Build workspace container
         run: devenv --profile workspace container build shell
 
-      - name: Build and publish versioned container
+      - name: Publish versioned container
         if: github.event_name == 'push'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

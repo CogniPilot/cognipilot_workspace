@@ -12,13 +12,15 @@ let
   unknownLaunches = builtins.filter (
     coordinate: !(builtins.elem coordinate allLaunches)
   ) selectedLaunches;
-  safeRelativePath = value:
+  safeRelativePath =
+    value:
     value != ""
     && !(lib.hasPrefix "/" value)
     && builtins.all (segment: segment != "" && segment != "." && segment != "..") (
       lib.splitString "/" value
     );
-  safeLeaf = value:
+  safeLeaf =
+    value:
     safeRelativePath value
     && builtins.length (lib.splitString "/" value) == 1
     && builtins.match "[A-Za-z0-9._-]+" value != null;
@@ -164,8 +166,12 @@ in
                     shell = config.devenv.shells.${rendered.outputName};
                     manager = shell.process.managers.process-compose;
                     processCompose = lib.getExe manager.package;
-                    socket = { runtime = "sessionSocket"; };
-                    sessionLog = { runtime = "sessionLog"; };
+                    socket = {
+                      runtime = "sessionSocket";
+                    };
+                    sessionLog = {
+                      runtime = "sessionLog";
+                    };
                     clientPrefix = [
                       processCompose
                       "--unix-socket"
@@ -225,24 +231,21 @@ in
         {
           devenv.shells = lib.mapAttrs (_: rendered: {
             process.manager.implementation = "process-compose";
-            process.managers.process-compose.settings.log_location =
-              "${"$"}${cfg.sessionRootEnvironment}/${cfg.sessionLayout.managerLog}";
             processes = rendered.processes;
           }) renderedLaunches;
 
-          packages =
+          packages = {
+            nixspace-launch-plan = launchExecutionPlan;
+          }
+          // lib.concatMapAttrs (
+            outputName: _:
+            let
+              shell = config.devenv.shells.${outputName};
+            in
             {
-              nixspace-launch-plan = launchExecutionPlan;
+              "${outputName}-config" = shell.process.managers.process-compose.configFile;
             }
-            // lib.concatMapAttrs (
-              outputName: _:
-              let
-                shell = config.devenv.shells.${outputName};
-              in
-              {
-                "${outputName}-config" = shell.process.managers.process-compose.configFile;
-              }
-            ) renderedLaunches;
+          ) renderedLaunches;
 
           checks = lib.mapAttrs' (
             outputName: _:

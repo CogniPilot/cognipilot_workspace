@@ -1,9 +1,8 @@
+{ pkgs, devenvSource }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
-  lock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
-  pinnedSource = (builtins.fetchTree lock.nodes.devenv.locked).outPath;
-  pinnedModules = pinnedSource + "/src/modules";
+  pinnedModules = devenvSource + "/src/modules";
 
   rootSupport =
     { lib, ... }:
@@ -147,17 +146,15 @@ let
     overrides:
     builtins.tryEval (
       builtins.deepSeq
-        (
-          lib.evalModules {
-            modules = [
-              rootSupport
-              ../../../nix/nixspace/index-module.nix
-              {
-                nixspace.index = currentRoot.config.cognipilot.validatedIndex // overrides;
-              }
-            ];
-          }
-        ).config.flake.nixspaceIndex
+        (lib.evalModules {
+          modules = [
+            rootSupport
+            ../../../nix/nixspace/index-module.nix
+            {
+              nixspace.index = currentRoot.config.cognipilot.validatedIndex // overrides;
+            }
+          ];
+        }).config.flake.nixspaceIndex
         true
     );
 
@@ -203,8 +200,9 @@ let
     generated-source-and-host-plans-are-bound =
       withPlans.devenv.shells.default.env.NIXSPACE_HOST_PLAN
       == "${withPlans.packages.nixspace-host-plan}/share/nixspace/host-plan.json"
-      && withPlans.devenv.shells.default.env.NIXSPACE_SOURCE_PLAN
-      == "${withPlans.packages.nixspace-source-plan}/share/nixspace/source-plan.json";
+      &&
+        withPlans.devenv.shells.default.env.NIXSPACE_SOURCE_PLAN
+        == "${withPlans.packages.nixspace-source-plan}/share/nixspace/source-plan.json";
     generated-west-plan-is-bound =
       defaultShell.env.NIXSPACE_WEST_PLAN
       == "${current.packages.nixspace-west-plan}/share/nixspace/west-plan.json";

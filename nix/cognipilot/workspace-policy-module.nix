@@ -6,10 +6,10 @@ let
     if cfg.source == null then
       [ ]
     else
-      map (
-        path: lib.removePrefix "${toString cfg.source}/" (toString path)
-      ) (lib.filesystem.listFilesRecursive cfg.source);
-  allowedPython = path: lib.hasPrefix "tests/" path;
+      map (path: lib.removePrefix "${toString cfg.source}/" (toString path)) (
+        lib.filesystem.listFilesRecursive cfg.source
+      );
+  allowedPython = path: lib.hasPrefix "src/" path;
   allowedShellFiles = [
     ".envrc"
     "setup"
@@ -32,23 +32,21 @@ let
     ".yash"
     ".zsh"
   ];
-  firstLine = path:
-    builtins.head (
-      lib.splitString "\n" (builtins.readFile (cfg.source + "/${path}"))
-    );
-  hasShellShebang = path:
-    builtins.match "^#!.*(/|[[:space:]])(ash|bash|csh|dash|fish|ksh|mksh|nu|pwsh|sh|tcsh|yash|zsh)([[:space:]].*)?$" (firstLine path)
-    != null;
-  hasPythonShebang = path:
-    builtins.match "^#!.*(/|[[:space:]])(python([0-9]+([.][0-9]+)*)?|uv)([[:space:]].*)?$" (firstLine path)
-    != null;
-  isShell = path:
-    builtins.any (suffix: lib.hasSuffix suffix path) shellSuffixes
-    || hasShellShebang path;
-  isPython = path:
-    lib.hasSuffix ".py" path
-    || lib.hasSuffix ".pyw" path
-    || hasPythonShebang path;
+  firstLine =
+    path: builtins.head (lib.splitString "\n" (builtins.readFile (cfg.source + "/${path}")));
+  hasShellShebang =
+    path:
+    builtins.match "^#!.*(/|[[:space:]])(ash|bash|csh|dash|fish|ksh|mksh|nu|pwsh|sh|tcsh|yash|zsh)([[:space:]].*)?$" (
+      firstLine path
+    ) != null;
+  hasPythonShebang =
+    path:
+    builtins.match "^#!.*(/|[[:space:]])(python([0-9]+([.][0-9]+)*)?|uv)([[:space:]].*)?$" (
+      firstLine path
+    ) != null;
+  isShell =
+    path: builtins.any (suffix: lib.hasSuffix suffix path) shellSuffixes || hasShellShebang path;
+  isPython = path: lib.hasSuffix ".py" path || lib.hasSuffix ".pyw" path || hasPythonShebang path;
   forbiddenExact = [
     "devenv.lock"
     "devenv.nix"
@@ -74,7 +72,7 @@ let
     schemaVersion = 1;
     compliant = violations == [ ];
     policy = {
-      python = "tests-only";
+      python = "project-native-under-src-only";
       shell = "exact-bootstrap-allowlist";
       inherit allowedShellFiles;
       staticAuthority = "nix";
@@ -114,9 +112,9 @@ in
     perSystem =
       { pkgs, ... }:
       {
-        checks.cognipilot-workspace-policy = pkgs.writeText
-          "cognipilot-workspace-policy.json"
-          (builtins.toJSON config.cognipilot.workspacePolicy.report);
+        checks.cognipilot-workspace-policy = pkgs.writeText "cognipilot-workspace-policy.json" (
+          builtins.toJSON config.cognipilot.workspacePolicy.report
+        );
       };
   };
 }

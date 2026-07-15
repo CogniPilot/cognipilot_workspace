@@ -1,9 +1,8 @@
+{ devenvSource, pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
-  lock = builtins.fromJSON (builtins.readFile ../../../flake.lock);
-  pinnedSource = (builtins.fetchTree lock.nodes.devenv.locked).outPath;
-  pinnedModules = pinnedSource + "/src/modules";
+  pinnedModules = devenvSource + "/src/modules";
   index =
     (lib.evalModules {
       modules = [ ../project-flakes/golden/launch-ir.nix ];
@@ -87,6 +86,10 @@ let
   processes = evaluated.config.process.managers.process-compose.settings.processes;
   checks = {
     pinnedVersion = evaluated.config.devenv.cli.version == "2.1.2";
+    staticManagerLog =
+      evaluated.config.process.managers.process-compose.settings.log_location
+      == "/tmp/devenv-state/process-compose/process-compose.log"
+      && !(lib.hasInfix "$NIXSPACE_SESSION_DIR" evaluated.config.process.managers.process-compose.settings.log_location);
     processOptionsAccepted =
       builtins.attrNames evaluated.config.processes == [
         "monitor"

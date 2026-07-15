@@ -1,5 +1,6 @@
+{ pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
 
   root = lib.evalModules {
@@ -121,34 +122,40 @@ assert document.apiVersion == "nixspace/v1";
 assert document.kind == "Workspace";
 assert document.interfaceVersion == 2;
 assert document.catalog.packages == [ ];
-assert builtins.attrNames system.config.packages == [
-  "nixspace"
-  "nixspace-completions"
-  "nixspace-host"
-  "nixspace-host-plan"
-  "nixspace-index"
-];
-assert builtins.attrNames system.config.apps == [
-  "nixspace"
-  "nixspace-host"
-];
-assert builtins.attrNames system.config.checks == [
-  "nixspace-interface"
-  "nixspace-standalone"
-];
+assert
+  builtins.attrNames system.config.packages == [
+    "nixspace"
+    "nixspace-completions"
+    "nixspace-host"
+    "nixspace-host-plan"
+    "nixspace-index"
+  ];
+assert
+  builtins.attrNames system.config.apps == [
+    "nixspace"
+    "nixspace-host"
+  ];
+assert
+  builtins.attrNames system.config.checks == [
+    "nixspace-interface"
+    "nixspace-standalone"
+  ];
 assert system.config.packages.nixspace.pname == "nixspace";
-assert system.config.apps.nixspace-host.program == "${system.config.packages.nixspace-host}/bin/nixspace-host";
+assert
+  system.config.apps.nixspace-host.program
+  == "${system.config.packages.nixspace-host}/bin/nixspace-host";
 assert system.config.apps.nixspace.type == "app";
 assert root.config.flake.nixspaceHostPlan.kind == "Host";
 assert root.config.flake.nixspaceHostPlan.interfaceVersion == 4;
 assert root.config.flake.nixspaceHostPlan.readiness.cache.coverageMode == "union";
 assert root.config.flake.nixspaceHostPlan.readiness.cache.storeDirectory == builtins.storeDir;
-assert root.config.flake.nixspaceHostPlan.readiness.cache.stores == [
-  {
-    name = "public";
-    uri = "https://cache.example.test";
-  }
-];
+assert
+  root.config.flake.nixspaceHostPlan.readiness.cache.stores == [
+    {
+      name = "public";
+      uri = "https://cache.example.test";
+    }
+  ];
 {
   success = true;
   package = system.config.packages.nixspace.pname;

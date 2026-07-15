@@ -1,5 +1,6 @@
+{ pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
 
   basePlan = {
@@ -86,15 +87,14 @@ let
       ];
   rejectedSubstituters =
     map
-      (uri:
-        builtins.tryEval (
-          force {
-            extra-substituters = [
-              "https://cache.example.test"
-              uri
-            ];
-          }
-        )
+      (
+        uri:
+        builtins.tryEval (force {
+          extra-substituters = [
+            "https://cache.example.test"
+            uri
+          ];
+        })
       )
       [
         "https://token@cache.example.test"

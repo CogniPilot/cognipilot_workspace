@@ -40,7 +40,7 @@ in
         devShells.default = pkgs.mkShellNoCC {
           packages = [
             pkgs.jq
-            pkgs.nixfmt-rfc-style
+            pkgs.nixfmt
           ];
         };
 
@@ -49,7 +49,7 @@ in
           program = "${showIndex}";
         };
 
-        formatter = pkgs.nixfmt-rfc-style;
+        formatter = pkgs.nixfmt;
       };
   };
 }

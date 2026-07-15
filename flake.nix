@@ -152,6 +152,7 @@
         ./nix/nixspace/host-module.nix
         ./nix/nixspace/benchmark-module.nix
         ./nix/cognipilot/nixspace-module.nix
+        ./tests/flake-module.nix
         inputs.synapse_fbs_definition.flakeModules.default
         inputs.cerebri_cubs2_definition.flakeModules.default
         inputs.electrode_web_definition.flakeModules.default
@@ -255,8 +256,7 @@
         let
           client = lib.getExe config.packages.nixspace;
           index = "${config.packages.nixspace-index}/share/nixspace/index.json";
-          resolutionPlan =
-            "${config.packages.nixspace-resolution-plan}/share/nixspace/resolution-plan.json";
+          resolutionPlan = "${config.packages.nixspace-resolution-plan}/share/nixspace/resolution-plan.json";
           selectedSource = toString inputs.self.outPath;
           selectedFlake = "path:${selectedSource}";
           nix = lib.getExe pkgs.nix;
@@ -274,115 +274,8 @@
             inherit lib pkgs;
             nixspace = config.packages.nixspace;
             devenvSource = inputs.devenv;
+            workspaceSource = inputs.self.outPath;
           };
-          # The contract check runs Nix with a private writable store so it can
-          # evaluate fixtures without daemon access.  A build sandbox exposes
-          # only declared derivation inputs, so retain the complete source graph
-          # of every public root input explicitly.  Do not make the private
-          # FastDyn integration a build-time dependency of the public cache
-          # root merely to seed that nested store.
-          contractExcludedInputNames = [
-            "fastdyn_definition"
-            "fastdyn_source"
-          ];
-          contractFlakeInputNames = builtins.filter (
-            name: name != "self" && !(builtins.elem name contractExcludedInputNames)
-          ) (builtins.attrNames inputs);
-          contractInputNode = input: {
-            key = toString input.outPath;
-            value = input;
-          };
-          contractFlakeInputClosure = builtins.genericClosure {
-            startSet = map contractInputNode (
-              builtins.filter (
-                input: builtins.isAttrs input && input ? outPath
-              ) (map (name: inputs.${name}) contractFlakeInputNames)
-            );
-            operator = node:
-              if builtins.isAttrs node.value && node.value ? inputs then
-                map contractInputNode (
-                  builtins.filter (
-                    input: builtins.isAttrs input && input ? outPath
-                  ) (builtins.attrValues node.value.inputs)
-                )
-              else
-                [ ];
-          };
-          # Relative path inputs live inside `self` and are available when that
-          # source is copied into a fixture. Import only independently addressed
-          # top-level store paths into the nested store.
-          contractFlakeInputSources = map (node: node.value.outPath) (
-            builtins.filter (
-              node:
-              builtins.match "^${builtins.storeDir}/[^/]+$" (toString node.value.outPath) != null
-            ) contractFlakeInputClosure
-          );
-          contractStoreName = source:
-            let
-              match = builtins.match "^[^-]+-(.+)$" (builtins.baseNameOf (toString source));
-            in
-            if match == null then
-              throw "contract flake input is not a named Nix store path: ${toString source}"
-            else
-              builtins.head match;
-          contractTestSelections =
-            [
-              "tests.test_cognipilot_compliance"
-              "tests.test_cognipilot_flake_module"
-              "tests.test_cognipilot_launch_ir"
-              "tests.test_cognipilot_package_metadata"
-              "tests.test_cognipilot_resolution"
-              "tests.test_cognipilot_resources"
-              "tests.test_cognipilot_source_workspace"
-              "tests.test_ci_cache_policy"
-              "tests.test_nixspace_generic"
-              "tests.test_workspace_policy"
-            ];
-          contractTests =
-            pkgs.runCommand "cognipilot-python-contract-tests"
-              {
-                # This value is deliberately unused by the command. Its string
-                # contexts are the sandbox/source-availability contract for the
-                # nested offline Nix store described above.
-                inherit contractFlakeInputSources;
-                source = inputs.self;
-                passthru = {
-                  inherit
-                    contractExcludedInputNames
-                    contractFlakeInputNames
-                    contractFlakeInputSources
-                    ;
-                };
-              }
-              ''
-                export PATH=${lib.makeBinPath [
-                  pkgs.git
-                  pkgs.nix
-                  pkgs.python3
-                ]}:$PATH
-                export HOME="$TMPDIR/home"
-                export NIX_CONFIG="experimental-features = nix-command flakes"
-                export NIX_PATH=nixpkgs=${inputs.nixpkgs}
-                export NIX_REMOTE="local?root=$TMPDIR/nix-store"
-                mkdir -p "$HOME"
-                # Merely mounting a source in the build sandbox does not register
-                # it in this separate store. Import each exact public flake input
-                # under its original store name so locked offline fetches resolve
-                # without network access or the host daemon.
-                ${lib.concatMapStringsSep "\n" (source: ''
-                  imported="$(${lib.getExe pkgs.nix} store add \
-                    --store "$NIX_REMOTE" --mode nar \
-                    --name ${lib.escapeShellArg (contractStoreName source)} \
-                    ${lib.escapeShellArg (toString source)})"
-                  if [ "$imported" != ${lib.escapeShellArg (toString source)} ]; then
-                    echo "nested store imported $imported instead of ${toString source}" >&2
-                    exit 1
-                  fi
-                '') contractFlakeInputSources}
-                cd "$source"
-                python -m unittest -q ${lib.escapeShellArgs contractTestSelections}
-                touch "$out"
-              '';
           cachedQuery =
             {
               coordinate,
@@ -434,53 +327,48 @@
             zros = 2000;
             zros_drivers = 1000;
           };
-          nativeWarmCase =
-            package: budget:
-            {
-              description =
-                "Run the unchanged ${package} build through its exact Nix-generated devenv task roots.";
-              context = {
-                category = "native-warm-build";
-                coordinate = package;
-                cacheState =
-                  "one recorded warmup establishes mutable native outputs; three measured samples are unchanged repeats";
-                invocation =
-                  "run from the generated devenv shell for direct task dispatch; bootstrap overhead is otherwise measured and expected to fail the native SLO";
-              };
-              beforeEach = [ ];
-              measure = [
-                {
-                  argv = [
-                    client
-                    "--index"
-                    index
-                    "--resolution-plan"
-                    resolutionPlan
-                    "build"
-                    package
-                  ];
-                  cwd = ".";
-                  environment = {
-                    NIXSPACE_INDEX = index;
-                    NIXSPACE_RESOLUTION_PLAN = resolutionPlan;
-                    NIXSPACE_WORKSPACE_ROOT = ".";
-                  };
-                  # DEVENV_TASK_FILE and the generated runner PATH are supplied
-                  # by the selected devenv shell. The fixed plan paths above
-                  # remain Nix-owned and do not depend on ambient discovery.
-                  inheritEnvironment = true;
-                  timeoutMilliseconds = 1800000;
-                  expectedExitCodes = [ 0 ];
-                }
-              ];
-              afterEach = [ ];
-              warmupSamples = 1;
-              measuredSamples = 3;
-              gates = {
-                p50Milliseconds = budget;
-                p95Milliseconds = budget;
-              };
+          nativeWarmCase = package: budget: {
+            description = "Run the unchanged ${package} build through its exact Nix-generated devenv task roots.";
+            context = {
+              category = "native-warm-build";
+              coordinate = package;
+              cacheState = "one recorded warmup establishes mutable native outputs; three measured samples are unchanged repeats";
+              invocation = "run from the generated devenv shell for direct task dispatch; bootstrap overhead is otherwise measured and expected to fail the native SLO";
             };
+            beforeEach = [ ];
+            measure = [
+              {
+                argv = [
+                  client
+                  "--index"
+                  index
+                  "--resolution-plan"
+                  resolutionPlan
+                  "build"
+                  package
+                ];
+                cwd = ".";
+                environment = {
+                  NIXSPACE_INDEX = index;
+                  NIXSPACE_RESOLUTION_PLAN = resolutionPlan;
+                  NIXSPACE_WORKSPACE_ROOT = ".";
+                };
+                # DEVENV_TASK_FILE and the generated runner PATH are supplied
+                # by the selected devenv shell. The fixed plan paths above
+                # remain Nix-owned and do not depend on ambient discovery.
+                inheritEnvironment = true;
+                timeoutMilliseconds = 1800000;
+                expectedExitCodes = [ 0 ];
+              }
+            ];
+            afterEach = [ ];
+            warmupSamples = 1;
+            measuredSamples = 3;
+            gates = {
+              p50Milliseconds = budget;
+              p95Milliseconds = budget;
+            };
+          };
           nativeWarmCases = lib.optionalAttrs (system == "x86_64-linux") (
             lib.mapAttrs' (package: budget: {
               name = "native-warm-${package}";
@@ -489,8 +377,6 @@
           );
         in
         {
-          checks.cognipilot-contract-tests = contractTests;
-
           nixspace.benchmark = {
             enable = true;
             id = "cognipilot-lightweight-client-v1";
@@ -521,201 +407,204 @@
               "module-index-100"
               "ws-build-plan"
             ];
-            cases = benchmarkFixtures.cases // nativeWarmCases // {
-              help = cachedQuery {
-                coordinate = "nixspace/help";
-                description = "Render the cached native help tree.";
-                argv = [
-                  client
-                  "--help"
-                ];
-                budget = 100;
-              };
-              package-list = cachedQuery {
-                coordinate = "workspace/packages";
-                description = "List packages from the generated index.";
-                argv = [
-                  client
-                  "--index"
-                  index
-                  "package"
-                  "list"
-                  "--json"
-                ];
-                budget = 100;
-              };
-              launch-list = cachedQuery {
-                coordinate = "workspace/launches";
-                description = "List launches from the generated index.";
-                argv = [
-                  client
-                  "--index"
-                  index
-                  "launch"
-                  "list"
-                  "--json"
-                ];
-                budget = 100;
-              };
-              completion-backend = cachedQuery {
-                coordinate = "workspace/completion/package";
-                description = "Complete package commands from the generated index.";
-                argv = [
-                  client
-                  "--index"
-                  index
-                  "_complete"
-                  "package"
-                  ""
-                ];
-                budget = 100;
-              };
-              graph-plan = cachedQuery {
-                coordinate = "workspace/graph";
-                description = "Render the complete graph from the generated index.";
-                argv = [
-                  client
-                  "--index"
-                  index
-                  "graph"
-                  "--json"
-                ];
-                budget = 200;
-              };
-              launch-plan = cachedQuery {
-                coordinate = "electrode_web/simulation";
-                description = "Resolve a launch plan from the generated index.";
-                argv = [
-                  client
-                  "--index"
-                  index
-                  "launch"
-                  "plan"
-                  "electrode_web/simulation"
-                  "--json"
-                ];
-                budget = 200;
-              };
-              ws-build-plan = cachedQuery {
-                coordinate = "workspace/ws-build-plan";
-                description = "Dispatch through the setup-installed ws entry point and resolve a build plan without starting a native task.";
-                argv = [
-                  "./ws"
-                  "build"
-                  "synapse_fbs"
-                  "--plan"
-                  "--json"
-                ];
-                budget = 500;
-              };
-              selected-flake-eval-cold = {
-                description = "Evaluate and fully serialize the selected workspace index with the Nix evaluation cache disabled.";
-                context = {
-                  coordinate = "workspace/selected-flake";
-                  cacheState = "evaluation cache disabled; immutable flake inputs and Nix store remain warm; no derivations are realized";
-                  coldBoundary = "Nix evaluator only";
+            cases =
+              benchmarkFixtures.cases
+              // nativeWarmCases
+              // {
+                help = cachedQuery {
+                  coordinate = "nixspace/help";
+                  description = "Render the cached native help tree.";
+                  argv = [
+                    client
+                    "--help"
+                  ];
+                  budget = 100;
                 };
-                beforeEach = [ ];
-                measure = [
-                  {
-                    argv = [
-                      nix
-                      "--extra-experimental-features"
-                      "nix-command flakes"
-                      "eval"
-                      "--offline"
-                      "--no-eval-cache"
-                      "--raw"
-                      "--apply"
-                      ''index: builtins.hashString "sha256" (builtins.toJSON index)''
-                      "${selectedFlake}#nixspaceIndex"
-                    ];
-                    cwd = ".";
-                    environment.PWD = selectedSource;
-                    inheritEnvironment = false;
-                    timeoutMilliseconds = 30000;
-                    expectedExitCodes = [ 0 ];
-                  }
-                ];
-                afterEach = [ ];
-                warmupSamples = 0;
-                measuredSamples = 7;
-                gates = {
-                  p50Milliseconds = 10000;
-                  p95Milliseconds = 10000;
+                package-list = cachedQuery {
+                  coordinate = "workspace/packages";
+                  description = "List packages from the generated index.";
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "package"
+                    "list"
+                    "--json"
+                  ];
+                  budget = 100;
+                };
+                launch-list = cachedQuery {
+                  coordinate = "workspace/launches";
+                  description = "List launches from the generated index.";
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "launch"
+                    "list"
+                    "--json"
+                  ];
+                  budget = 100;
+                };
+                completion-backend = cachedQuery {
+                  coordinate = "workspace/completion/package";
+                  description = "Complete package commands from the generated index.";
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "_complete"
+                    "package"
+                    ""
+                  ];
+                  budget = 100;
+                };
+                graph-plan = cachedQuery {
+                  coordinate = "workspace/graph";
+                  description = "Render the complete graph from the generated index.";
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "graph"
+                    "--json"
+                  ];
+                  budget = 200;
+                };
+                launch-plan = cachedQuery {
+                  coordinate = "electrode_web/simulation";
+                  description = "Resolve a launch plan from the generated index.";
+                  argv = [
+                    client
+                    "--index"
+                    index
+                    "launch"
+                    "plan"
+                    "electrode_web/simulation"
+                    "--json"
+                  ];
+                  budget = 200;
+                };
+                ws-build-plan = cachedQuery {
+                  coordinate = "workspace/ws-build-plan";
+                  description = "Dispatch through the setup-installed ws entry point and resolve a build plan without starting a native task.";
+                  argv = [
+                    "./ws"
+                    "build"
+                    "synapse_fbs"
+                    "--plan"
+                    "--json"
+                  ];
+                  budget = 500;
+                };
+                selected-flake-eval-cold = {
+                  description = "Evaluate and fully serialize the selected workspace index with the Nix evaluation cache disabled.";
+                  context = {
+                    coordinate = "workspace/selected-flake";
+                    cacheState = "evaluation cache disabled; immutable flake inputs and Nix store remain warm; no derivations are realized";
+                    coldBoundary = "Nix evaluator only";
+                  };
+                  beforeEach = [ ];
+                  measure = [
+                    {
+                      argv = [
+                        nix
+                        "--extra-experimental-features"
+                        "nix-command flakes"
+                        "eval"
+                        "--offline"
+                        "--no-eval-cache"
+                        "--raw"
+                        "--apply"
+                        ''index: builtins.hashString "sha256" (builtins.toJSON index)''
+                        "${selectedFlake}#nixspaceIndex"
+                      ];
+                      cwd = ".";
+                      environment.PWD = selectedSource;
+                      inheritEnvironment = false;
+                      timeoutMilliseconds = 30000;
+                      expectedExitCodes = [ 0 ];
+                    }
+                  ];
+                  afterEach = [ ];
+                  warmupSamples = 0;
+                  measuredSamples = 7;
+                  gates = {
+                    p50Milliseconds = 10000;
+                    p95Milliseconds = 10000;
+                  };
+                };
+                shell-eval-editable = {
+                  description = "Evaluate the selected PWD-bound default devenv shell derivation repeatedly without realizing it.";
+                  context = {
+                    coordinate = "workspace/default-shell";
+                    cacheState = "repeated impure editable-root evaluation; immutable flake inputs and Nix store remain warm; no Nix evaluation-cache hit is claimed";
+                    coldBoundary = "editable shell evaluation; derivation not realized";
+                  };
+                  beforeEach = [ ];
+                  measure = [
+                    {
+                      argv = [
+                        nix
+                        "--extra-experimental-features"
+                        "nix-command flakes"
+                        "eval"
+                        "--impure"
+                        "--offline"
+                        "--raw"
+                        "${selectedFlake}#devShells.${system}.default.drvPath"
+                      ];
+                      cwd = ".";
+                      environment.PWD = selectedSource;
+                      inheritEnvironment = false;
+                      timeoutMilliseconds = 30000;
+                      expectedExitCodes = [ 0 ];
+                    }
+                  ];
+                  afterEach = [ ];
+                  warmupSamples = 1;
+                  measuredSamples = 7;
+                  gates = {
+                    p50Milliseconds = 15000;
+                    p95Milliseconds = 15000;
+                  };
+                };
+                module-index-100 = {
+                  description = "Evaluate and serialize a synthetic 100-project module index.";
+                  context = {
+                    coordinate = "workspace/module-index";
+                    scale = "100";
+                    cacheState = "warm Nix evaluator and immutable module inputs";
+                  };
+                  beforeEach = [ ];
+                  measure = [
+                    {
+                      argv = [
+                        (lib.getExe pkgs.nix)
+                        "--extra-experimental-features"
+                        "nix-command"
+                        "eval"
+                        "--offline"
+                        "--raw"
+                        "--file"
+                        "${scale100Expression}"
+                      ];
+                      cwd = ".";
+                      environment = { };
+                      inheritEnvironment = false;
+                      timeoutMilliseconds = 5000;
+                      expectedExitCodes = [ 0 ];
+                    }
+                  ];
+                  afterEach = [ ];
+                  warmupSamples = 1;
+                  measuredSamples = 7;
+                  gates = {
+                    p50Milliseconds = 1000;
+                    p95Milliseconds = 1000;
+                  };
                 };
               };
-              shell-eval-editable = {
-                description = "Evaluate the selected PWD-bound default devenv shell derivation repeatedly without realizing it.";
-                context = {
-                  coordinate = "workspace/default-shell";
-                  cacheState = "repeated impure editable-root evaluation; immutable flake inputs and Nix store remain warm; no Nix evaluation-cache hit is claimed";
-                  coldBoundary = "editable shell evaluation; derivation not realized";
-                };
-                beforeEach = [ ];
-                measure = [
-                  {
-                    argv = [
-                      nix
-                      "--extra-experimental-features"
-                      "nix-command flakes"
-                      "eval"
-                      "--impure"
-                      "--offline"
-                      "--raw"
-                      "${selectedFlake}#devShells.${system}.default.drvPath"
-                    ];
-                    cwd = ".";
-                    environment.PWD = selectedSource;
-                    inheritEnvironment = false;
-                    timeoutMilliseconds = 30000;
-                    expectedExitCodes = [ 0 ];
-                  }
-                ];
-                afterEach = [ ];
-                warmupSamples = 1;
-                measuredSamples = 7;
-                gates = {
-                  p50Milliseconds = 15000;
-                  p95Milliseconds = 15000;
-                };
-              };
-              module-index-100 = {
-                description = "Evaluate and serialize a synthetic 100-project module index.";
-                context = {
-                  coordinate = "workspace/module-index";
-                  scale = "100";
-                  cacheState = "warm Nix evaluator and immutable module inputs";
-                };
-                beforeEach = [ ];
-                measure = [
-                  {
-                    argv = [
-                      (lib.getExe pkgs.nix)
-                      "--extra-experimental-features"
-                      "nix-command"
-                      "eval"
-                      "--offline"
-                      "--raw"
-                      "--file"
-                      "${scale100Expression}"
-                    ];
-                    cwd = ".";
-                    environment = { };
-                    inheritEnvironment = false;
-                    timeoutMilliseconds = 5000;
-                    expectedExitCodes = [ 0 ];
-                  }
-                ];
-                afterEach = [ ];
-                warmupSamples = 1;
-                measuredSamples = 7;
-                gates = {
-                  p50Milliseconds = 1000;
-                  p95Milliseconds = 1000;
-                };
-              };
-            };
           };
         };
 

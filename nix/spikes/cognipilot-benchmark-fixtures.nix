@@ -3,25 +3,26 @@
   lib ? pkgs.lib,
   nixspace,
   devenvSource,
+  workspaceSource,
 }:
 
 let
   apiVersion = "nixspace/v1";
   workspaceRoot = ".";
   client = lib.getExe nixspace;
-  cognipilotModuleRoot = ../cognipilot;
+  # Nested evaluator benchmarks need the complete selected flake source so
+  # provider-relative imports retain their Nix context.
+  cognipilotModuleRoot = "${workspaceSource}/nix/cognipilot";
   actionGenerationLayout = import ../nixspace/action-generation-layout.nix;
 
-  command =
-    argv:
-    {
-      inherit argv;
-      cwd = workspaceRoot;
-      environment = { };
-      inheritEnvironment = false;
-      timeoutMilliseconds = 15000;
-      expectedExitCodes = [ 0 ];
-    };
+  command = argv: {
+    inherit argv;
+    cwd = workspaceRoot;
+    environment = { };
+    inheritEnvironment = false;
+    timeoutMilliseconds = 15000;
+    expectedExitCodes = [ 0 ];
+  };
 
   benchmarkCase =
     {
@@ -151,7 +152,8 @@ let
   implementationActionPlanPath = pkgs.writeText "implementation-edit-action-plan.json" (
     builtins.toJSON implementationActionPlan
   );
-  runImplementation = outputFile:
+  runImplementation =
+    outputFile:
     (command [
       client
       "_run-task"
@@ -163,25 +165,46 @@ let
       timeoutMilliseconds = 30000;
     };
 
+  schemaDefinition = version: {
+    cognipilot.projects.benchmark_schema = {
+      preset = "cargo-v1";
+      targets.default.artifacts.outputs.library = {
+        kind = "file";
+        path = "lib/libbenchmark_schema.rlib";
+        contract = {
+          name = "benchmark-schema";
+          inherit version;
+        };
+      };
+    };
+  };
   schemaModule =
     version:
-    pkgs.writeText "benchmark-schema-v${toString version}.nix" ''
-      {
-        cognipilot.projects.benchmark_schema = {
-          preset = "cargo-v1";
-          targets.default.artifacts.outputs.library = {
-            kind = "file";
-            path = "lib/libbenchmark_schema.rlib";
-            contract = {
-              name = "benchmark-schema";
-              version = ${toString version};
-            };
-          };
-        };
-      }
-    '';
+    pkgs.writeText "benchmark-schema-v${toString version}.nix" (
+      lib.generators.toPretty { } (schemaDefinition version)
+    );
   schemaBeforeModule = schemaModule 1;
   schemaAfterModule = schemaModule 2;
+  schemaSnapshot =
+    version:
+    let
+      evaluated = lib.evalModules {
+        modules = [
+          "${cognipilotModuleRoot}/flake-module.nix"
+          (schemaDefinition version)
+        ];
+      };
+      index = evaluated.config.cognipilot.nixspaceIndex;
+      artifact = lib.findFirst (
+        candidate: candidate.coordinate == "benchmark_schema:default:library"
+      ) null index.catalog.artifacts;
+    in
+    {
+      inherit artifact index;
+      json = builtins.toJSON index;
+    };
+  schemaBeforeSnapshot = schemaSnapshot 1;
+  schemaAfterSnapshot = schemaSnapshot 2;
   schemaEvaluator = pkgs.writeText "benchmark-schema-evaluator.nix" ''
     { modulePath, expectedVersion }:
     let
@@ -192,16 +215,25 @@ let
           (builtins.toPath modulePath)
         ];
       };
-      index = evaluated.config.cognipilot.validatedIndex;
+      index = evaluated.config.cognipilot.nixspaceIndex;
+      artifact = pkgs.lib.findFirst (
+        candidate: candidate.coordinate == "benchmark_schema:default:library"
+      ) null index.catalog.artifacts;
       version =
-        index.projects.benchmark_schema.targets.default.artifacts.outputs.library.contract.version;
+        if artifact == null then
+          throw "benchmark-schema artifact is absent from Workspace v2"
+        else
+          artifact.contract.version;
     in
-    if version == expectedVersion then
+    if index.interfaceVersion != 2 then
+      throw "expected nixspace Workspace interface version 2"
+    else if version == expectedVersion then
       builtins.hashString "sha256" (builtins.toJSON index)
     else
       throw "expected benchmark-schema contract version ''${toString expectedVersion}, got ''${toString version}"
   '';
-  evaluateSchema = modulePath: version:
+  evaluateSchema =
+    modulePath: version:
     command [
       (lib.getExe pkgs.nix)
       "eval"
@@ -211,10 +243,11 @@ let
       "--file"
       (toString schemaEvaluator)
       "--apply"
-      ''evaluator: evaluator {
-        modulePath = ${builtins.toJSON (toString modulePath)};
-        expectedVersion = ${toString version};
-      }''
+      ''
+        evaluator: evaluator {
+                modulePath = ${builtins.toJSON (toString modulePath)};
+                expectedVersion = ${toString version};
+              }''
     ];
 
   variantModule =
@@ -261,7 +294,8 @@ let
     else
       builtins.hashString "sha256" (builtins.toJSON index)
   '';
-  evaluateVariant = modulePath: board: buildDirectory:
+  evaluateVariant =
+    modulePath: board: buildDirectory:
     command [
       (lib.getExe pkgs.nix)
       "eval"
@@ -271,11 +305,12 @@ let
       "--file"
       (toString variantEvaluator)
       "--apply"
-      ''evaluator: evaluator {
-        modulePath = ${builtins.toJSON (toString modulePath)};
-        expectedBoard = ${builtins.toJSON board};
-        expectedBuildDirectory = ${builtins.toJSON buildDirectory};
-      }''
+      ''
+        evaluator: evaluator {
+                modulePath = ${builtins.toJSON (toString modulePath)};
+                expectedBoard = ${builtins.toJSON board};
+                expectedBuildDirectory = ${builtins.toJSON buildDirectory};
+              }''
     ];
 
   launchCoordinate = "benchmark_launch:http";
@@ -327,12 +362,13 @@ let
       launchProjectModule
     ];
   };
-  launchIndex = launchIndexEvaluation.config.cognipilot.validatedIndex;
+  launchProviderIndex = launchIndexEvaluation.config.cognipilot.validatedIndex;
+  launchIndex = launchIndexEvaluation.config.cognipilot.nixspaceIndex;
   launchIndexPackage = pkgs.writeTextDir "share/nixspace/index.json" (builtins.toJSON launchIndex);
   launchIndexPath = "${launchIndexPackage}/share/nixspace/index.json";
   renderLaunch = import ../cognipilot/devenv-launch-renderer.nix { inherit lib; };
   renderedLaunch = renderLaunch {
-    index = launchIndex;
+    index = launchProviderIndex;
     launch = launchCoordinate;
     executableBindings."benchmark_launch:sleeper" = lib.getExe' pkgs.coreutils "sleep";
     workspaceRoot = workspaceRoot;
@@ -406,15 +442,12 @@ let
       (devenvModules + "/processes.nix")
       {
         process.manager.implementation = "process-compose";
-        process.managers.process-compose.settings.log_location =
-          "$NIXSPACE_SESSION_DIR/processes.log";
         # This fixture has no process task dependencies. Devenv's documented
         # interactive-process escape hatch keeps the generated command as the
         # direct process-compose child instead of requiring the separate
         # devenv-tasks runner merely to time supervision and readiness.
         processes = lib.mapAttrs (
-          _:
-          process:
+          _: process:
           process
           // {
             process-compose = (process.process-compose or { }) // {
@@ -515,10 +548,18 @@ let
         p95Milliseconds = 1000;
       };
       setup = [
-        (command [ (lib.getExe' pkgs.coreutils "rm") "-rf" implementationState ])
+        (command [
+          (lib.getExe' pkgs.coreutils "rm")
+          "-rf"
+          implementationState
+        ])
       ];
       beforeEach = [
-        (command [ (lib.getExe' pkgs.coreutils "mkdir") "-p" implementationSource ])
+        (command [
+          (lib.getExe' pkgs.coreutils "mkdir")
+          "-p"
+          implementationSource
+        ])
         (command [
           (lib.getExe' pkgs.coreutils "cp")
           "-R"
@@ -535,7 +576,11 @@ let
       ];
       measure = [ (runImplementation "${implementationState}/edited-result.json") ];
       teardown = [
-        (command [ (lib.getExe' pkgs.coreutils "rm") "-rf" implementationState ])
+        (command [
+          (lib.getExe' pkgs.coreutils "rm")
+          "-rf"
+          implementationState
+        ])
       ];
     };
 
@@ -567,9 +612,7 @@ let
         (evaluateVariant variantBeforeModule variantBeforeBoard "benchmark-variant/build-native_sim_sil")
       ];
       measure = [
-        (evaluateVariant
-          variantAfterModule
-          variantAfterBoard
+        (evaluateVariant variantAfterModule variantAfterBoard
           "benchmark-variant/build-native_sim_native_64_sil"
         )
       ];
@@ -589,18 +632,37 @@ let
         p95Milliseconds = 2000;
       };
       setup = [
-        (command [ (lib.getExe' pkgs.coreutils "rm") "-rf" launchState ])
-        (command [ (lib.getExe' pkgs.coreutils "mkdir") "-p" launchState ])
+        (command [
+          (lib.getExe' pkgs.coreutils "rm")
+          "-rf"
+          launchState
+        ])
+        (command [
+          (lib.getExe' pkgs.coreutils "mkdir")
+          "-p"
+          launchState
+        ])
       ];
       beforeEach = [
-        (command [ (lib.getExe' pkgs.coreutils "rm") "-rf" "${launchState}/sessions/measured" ])
+        (command [
+          (lib.getExe' pkgs.coreutils "rm")
+          "-rf"
+          "${launchState}/sessions/measured"
+        ])
       ];
-      measure = [ launchUp launchReady ];
+      measure = [
+        launchUp
+        launchReady
+      ];
       afterEach = [
         launchDown
       ];
       teardown = [
-        (command [ (lib.getExe' pkgs.coreutils "rm") "-rf" launchState ])
+        (command [
+          (lib.getExe' pkgs.coreutils "rm")
+          "-rf"
+          launchState
+        ])
       ];
     };
   };
@@ -616,22 +678,38 @@ let
       && implementationActionPlan.generation.identity.kind == "ActionTaskIdentity"
       && implementationActionPlan.generation.identity.declaration != { };
     schema-snapshots-change-contract =
-      schemaBeforeModule != schemaAfterModule;
+      schemaBeforeSnapshot.index.interfaceVersion == 2
+      && schemaBeforeSnapshot.artifact != null
+      && schemaAfterSnapshot.artifact != null
+      && schemaBeforeSnapshot.artifact.contract.version == 1
+      && schemaAfterSnapshot.artifact.contract.version == 2
+      && schemaBeforeSnapshot.json != schemaAfterSnapshot.json;
     variant-snapshots-change-default =
-      variantBeforeModule != variantAfterModule
-      && variantBeforeBoard != variantAfterBoard;
+      variantBeforeModule != variantAfterModule && variantBeforeBoard != variantAfterBoard;
     launch-is-pinned-process-compose =
       processComposeEvaluation.config.process.manager.implementation == "process-compose"
       && processComposePackage == pkgs.process-compose
-      && launchIndex.projects.benchmark_launch.launches.http.processes.server.readiness.kind
+      &&
+        launchProviderIndex.projects.benchmark_launch.launches.http.processes.server.readiness.kind
         == "started";
+    launch-index-is-generic-workspace-v2 =
+      launchIndex.interfaceVersion == 2
+      && !(launchIndex ? projects)
+      && !(launchIndex ? compliance)
+      &&
+        builtins.attrNames (builtins.head launchIndex.catalog.packages) == [
+          "aliases"
+          "extensions"
+          "id"
+        ]
+      && (builtins.head launchIndex.catalog.packages).extensions ? "org.cognipilot/package-v1";
     launch-plan-is-generated =
       builtins.hasAttr "nixspace-launch-plan" launchModuleFragment.packages
       && builtins.hasAttr launchOutputName launchModuleFragment.devenv.shells
-      && launchModuleFragment.devenv.shells.${launchOutputName}.process.manager.implementation
+      &&
+        launchModuleFragment.devenv.shells.${launchOutputName}.process.manager.implementation
         == "process-compose";
-    cases-have-measurements =
-      lib.all (case: case.measure != [ ]) (builtins.attrValues cases);
+    cases-have-measurements = lib.all (case: case.measure != [ ]) (builtins.attrValues cases);
     cases-have-explicit-lifecycle =
       portableCases.implementation-edit-cargo.setup != [ ]
       && portableCases.implementation-edit-cargo.teardown != [ ]

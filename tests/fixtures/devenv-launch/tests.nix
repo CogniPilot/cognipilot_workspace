@@ -1,5 +1,6 @@
+{ pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
   index =
     (lib.evalModules {
@@ -250,7 +251,6 @@ let
     moduleMapsDirectly =
       moduleFragment.devenv.shells."launch-app--router" == {
         process.manager.implementation = "process-compose";
-        process.managers.process-compose.settings.log_location = "$NIXSPACE_SESSION_DIR/processes.log";
         processes = router.processes;
       };
     moduleExportsEveryLaunch =
@@ -266,12 +266,13 @@ let
       && executionPlan.interfaceVersion == 4
       && executionPlan.kind == "LaunchExecution"
       && executionPlan.stateRoot == ".devenv/state/nixspace/sessions"
-      && executionPlan.sessionLayout == {
-        metadata = "session.json";
-        managerSocket = "process-compose.sock";
-        managerLog = "processes.log";
-        portAllocationLock = ".port-allocation.lock";
-      }
+      &&
+        executionPlan.sessionLayout == {
+          metadata = "session.json";
+          managerSocket = "process-compose.sock";
+          managerLog = "processes.log";
+          portAllocationLock = ".port-allocation.lock";
+        }
       &&
         builtins.attrNames executionPlan.launches == [
           "app/router"

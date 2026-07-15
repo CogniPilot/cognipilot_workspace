@@ -1,5 +1,6 @@
+{ pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
   root = ../../..;
 

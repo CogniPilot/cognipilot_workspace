@@ -84,9 +84,9 @@ The table preserves the reasoning for their authoritative replacements.
 | `scripts/workspace-task-cache` | Invent metadata/content hashing for repositories and mutable outputs | Delete without a Rust rewrite | Nix store hashes immutable outputs; each project-native build tool owns editable incremental validity |
 | `scripts/ws` | Entire legacy workspace control plane in Bash | Delete | Normalized Nix outputs + generated devenv tasks/processes + the Nix-built Rust client + project-native tools, as detailed below |
 
-The executable Python files in `scripts/` are outside this shell inventory, but
-the same boundary requires deleting the workspace-control-plane ones during the
-direct cutover. Project-native Python under `src/` is unaffected.
+Workspace-control-plane and workspace-test Python were deleted during the
+direct cutover. Static contract checks now use Nix assertions and client
+behavior uses Cargo tests. Project-native Python under `src/` is unaffected.
 
 ### Working-tree shell candidates reviewed during the cutover
 

@@ -89,6 +89,9 @@ that private checkout is intended.
 - `nixspace` is an independently locked, publishable Cargo package. It may be
   installed with `cargo install nixspace`; `ws` is only CogniPilot's
   Nix-provided alias.
+- Workspace contracts are tested by `nix flake check`; client behavior is
+  tested by Cargo. Python remains allowed only inside project-native `src/`
+  trees, never as workspace orchestration or a workspace test harness.
 
 ## Caching
 

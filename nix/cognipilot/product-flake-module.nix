@@ -842,7 +842,8 @@ in
           attestedResource "${productName}:product" promotionOutputs.product
         )
         ++ map (output: attestedResource output.coordinate output) targetOutputRecords;
-        resolvedInputDependency = name: identity:
+        resolvedInputDependency =
+          name: identity:
           lib.optional (identity.narHash != null && identity.revision != null) {
             inherit name;
             uri = sourceLocator identity;
@@ -864,9 +865,7 @@ in
           ++ lib.concatMap (
             target:
             lib.optionals (target.release != null) (
-              resolvedInputDependency
-                "${project.packageId}:${target.id}:release-provider"
-                target.release.providerIdentity
+              resolvedInputDependency "${project.packageId}:${target.id}:release-provider" target.release.providerIdentity
             )
           ) project.targets
         ) promotionProjects;
@@ -984,7 +983,7 @@ in
           program = "${showIndex}";
         };
 
-        formatter = pkgs.nixfmt-rfc-style;
+        formatter = pkgs.nixfmt;
       };
   };
 }

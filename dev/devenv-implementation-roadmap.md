@@ -56,10 +56,14 @@ full native performance matrix, protected-cache publication, and second-host
 substitution remain evidence gates.
 At the user's direction, the cold QEMU and complete post-cutover warm-build
 matrix are explicitly deferred; no passing result is inferred for an unrun
-build. A clean post-integration run of the workspace's explicit `tests/`
-boundary passes all 125 tests. The separate Rust package passes all 147 tests
-with its locked dependency graph, passes clippy with warnings denied, and
-packages as one standalone Cargo crate. The Nix-emitted lightweight matrix
+build. The workspace test control plane is now Nix-native: four independently
+diagnosable flake-check reports cover 19 golden modules, 74 fail-closed module
+fixtures, generated tasks, generic/provider interfaces, host policy, west,
+launch rendering, source plans, bootstrap syntax, and GitHub workflow syntax.
+There is no Python test runner or nested private Nix store. The separate Rust
+package passes all 147 tests with its locked dependency graph, passes clippy
+with warnings denied, and packages as one standalone Cargo crate. The
+Nix-emitted lightweight matrix
 passes all eight default cases plus both explicit evaluator cases (20/20
 p50/p95 gates); the strict lifecycle matrix adds four passing cases and eight
 passing p50/p95 gates. Reports and per-command logs are retained under
@@ -179,8 +183,11 @@ Resolution requirements:
 - [x] Add a regression fixture proving the selected resolution's dependency
       ordering and state behavior before removing conflict markers.
 - [x] Run the complete current unit-test suite cleanly after the final
-      correction. The explicit workspace suite passes all 125 tests; the
-      independently locked Rust package passes all 147 tests.
+      correction. Static producer semantics are checked directly by Nix: the
+      aggregate links four domain reports, including 19 golden and 74 invalid
+      module fixtures. Executable client semantics remain in the independently
+      locked Rust package's 147 tests. The replaced Python harness and its
+      nested evaluator store were deleted in the same cutover.
 - [x] Replace the orphaned legacy warm-budget file with Nix-emitted benchmark
       cases. The selected `x86_64-linux` BenchmarkPlan now owns all thirteen
       non-QEMU package budgets and exact typed build commands with no
@@ -1117,9 +1124,10 @@ Nix substituter, including a later self-hosted Attic deployment.
       sccache toolchain without firmware or QEMU. The editable default devenv
       shell requires impure `PWD` by upstream design and is deliberately not
       misrepresented as a cross-host immutable root. The complete local
-      `x86_64-linux` root realized successfully at `263ecc2`, including 55
-      isolated contract tests and all 147 Rust tests; the two other systems and
-      a successful remote three-system realization are not claimed.
+      `x86_64-linux` root realized successfully at `062b89b`, including the
+      then-current contract root and all 147 Rust tests. The current contract
+      root is Nix-native and has no Python runtime. The two other systems and a
+      successful remote three-system realization are not claimed.
 - [ ] Push complete build/runtime closures and archive public flake input store
       paths. Every native row runs one blocking `cachix push` of its exact
       visibility-filtered root, whose direct public input links retain the

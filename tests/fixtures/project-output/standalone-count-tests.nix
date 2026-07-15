@@ -1,5 +1,6 @@
+{ pkgs }:
+
 let
-  pkgs = import <nixpkgs> { };
   lib = pkgs.lib;
   contract = ../../../nix/cognipilot/flake-module.nix;
   projectOutput = ../../../nix/cognipilot/project-flake-module.nix;
@@ -12,25 +13,24 @@ let
     projects:
     builtins.tryEval (
       builtins.deepSeq
-        (
-          lib.evalModules {
-            modules = [
-              {
-                options = {
-                  nixspace.index = lib.mkOption {
-                    type = lib.types.attrs;
-                  };
-                  perSystem = lib.mkOption {
-                    type = lib.types.raw;
-                  };
+        (lib.evalModules {
+          modules = [
+            {
+              options = {
+                flake = lib.mkOption {
+                  type = lib.types.attrs;
+                  default = { };
                 };
-              }
-              contract
-              projectOutput
-              { cognipilot.projects = projects; }
-            ];
-          }
-        ).config.nixspace.index
+                perSystem = lib.mkOption {
+                  type = lib.types.raw;
+                };
+              };
+            }
+            contract
+            projectOutput
+            { cognipilot.projects = projects; }
+          ];
+        }).config.flake.nixspaceIndex
         true
     );
   zero = evaluate { };

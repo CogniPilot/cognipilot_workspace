@@ -21,3 +21,5 @@
 - Do not add compatibility aliases or retain replaced implementation. Complete
   cutovers delete the old code, tests, state paths, environment variables, and
   documentation in the same change.
+- Create commits with DCO sign-off (`git commit -s`). Do not add AI co-author
+  attribution or `Co-authored-by` trailers naming an AI tool or model.

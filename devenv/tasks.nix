@@ -84,15 +84,13 @@ in
       status = ''
         test "$(readlink modules/lib/cerebri_lockstep)" = ../../src/cerebri_modules &&
           test "$(readlink modules/lib/csyn)" = ../../src/csyn &&
-          test "$(readlink modules/lib/zros)" = ../../src/zros &&
-          test "$(readlink models/vendor/CMM-v0.0.2)" = ../../src/modelica_models
+          test "$(readlink modules/lib/zros)" = ../../src/zros
       '';
       exec = ''
-        mkdir -p modules/lib models/vendor
+        mkdir -p modules/lib
         ln -sfn ../../src/cerebri_modules modules/lib/cerebri_lockstep
         ln -sfn ../../src/csyn modules/lib/csyn
         ln -sfn ../../src/zros modules/lib/zros
-        ln -sfn ../../src/modelica_models models/vendor/CMM-v0.0.2
       '';
     };
 
@@ -267,6 +265,7 @@ in
         ];
         env = {
           CUBS2_ALLOW_FOREIGN_WEST = "1";
+          CUBS2_MODELICA_ROOT = source "modelica_models";
           CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
           CUBS2_WORKSPACE_ROOT = root;
         };
@@ -280,6 +279,7 @@ in
         after = [ "cubs2:build" ];
         env = {
           CUBS2_ALLOW_FOREIGN_WEST = "1";
+          CUBS2_MODELICA_ROOT = source "modelica_models";
           CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
           CUBS2_WORKSPACE_ROOT = root;
         };
@@ -298,6 +298,7 @@ in
         ];
         env = {
           CUBS2_ALLOW_FOREIGN_WEST = "1";
+          CUBS2_MODELICA_ROOT = source "modelica_models";
           CUBS2_RUMOCA_PYTHON = "${source "rumoca"}/result-rumoca-python/bin/python";
           CUBS2_WORKSPACE_ROOT = root;
         };
@@ -311,6 +312,7 @@ in
         after = [ "cubs2:build-hardware" ];
         env = {
           CUBS2_ALLOW_FOREIGN_WEST = "1";
+          CUBS2_MODELICA_ROOT = source "modelica_models";
           CUBS2_WORKSPACE_ROOT = root;
         };
       };

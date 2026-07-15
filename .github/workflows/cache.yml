@@ -40,6 +40,7 @@ jobs:
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
         with:
           github_access_token: ${{ github.token }}
+          install_options: --no-daemon
 
       - name: Configure binary caches
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17

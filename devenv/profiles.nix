@@ -13,6 +13,43 @@ let
     mkdir -p "$out"
   '';
 
+  zephyrPython = pkgs.python3.withPackages (
+    pythonPackages: with pythonPackages; [
+      anytree
+      canopen
+      cbor
+      colorama
+      coverage
+      intelhex
+      jsonschema
+      junitparser
+      mypy
+      natsort
+      numpy
+      opencv4
+      packaging
+      patool
+      ply
+      psutil
+      pyelftools
+      pykwalify
+      pylink-square
+      pyocd
+      pyserial
+      pytest
+      python-can
+      python-dotenv
+      pyyaml
+      requests
+      reuse
+      semver
+      spdx-tools
+      tabulate
+      tqdm
+      west
+    ]
+  );
+
   rust = {
     packages =
       with pkgs;
@@ -51,6 +88,7 @@ let
         file
         findutils
         gcc-arm-embedded
+        gcovr
         git
         gitRepo
         gnumake
@@ -63,10 +101,8 @@ let
         openssh
         picocom
         pkg-config
-        python3
-        python3Packages.pyocd
+        zephyrPython
         unzip
-        python3Packages.west
         which
         xz
         zip

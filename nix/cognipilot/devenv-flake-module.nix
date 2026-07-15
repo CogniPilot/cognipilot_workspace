@@ -36,8 +36,15 @@ in
           lib.removeSuffix "\n" (builtins.readFile inputs.devenv-root.outPath)
         else
           "";
+      runtimeRoot = builtins.getEnv "NIXSPACE_WORKSPACE_ROOT";
       workspaceRoot =
-        if configuredRoot != "" then
+        # The generic client supplies this only to the explicitly impure
+        # bootstrap invocation selected by the Nix-generated ActionRunner.
+        # Pure flake consumers see an empty environment and retain the locked
+        # source fallback below.
+        if runtimeRoot != "" then
+          runtimeRoot
+        else if configuredRoot != "" then
           configuredRoot
         else if inputs ? self then
           toString inputs.self.outPath

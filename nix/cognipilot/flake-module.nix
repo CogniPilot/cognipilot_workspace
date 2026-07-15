@@ -2788,7 +2788,7 @@ let
       inherit packages;
     };
   staticActionPlans = {
-    schemaVersion = 1;
+    schemaVersion = 2;
     runner = {
       kind = "devenv-task";
       direct = {
@@ -2802,15 +2802,18 @@ let
           "NIXSPACE_WORKSPACE_ROOT"
         ];
       };
-      bootstrap.argv = [
-        "nix"
-        "develop"
-        "--no-pure-eval"
-        ".#default"
-        "--command"
-        "devenv-flake-tasks"
-        "run"
-      ];
+      bootstrap = {
+        argv = [
+          "nix"
+          "develop"
+          "--no-pure-eval"
+          ".#default"
+          "--command"
+          "devenv-flake-tasks"
+          "run"
+        ];
+        environment.NIXSPACE_WORKSPACE_ROOT = "workspace-root";
+      };
     };
     actions = {
       build = actionPlanForKind "build";
@@ -2869,6 +2872,7 @@ in
         - ${concatStringsSep "\n- " validationErrors}
       '';
 
-  config.cognipilot.nixspaceIndex =
-    import ./nixspace-index.nix { index = config.cognipilot.validatedIndex; };
+  config.cognipilot.nixspaceIndex = import ./nixspace-index.nix {
+    index = config.cognipilot.validatedIndex;
+  };
 }

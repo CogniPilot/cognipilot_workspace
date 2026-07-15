@@ -13,7 +13,7 @@ use fs4::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::{ActionRunner, Index};
+use crate::model::{ActionRunner, BootstrapEnvironmentValue, Index, ACTION_PLAN_INTERFACE_VERSION};
 use crate::{canonical_package, write_json, CliError, Result};
 
 const SUPPORTED_API_VERSION: &str = "nixspace/v1";
@@ -26,7 +26,6 @@ const SUPPORTED_GENERATION_LAYOUT_KIND: &str = "ActionGenerationLayout";
 const SUPPORTED_GENERATION_LAYOUT_INTERFACE_VERSION: u64 = 1;
 const SUPPORTED_TASK_IDENTITY_KIND: &str = "ActionTaskIdentity";
 const SUPPORTED_TASK_IDENTITY_INTERFACE_VERSION: u64 = 1;
-const SUPPORTED_ACTION_PLAN_VERSION: u64 = 1;
 const TASK_OUTPUT_ENVIRONMENT: &str = "DEVENV_TASK_OUTPUT_FILE";
 
 static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
@@ -288,7 +287,7 @@ pub(crate) fn run_action(
     let selected = SelectedActionPlan {
         api_version: SUPPORTED_API_VERSION,
         kind: "ActionInvocation",
-        interface_version: SUPPORTED_ACTION_PLAN_VERSION,
+        interface_version: ACTION_PLAN_INTERFACE_VERSION,
         action,
         package: canonical,
         runner: &index.action_plans.runner,
@@ -320,22 +319,31 @@ pub(crate) fn run_action(
     }
 
     let executable = &selected.argv[0];
-    let status = Command::new(executable)
+    let mut command = Command::new(executable);
+    command
         .args(&selected.argv[1..])
         .args(selected.tasks)
-        .current_dir(root)
-        .status()
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
-                CliError(format!(
-                    "action runner `{executable}` is unavailable on PATH"
-                ))
-            } else {
-                CliError(format!(
-                    "cannot start action runner `{executable}`: {error}"
-                ))
+        .current_dir(root);
+    if selected.runner_mode == "bootstrap" {
+        for (name, value) in &selected.runner.bootstrap.environment {
+            match value {
+                BootstrapEnvironmentValue::WorkspaceRoot => {
+                    command.env(name, root);
+                }
             }
-        })?;
+        }
+    }
+    let status = command.status().map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            CliError(format!(
+                "action runner `{executable}` is unavailable on PATH"
+            ))
+        } else {
+            CliError(format!(
+                "cannot start action runner `{executable}`: {error}"
+            ))
+        }
+    })?;
     if status.success() {
         Ok(Outcome::Success)
     } else {
@@ -466,10 +474,10 @@ pub(crate) fn run_task(root: &Path, arguments: RunTaskArgs) -> Result<Outcome> {
 }
 
 fn validate_action_plans(index: &Index) -> Result<()> {
-    if index.action_plans.schema_version != SUPPORTED_ACTION_PLAN_VERSION {
+    if index.action_plans.schema_version != ACTION_PLAN_INTERFACE_VERSION {
         return Err(CliError(format!(
             "action-plan interface version {} is unsupported; this nixspace supports version {}",
-            index.action_plans.schema_version, SUPPORTED_ACTION_PLAN_VERSION
+            index.action_plans.schema_version, ACTION_PLAN_INTERFACE_VERSION
         )));
     }
     if index.action_plans.runner.kind != "devenv-task" {
@@ -506,6 +514,19 @@ fn validate_action_plans(index: &Index) -> Result<()> {
         {
             return Err(CliError(
                 "action-plan direct runner requiredEnvironment must contain unique nonempty environment names without `=` or NUL"
+                    .into(),
+            ));
+        }
+    }
+    for name in index.action_plans.runner.bootstrap.environment.keys() {
+        let mut characters = name.chars();
+        if characters
+            .next()
+            .is_none_or(|first| first != '_' && !first.is_ascii_alphabetic())
+            || characters.any(|character| character != '_' && !character.is_ascii_alphanumeric())
+        {
+            return Err(CliError(
+                "action-plan bootstrap environment names must be portable environment variable identifiers"
                     .into(),
             ));
         }

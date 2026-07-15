@@ -141,11 +141,14 @@ fn workspace_index() -> Value {
             "reverse": {"app": graph}
         },
         "actionPlans": {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "runner": {
                 "kind": "devenv-task",
                 "direct": {"argv": ["devenv-flake-tasks", "run"], "requiredEnvironment": ["DEVENV_TASK_FILE", "NIXSPACE_INDEX", "NIXSPACE_WORKSPACE_ROOT"]},
-                "bootstrap": {"argv": ["nix", "develop", ".#default", "--command", "devenv-flake-tasks", "run"]}
+                "bootstrap": {
+                    "argv": ["nix", "develop", ".#default", "--command", "devenv-flake-tasks", "run"],
+                    "environment": {"WORKSPACE_ROOT": "workspace-root"}
+                }
             },
             "actions": {
                 "build": {

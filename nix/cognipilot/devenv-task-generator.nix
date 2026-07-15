@@ -55,10 +55,7 @@ let
       segments = splitString "/" taskStateRoot;
       portable = builtins.match "[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*" taskStateRoot != null;
     in
-    if
-      portable
-      && builtins.all (segment: segment != "." && segment != "..") segments
-    then
+    if portable && builtins.all (segment: segment != "." && segment != "..") segments then
       taskStateRoot
     else
       throw "taskStateRoot must be a portable workspace-relative path with no empty, `.` or `..` components";
@@ -108,16 +105,15 @@ let
       // {
         consumedBy = [ actionId ];
       }
-    ) (
-      filterAttrs (_: artifact: builtins.elem actionId artifact.consumedBy) target.artifacts.inputs
-    );
+    ) (filterAttrs (_: artifact: builtins.elem actionId artifact.consumedBy) target.artifacts.inputs);
   };
 
   artifactDependencies =
     artifacts:
     unique (map (artifactInput: producerTask artifactInput.from) (attrValues artifacts.inputs));
 
-  artifactInputPaths = artifacts:
+  artifactInputPaths =
+    artifacts:
     map (
       artifactInput:
       let
@@ -129,38 +125,31 @@ let
   artifactEnvironmentPaths =
     taskCoordinate: actionEnvironment: artifacts:
     let
-      bindings = map (
-        artifactInput:
-        let
-          producer = producerArtifact artifactInput.from;
-        in
-        nameValuePair artifactInput.environment (
-          joinPath (sourceDirectory producer.project) producer.artifact.path
-        )
-      ) (
-        builtins.filter (artifactInput: artifactInput.environment != null) (
-          attrValues artifacts.inputs
-        )
-      );
+      bindings =
+        map
+          (
+            artifactInput:
+            let
+              producer = producerArtifact artifactInput.from;
+            in
+            nameValuePair artifactInput.environment (
+              joinPath (sourceDirectory producer.project) producer.artifact.path
+            )
+          )
+          (builtins.filter (artifactInput: artifactInput.environment != null) (attrValues artifacts.inputs));
       bindingNames = map (binding: binding.name) bindings;
-      duplicateBindings = builtins.filter (
-        name: count (candidate: candidate == name) bindingNames > 1
-      ) (unique bindingNames);
-      actionCollisions = builtins.filter (name: hasAttr name actionEnvironment) (
+      duplicateBindings = builtins.filter (name: count (candidate: candidate == name) bindingNames > 1) (
         unique bindingNames
       );
+      actionCollisions = builtins.filter (name: hasAttr name actionEnvironment) (unique bindingNames);
     in
     if duplicateBindings != [ ] then
       throw ''
-        task `${taskCoordinate}` has duplicate artifact environment bindings: ${
-          builtins.concatStringsSep ", " duplicateBindings
-        }
+        task `${taskCoordinate}` has duplicate artifact environment bindings: ${builtins.concatStringsSep ", " duplicateBindings}
       ''
     else if actionCollisions != [ ] then
       throw ''
-        task `${taskCoordinate}` action and artifact environments collide: ${
-          builtins.concatStringsSep ", " actionCollisions
-        }
+        task `${taskCoordinate}` action and artifact environments collide: ${builtins.concatStringsSep ", " actionCollisions}
       ''
     else
       listToAttrs bindings;
@@ -208,9 +197,7 @@ let
       environment =
         if environmentCollisions != { } then
           throw ''
-            task `${coordinate}` action and tool profile environments collide: ${
-              builtins.concatStringsSep ", " (builtins.attrNames environmentCollisions)
-            }
+            task `${coordinate}` action and tool profile environments collide: ${builtins.concatStringsSep ", " (builtins.attrNames environmentCollisions)}
           ''
         else
           profileEnvironment // actionEnvironment;
@@ -220,54 +207,56 @@ let
         map (dependency: taskName packageId targetId dependency) declaredDependencies
         ++ artifactDependencies artifacts
       );
-      cwd = sourceDirectory project;
+      actionCwd = sourceDirectory project;
       artifactPaths = artifactEnvironmentPaths coordinate environment artifacts;
       profileArtifactPathCollisions = builtins.intersectAttrs profileEnvironmentPaths artifactPaths;
       environmentPaths =
         if profilePathLiteralCollisions != { } then
           throw ''
-            task `${coordinate}` declares tool-profile path and literal environment values for: ${
-              builtins.concatStringsSep ", " (builtins.attrNames profilePathLiteralCollisions)
-            }
+            task `${coordinate}` declares tool-profile path and literal environment values for: ${builtins.concatStringsSep ", " (builtins.attrNames profilePathLiteralCollisions)}
           ''
         else if profileArtifactPathCollisions != { } then
           throw ''
-            task `${coordinate}` tool-profile and artifact environment paths collide: ${
-              builtins.concatStringsSep ", " (builtins.attrNames profileArtifactPathCollisions)
-            }
+            task `${coordinate}` tool-profile and artifact environment paths collide: ${builtins.concatStringsSep ", " (builtins.attrNames profileArtifactPathCollisions)}
           ''
         else
           profileEnvironmentPaths // artifactPaths;
       argv = map (resolveArgvSegment artifacts) action.argv;
       locks = map lockPath (builtins.sort builtins.lessThan action.requirements.exclusiveLocks);
       outputs = builtins.sort (left: right: left.coordinate < right.coordinate) (
-        mapAttrsToList (
-          artifactId: artifact: {
-            coordinate = "${packageId}:${targetId}:${artifactId}";
-            path = joinPath cwd artifact.path;
-            inherit (artifact) kind contract;
-            proof = {
-              kind = "nix-nar-sha256";
-              argvPrefix = [
-                "nix"
-                "hash"
-                "path"
-                "--type"
-                "sha256"
-                "--sri"
-                "--"
-              ];
-            };
-          }
-        ) artifacts.outputs
+        mapAttrsToList (artifactId: artifact: {
+          coordinate = "${packageId}:${targetId}:${artifactId}";
+          path = joinPath actionCwd artifact.path;
+          inherit (artifact) kind contract;
+          proof = {
+            kind = "nix-nar-sha256";
+            argvPrefix = [
+              "nix"
+              "hash"
+              "path"
+              "--type"
+              "sha256"
+              "--sri"
+              "--"
+            ];
+          };
+        }) artifacts.outputs
       );
       # Use devenv's native content-hash task cache. It also tracks the
       # generated command path and restores the last successful JSON output;
       # these are the mutable project tree and exact consumed artifacts.
-      execIfModified = unique ([ cwd ] ++ artifactInputPaths artifacts);
+      execIfModified = unique ([ actionCwd ] ++ artifactInputPaths artifacts);
       taskIdentity = {
         inherit (action) adapter requirements;
-        inherit argv environment environmentPaths locks outputs pathPrefixes toolProfileId;
+        inherit
+          argv
+          environment
+          environmentPaths
+          locks
+          outputs
+          pathPrefixes
+          toolProfileId
+          ;
         inherit packageId;
         inherit artifacts;
         inherit (target) variants;
@@ -276,7 +265,7 @@ let
         source = {
           inherit (project.source) input root visibility;
           coordinate = "${project.source.input}:${project.source.root}";
-          localPath = cwd;
+          localPath = actionCwd;
         };
       };
       generationIdentity = {
@@ -300,7 +289,9 @@ let
       # Devenv hashes the normalized declaration and the exact publication
       # namespace. The identity intentionally excludes generation itself so
       # the typed record is finite and reusable by strict consumers.
-      input = taskIdentity // { inherit generation; };
+      input = taskIdentity // {
+        inherit generation;
+      };
       result = {
         inherit packageId targetId actionId;
         task = coordinate;
@@ -310,11 +301,25 @@ let
         apiVersion = "nixspace/v1";
         kind = "ActionTask";
         interfaceVersion = 3;
-        inherit cwd argv environment environmentPaths generation locks outputs pathPrefixes result;
+        cwd = actionCwd;
+        inherit
+          argv
+          environment
+          environmentPaths
+          generation
+          locks
+          outputs
+          pathPrefixes
+          result
+          ;
       };
     in
     nameValuePair coordinate {
-      inherit after cwd execIfModified input;
+      inherit after execIfModified input;
+      # Devenv launches the wrapper from the workspace root. The typed
+      # ActionTask then owns the project-relative working directory exactly
+      # once; giving both layers the project cwd would duplicate the path.
+      cwd = workspaceRoot;
       description = "CogniPilot ${action.kind}: ${packageId}/${targetId}";
       exec = escapeShellArgs [
         nixspaceExecutable
@@ -326,9 +331,7 @@ let
 
   targetTasks =
     project: targetId: target:
-    mapAttrsToList (actionId: action: mkTask project targetId target actionId action) (
-      target.actions
-    );
+    mapAttrsToList (actionId: action: mkTask project targetId target actionId action) (target.actions);
 
   projectTasks =
     project:

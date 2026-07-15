@@ -440,15 +440,18 @@ let
             "NIXSPACE_WORKSPACE_ROOT"
           ];
         };
-        bootstrap.argv = [
-          "nix"
-          "develop"
-          "--no-pure-eval"
-          ".#default"
-          "--command"
-          "devenv-flake-tasks"
-          "run"
-        ];
+        bootstrap = {
+          argv = [
+            "nix"
+            "develop"
+            "--no-pure-eval"
+            ".#default"
+            "--command"
+            "devenv-flake-tasks"
+            "run"
+          ];
+          environment.NIXSPACE_WORKSPACE_ROOT = "workspace-root";
+        };
       };
     };
     testTypedArtifactArgument = {

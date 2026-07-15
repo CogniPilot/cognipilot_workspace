@@ -316,7 +316,7 @@ let
           root = ".";
           visibility = "private";
         };
-        cwd = "/checkouts/alpha";
+        cwd = "/workspace";
         modified = [ "/checkouts/alpha" ];
       };
     };
@@ -361,7 +361,7 @@ let
       expected = {
         build = {
           after = [ ];
-          cwd = "/checkouts/example";
+          cwd = "/workspace";
           adapter = "cargo-v1";
           argv = [
             "nix"
@@ -378,7 +378,7 @@ let
         };
         test = {
           after = [ "example:default:build" ];
-          cwd = "/checkouts/example";
+          cwd = "/workspace";
           adapter = "cargo-v1";
           argv = [
             "nix"
@@ -472,7 +472,7 @@ let
         outputs = unboundTasks."beta:default:build".input.outputs;
       };
       expected = {
-        cwd = "src/beta-repo/firmware";
+        cwd = ".";
         environmentPaths.ALPHA_BUNDLE = "src/alpha-repo/dist";
         outputs = [ ];
       };

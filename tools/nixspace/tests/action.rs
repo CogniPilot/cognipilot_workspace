@@ -45,6 +45,9 @@ if [ -n "${ACTION_TEST_RELEASE_FILE:-}" ]; then
 fi
 printf 'runner stdout\n'
 printf 'runner stderr\n' >&2
+if [ -n "${ACTION_TEST_WORKSPACE_ROOT_RECORD:-}" ]; then
+  printf '%s\n' "${BOOTSTRAP_WORKSPACE-unset}" > "$ACTION_TEST_WORKSPACE_ROOT_RECORD"
+fi
 exit "${ACTION_TEST_EXIT:-0}"
 "#,
         )
@@ -225,14 +228,17 @@ fn workspace_index(helper: &Path) -> Value {
         },
         "launchPlans": {},
         "actionPlans": {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "runner": {
                 "kind": "devenv-task",
                 "direct": {
                     "argv": [helper, "fixed-runner-argument"],
                     "requiredEnvironment": ["DEVENV_TASK_FILE", "NIXSPACE_INDEX", "NIXSPACE_WORKSPACE_ROOT"]
                 },
-                "bootstrap": {"argv": [helper, "bootstrap-runner-argument"]}
+                "bootstrap": {
+                    "argv": [helper, "bootstrap-runner-argument"],
+                    "environment": {"BOOTSTRAP_WORKSPACE": "workspace-root"}
+                }
             },
             "actions": {
                 "build": {
@@ -387,6 +393,29 @@ fn unqualified_build_uses_the_exact_all_list_and_propagates_runner_status() {
             fixture.root.display()
         )
     );
+}
+
+#[test]
+fn bootstrap_runner_receives_the_resolved_workspace_root_under_the_declared_name() {
+    let fixture = Fixture::new();
+    let workspace_root_record = fixture.root.join("bootstrap-workspace-root");
+    let output = fixture
+        .command()
+        .env_remove("DEVENV_TASK_FILE")
+        .env_remove("NIXSPACE_INDEX")
+        .env_remove("NIXSPACE_WORKSPACE_ROOT")
+        .env("ACTION_TEST_WORKSPACE_ROOT_RECORD", &workspace_root_record)
+        .args(["build", "application"])
+        .output()
+        .expect("nixspace starts");
+    assert_success(&output);
+    assert_eq!(
+        fs::read_to_string(workspace_root_record).unwrap(),
+        format!("{}\n", fixture.root.display())
+    );
+    assert!(fs::read_to_string(&fixture.record)
+        .unwrap()
+        .contains("arg=bootstrap-runner-argument\n"));
 }
 
 #[test]

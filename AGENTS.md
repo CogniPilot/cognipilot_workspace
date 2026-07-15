@@ -3,6 +3,8 @@
 - Do not implement workspace discovery, schema validation, graph planning,
   build orchestration, launch orchestration, compliance, or release tooling in
   Python.
+- Do not write workspace tests, fixtures, or test harnesses in Python. Use Nix
+  checks for static semantics and Rust tests for `nixspace` behavior.
 - Nix modules and flake outputs are the sole static semantic authority.
 - Use generated devenv tasks for editable actions, west for Zephyr workspace
   operations, and the devenv process manager for supervision. Use the

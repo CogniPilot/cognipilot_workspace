@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use miette::Diagnostic;
-use model::{GraphDocument, Index, PackageDocument};
+use model::{GraphDocument, Index, PackageDocument, ACTION_PLAN_INTERFACE_VERSION};
 use serde::Serialize;
 use serde_json::json;
 
@@ -481,10 +481,10 @@ fn decode_index(contents: &[u8], source: &str) -> Result<Index> {
             index.graph.schema_version
         )));
     }
-    if index.action_plans.schema_version != 1 {
+    if index.action_plans.schema_version != ACTION_PLAN_INTERFACE_VERSION {
         return Err(CliError(format!(
-            "action-plan interface version {} is unsupported; this nixspace supports version 1",
-            index.action_plans.schema_version
+            "action-plan interface version {} is unsupported; this nixspace supports version {}",
+            index.action_plans.schema_version, ACTION_PLAN_INTERFACE_VERSION
         )));
     }
     validate_index_relationships(&index)?;

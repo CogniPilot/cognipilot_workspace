@@ -534,8 +534,8 @@ Packaging and reuse gate:
   in a project Cargo workspace;
 - no CogniPilot package names, environment-variable protocol, state paths, or
   flake output names in Rust;
-- explicit/defaulted flake reference, index installable, generated-file path,
-  and state directory inputs;
+- explicit complete opaque Nix installable, generated-file path, and state
+  directory inputs;
 - conventional Cargo metadata, README, license, package test, and non-CogniPilot
   fixtures proving third-party reuse;
 - Nix and Cargo both build the same independently locked package.

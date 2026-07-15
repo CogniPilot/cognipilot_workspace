@@ -3,8 +3,35 @@
 let
   manifestPath = ../../tools/nixspace/Cargo.toml;
   lockPath = ../../tools/nixspace/Cargo.lock;
+  rustSourceDirectory = ../../tools/nixspace/src;
   manifest = builtins.fromTOML (builtins.readFile manifestPath);
   lock = builtins.fromTOML (builtins.readFile lockPath);
+  rustSourceFiles = map (name: rustSourceDirectory + "/${name}") (
+    builtins.filter (
+      name: (builtins.readDir rustSourceDirectory).${name} == "regular" && lib.hasSuffix ".rs" name
+    ) (builtins.attrNames (builtins.readDir rustSourceDirectory))
+  );
+  rustSources = map builtins.readFile rustSourceFiles;
+  indexSource = builtins.readFile (rustSourceDirectory + "/index.rs");
+  contains = token: source: builtins.replaceStrings [ token ] [ "" ] source != source;
+  forbiddenSourceCoordinateTokens = [
+    "git+file"
+    "?rev="
+    "&dir="
+  ];
+  forbiddenIndexAuthorityTokens = [
+    "Command::new(\"git\")"
+    "flake.lock"
+    "local_flake_root"
+    "prepared_flake_reference"
+    "snapshot_repository"
+  ];
+  sourceCoordinateViolations = builtins.filter (
+    token: builtins.any (contains token) rustSources
+  ) forbiddenSourceCoordinateTokens;
+  indexAuthorityViolations = builtins.filter (
+    token: contains token indexSource
+  ) forbiddenIndexAuthorityTokens;
   dependencyNames = builtins.attrNames manifest.dependencies;
   allowedDependencies = [
     "base64"
@@ -24,7 +51,10 @@ let
   registryLockedClosure = builtins.all (
     package:
     package.name == "nixspace"
-    || (package ? source && lib.hasPrefix "registry+https://github.com/rust-lang/crates.io-index" package.source)
+    || (
+      package ? source
+      && lib.hasPrefix "registry+https://github.com/rust-lang/crates.io-index" package.source
+    )
   ) lock.package;
   standaloneManifest =
     !(manifest ? workspace)
@@ -40,21 +70,24 @@ let
     && builtins.all registryDependency (builtins.attrValues manifest.dependencies);
   standaloneLock =
     registryLockedClosure
-    && lockedFs4 == [
-      {
-        name = "fs4";
-        version = "1.1.0";
-        source = "registry+https://github.com/rust-lang/crates.io-index";
-        checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5";
-        dependencies = [
-          "rustix"
-          "windows-sys"
-        ];
-      }
-    ];
+    &&
+      lockedFs4 == [
+        {
+          name = "fs4";
+          version = "1.1.0";
+          source = "registry+https://github.com/rust-lang/crates.io-index";
+          checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5";
+          dependencies = [
+            "rustix"
+            "windows-sys"
+          ];
+        }
+      ];
 in
 assert standaloneManifest;
 assert standaloneLock;
+assert sourceCoordinateViolations == [ ];
+assert indexAuthorityViolations == [ ];
 {
   perSystem =
     { pkgs, ... }:

@@ -58,10 +58,11 @@ second graph.
 The generic interface contains packages, targets, actions, artifacts,
 resources, executables, launches, precomputed plans, and external-tool
 invocations. A flake-parts module materializes that interface as a conventional
-buildable index output. All flake references, output names, state locations,
-and expected cache settings are explicit interface/CLI inputs. CogniPilot owns
-the Nix modules that populate the interface and may expose `ws` as a convenience
-alias, but the Rust crate contains no `COGNIPILOT_*` protocol or package names.
+buildable index output. The complete index installable is an opaque CLI input;
+state locations and expected cache settings are explicit interface/CLI inputs.
+CogniPilot owns the Nix modules that populate the interface and may expose `ws`
+as a convenience alias, but the Rust crate contains no `COGNIPILOT_*` protocol
+or package names.
 
 ## Checked-in shell deletion and move table (completed)
 

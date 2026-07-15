@@ -47,8 +47,7 @@ explicit flake output and generated-file location:
 
 ```console
 nixspace --index .state/index.json index refresh \
-  --flake . \
-  --index-installable workspace-index \
+  --installable .#workspace-index \
   --index-file share/example/index.json
 ```
 
@@ -61,14 +60,20 @@ The same inputs can be supplied for a remote workspace:
 nixspace --workspace-root ../product \
   --index /tmp/product-index.json \
   index refresh \
-  --flake github:example/product \
-  --index-installable workspace-index \
+  --installable github:example/product#workspace-index \
   --index-file share/example/index.json
 ```
 
 Equivalent environment variables are `NIXSPACE_WORKSPACE_ROOT`,
-`NIXSPACE_INDEX`, `NIXSPACE_FLAKE`, `NIXSPACE_INDEX_INSTALLABLE`, and
-`NIXSPACE_INDEX_FILE`. West plans use `NIXSPACE_WEST_PLAN`,
+`NIXSPACE_INDEX`, `NIXSPACE_INDEX_INSTALLABLE`, and `NIXSPACE_INDEX_FILE`.
+`NIXSPACE_INDEX_INSTALLABLE` is the complete opaque Nix installable, including
+its output selector. `nixspace` passes it unchanged as one argument after `--`;
+it does not inspect Git, parse `flake.lock`, classify flake syntax, filter
+files, or synthesize a source coordinate. A local `.#workspace-index` therefore
+uses Nix's own editable Git-flake semantics. Reproducible release or cache
+evidence must instead provide an immutable Nix reference.
+
+West plans use `NIXSPACE_WEST_PLAN`,
 `NIXSPACE_WEST_CACHE`, and `NIXSPACE_WEST_VIEW_ROOT`.
 
 Editable source operations are also plan-driven:
@@ -202,6 +207,5 @@ count. It always keeps the selected generation and refuses to delete any
 generation that cannot be proved to belong to the exact plan; ordinary syncs
 do not invalidate previously printed paths implicitly.
 
-Local path flakes must have tracked `flake.nix`, `flake.lock`, and cleanly
-Git-filtered local path inputs before refresh. Remote flake references are
-consumed directly by Nix.
+Index refresh never inspects the source tree. Local and remote installables are
+both consumed directly by Nix, which owns source filtering and lock semantics.

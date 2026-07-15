@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const ACTION_PLAN_INTERFACE_VERSION: u64 = 2;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Index {
@@ -42,6 +44,13 @@ pub struct DirectActionRunner {
 #[serde(deny_unknown_fields)]
 pub struct BootstrapActionRunner {
     pub argv: Vec<String>,
+    pub environment: BTreeMap<String, BootstrapEnvironmentValue>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BootstrapEnvironmentValue {
+    WorkspaceRoot,
 }
 
 #[derive(Debug, Deserialize)]

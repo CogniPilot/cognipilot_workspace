@@ -166,6 +166,8 @@ jobs:
     needs: qualify
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      CONTAINERS_REGISTRIES_CONF: ${{ github.workspace }}/.github/containers-registries.conf
 
     steps:
       - name: Reclaim runner disk for the OCI closure

@@ -1,28 +1,58 @@
 # CogniPilot development workspace
 
-This is a standard [Devenv](https://devenv.sh/) polyrepo workspace. Devenv
-provides the shells, profiles, task DAG, processes, completion, and Cachix
-integration. Each project keeps authority over its own build and release tools.
+This is the canonical [Devenv](https://devenv.sh/) workspace for editable
+CogniPilot development. Devenv selects tool environments, schedules the task
+DAG, supervises processes, installs workspace hooks, and integrates the public
+Cachix caches. Each repository continues to own its Cargo, npm, CMake, West,
+colcon, Meson, and Nix behavior.
 
-## Start
+## Five-minute start
 
-Install Git and curl, then run:
+Install Git and curl, clone this repository, and run:
 
 ```sh
 ./setup
+devenv tasks run sources:sync
 ```
 
-The script installs Nix when it is missing, installs the workspace's pinned
-Devenv release, and enters `devenv shell`. It does not edit an existing Nix
-configuration. To install Devenv manually instead:
+`setup` installs Nix when necessary, installs the workspace's pinned Devenv
+release, and enters the small base shell. `sources:sync` clones the editable
+repositories into `src/` or fetches each repository's configured branch for an
+existing checkout. It never changes an existing checkout's active branch.
+Most repositories use `main`; FastDyn temporarily starts at a verified revision
+of its external-configuration branch while the generic installation-root
+support is being upstreamed. Source sync fetches newer branch work without
+moving an existing checkout.
+
+Choose the work area you use most often in the ignored local configuration:
+
+```yaml
+# devenv.local.yaml
+profile: cubs2
+```
+
+Then either enter it explicitly:
 
 ```sh
-nix profile add github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c
 devenv shell
 ```
 
-If Nix reports that cache settings are restricted, trust the public caches
-once at the host level (the command prompts for elevation when required):
+or enable Devenv's native automatic activation. Add the appropriate hook to
+your shell configuration, restart the shell, and trust this checkout once:
+
+```sh
+# ~/.bashrc
+eval "$(devenv hook bash)"
+
+# ~/.zshrc uses: eval "$(devenv hook zsh)"
+devenv allow
+```
+
+After that, entering the workspace activates the selected local profile and
+leaving it deactivates the environment. No direnv installation is required.
+
+If Nix reports that cache settings are restricted, trust the public caches once
+at the host level. These commands prompt for elevation when required:
 
 ```sh
 nix run nixpkgs#cachix -- use cognipilot
@@ -30,67 +60,116 @@ nix run nixpkgs#cachix -- use devenv
 nix run nixpkgs#cachix -- use ros
 ```
 
-Then fetch the editable repositories:
+## Pick a profile
+
+Profiles are developer work areas. Internal Rust, Web, Zephyr, and diagnostics
+tool modules are composed into these profiles instead of being exposed as more
+choices.
+
+| Profile | Use it for | Good first command |
+| --- | --- | --- |
+| `synapse` | Synapse schema and generated packages | `tasks run synapse-fbs:test` |
+| `modelica` | Rumoca and Modelica integration | `tasks run modelica-models:test` |
+| `electrode` | Electrode ground-station code | `tasks run electrode-web:test` |
+| `qualisys` | Qualisys SDK and bridge | `up synapse-qualisys-bridge` |
+| `ppm` | Synapse-to-PPM bridge | `up synapse-ppm-bridge` |
+| `zros` | ZROS, CSyn, and Cerebri Zephyr modules | `tasks run zros:test` |
+| `ros2` | CSyn ROS 2 bridge | `tasks run ros2:test` |
+| `cubs2` | CUBS2 firmware, SIL/BIL simulation, and aircraft deployment | `tasks run cubs2:simulation:sil:test` |
+| `rdd2` | RDD2 model, firmware, SIL/BIL, and deployment development | `tasks run rdd2:simulation:sil:test` |
+| `fastdyn` | FastDyn C/C++, Rust, and Python work | `tasks run fastdyn:test` |
+| `release` | Cross-project qualification without publishing | `tasks run release:all` |
+| `workspace` | Every tool and the published OCI shell | `container build shell` |
+| `ci` | Minimal workspace configuration validation | `test` |
+
+The example column is the portion after `devenv --profile <profile>`. With a
+default in `devenv.local.yaml`, omit `--profile <profile>`:
 
 ```sh
-devenv tasks run sources:sync
+devenv tasks list
+devenv tasks run cubs2:simulation:sil:test
+devenv up
 ```
 
-Generated Devenv tasks clone missing repositories under `src/` and fetch
-`origin/main` for existing checkouts without changing their active branches.
-Vehicle builds never use a root West manifest. CUBS2 and RDD2 each use their
-own checked-in `west.yml` and isolated workspace below
-`.devenv/state/west/`. No shared `zephyr/`, `modules/`, `models/`, or `.west/`
-tree is created at the root. Editable targets and build trees stay outside
-`/nix/store` and retain their native incremental behavior.
-
-## Work
-
-Select a complete environment with a normal Devenv profile:
+For a one-off different environment, override the local default:
 
 ```sh
-devenv --profile cubs2 shell
-devenv --profile rdd2 shell
+devenv --profile modelica shell
+devenv --profile rdd2 tasks run rdd2:simulation:bil:test
 ```
 
-Inside or outside the shell, run the native Devenv tasks:
+Task discovery is profile-scoped. The base environment shows only source and
+workspace maintenance; each work profile adds the development tasks supported
+by its tools. Publication and cross-project qualification tasks appear only in
+the `release` and `workspace` profiles.
+
+### Exact tasks and namespaces
+
+Always use the complete task name shown by `devenv tasks list`. In Devenv, a
+bare namespace such as `devenv tasks run cubs2` means "run every task whose
+name begins with `cubs2:`"; it is not an alias for the usual build.
+
+Flashing additionally requires explicit confirmation, so namespace execution
+cannot write to connected hardware:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:build-native-64
-devenv --profile cubs2 tasks run cubs2:test
-devenv --profile rdd2 tasks run rdd2:build
-devenv --profile cubs2 tasks run electrode-web:test
-devenv --profile release tasks run release:all
+devenv --profile cubs2 tasks run cubs2:firmware:flash --input confirm=true
+devenv --profile rdd2 tasks run rdd2:firmware:flash --input confirm=true
 ```
 
-The first vehicle build updates only that vehicle's West workspace. You can do
-so explicitly with `cubs2:west-update` or `rdd2:west-update`.
+## Common work
 
-### Common workflows
+Use one `cubs2` profile for the complete vehicle workflow:
 
 ```sh
-# Start only the Electrode ground station.
-devenv --profile cubs2 up ground-station
-
-# Build CUBS2 native simulator firmware (64-bit or 32-bit).
-devenv --profile cubs2 tasks run cubs2:build-native-64
-devenv --profile cubs2 tasks run cubs2:build-native-32
-
-# Build CUBS2 firmware for mr_vmu_tropic. The task also prepares the
-# vehicle's isolated West workspace and generated local dependencies.
-devenv --profile cubs2 tasks run cubs2:build-hardware
-
-# Flash that build to a connected mr_vmu_tropic board (pyOCD by default).
-devenv --profile cubs2 tasks run cubs2:flash
-
-# Start the Synapse-to-PPM serial bridge.
-devenv --profile ppm up ppm-bridge
-
-# Build the Rumoca compiler.
-devenv --profile modelica tasks run rumoca:compiler
+devenv --profile cubs2 tasks run cubs2:simulation:modelica:test
+devenv --profile cubs2 tasks run cubs2:simulation:sil:test
+devenv --profile cubs2 tasks run cubs2:simulation:bil:test
+devenv --profile cubs2 tasks run cubs2:simulation:compare
+devenv --profile cubs2 tasks run cubs2:firmware:build
+devenv --profile cubs2 tasks run \
+  cubs2:firmware:flash --input confirm=true
+devenv --profile cubs2 up
 ```
 
-After `cubs2:build-hardware` succeeds, the principal firmware files are:
+The first command runs the pure Modelica controller and physics with Rumoca.
+The second runs the CUBS2 64-bit Zephyr `native_sim` controller against Rumoca
+physics. The third rehosts the Cortex-M7 binary under FastDyn/QEMU and retains
+Rumoca physics. The fourth runs all three and gates their overlaid canonical
+trajectory logs. The fifth builds the aircraft image without touching hardware.
+The confirmed flash command deploys that firmware, and `up` runs the
+operator-side Electrode ground station plus its PPM bridge. See the
+[CUBS2 developer workflow](docs/cubs2.md) for firmware configuration, 32-bit
+compatibility, UI-only simulation, Qualisys, process arguments, artifacts, and
+deployment operations.
+
+Use the same workflow shape for RDD2:
+
+```sh
+devenv --profile rdd2 tasks run rdd2:simulation:modelica:test
+devenv --profile rdd2 tasks run rdd2:simulation:sil:test
+devenv --profile rdd2 tasks run rdd2:simulation:bil:test
+devenv --profile rdd2 tasks run rdd2:simulation:compare
+devenv --profile rdd2 tasks run rdd2:firmware:build
+```
+
+SIL runs a host-built Zephyr binary with Rumoca physics; BIL rehosts the
+Cortex-M7 hardware binary with FastDyn/QEMU and also uses Rumoca physics. Pure
+Modelica runs both control and physics in Rumoca without Zephyr. See
+[Vehicle firmware and simulation](docs/vehicle-development.md) and the
+[RDD2 developer workflow](docs/rdd2.md) for the exact current capability
+boundary.
+
+The first vehicle build initializes only that vehicle's isolated West
+workspace. Later builds reuse it. Fetch the current revisions from the
+project-owned manifest explicitly when desired:
+
+```sh
+devenv --profile cubs2 tasks run cubs2:workspace:update
+devenv --profile rdd2 tasks run rdd2:workspace:update
+```
+
+After `cubs2:firmware:build`, the principal firmware files are:
 
 ```text
 src/cerebri_cubs2/build-mr_vmu_tropic/zephyr/zephyr.elf
@@ -100,48 +179,127 @@ src/cerebri_cubs2/build-mr_vmu_tropic/zephyr/zephyr.bin
 `zephyr.elf` is the linked ARM executable with debug symbols; `zephyr.bin` is
 the raw flash image. This board configuration does not emit a HEX file.
 
-`cubs2:flash` rebuilds only when an input changed, then invokes `west flash`
-against that same build directory. It uses the `pyocd` runner by default. Set
-`CUBS2_FLASH_RUNNER` to another runner configured by the board, such as
-`jlink` when the SEGGER tools are installed, or to an empty string to let
-Zephyr choose the board default:
+The CUBS2 flash task uses pyOCD by default. Select another board-supported
+runner with `CUBS2_FLASH_RUNNER`, or set it to an empty string to let Zephyr
+choose:
 
 ```sh
-CUBS2_FLASH_RUNNER=jlink devenv --profile cubs2 tasks run cubs2:flash
+CUBS2_FLASH_RUNNER=jlink devenv --profile cubs2 tasks run \
+  cubs2:firmware:flash --input confirm=true
 ```
 
-The PPM bridge defaults to `/dev/ttyACM0` and Zenoh at
-`udp/127.0.0.1:7447`. Override these with `PPM_SERIAL_DEVICE` and
-`ZENOH_CONNECT` when starting it.
-
-To edit the Rumoca VS Code extension from its repository:
+Build or test the ground station without the full CUBS2 tool environment:
 
 ```sh
-devenv --profile modelica shell
+devenv --profile electrode tasks run electrode-web:build
+devenv --profile electrode tasks run electrode-web:test
+```
+
+For native Rumoca development, use Rumoca's project-owned flake so Cargo sees
+the exact nightly toolchain, components, WASM target, Node release, and native
+libraries selected by `rust-toolchain.toml` and `flake.nix`:
+
+```sh
 cd src/rumoca
+nix develop
+cargo xtask --help
 cargo xtask vscode edit
 ```
 
-`--profile modelica` adds the Rust/Web/Synapse toolchain plus Julia and the
-scientific Python packages used for Modelica development. Without a profile,
-the intentionally small base shell contains only Git and `jq`.
+The root `modelica` profile is the cross-repository integration environment:
 
-The Devenv shell obtains its Nix toolchain and system dependencies from the
-configured binary caches. Editable Rust artifacts remain in Rumoca's `target/`
-tree and are reused through Cargo plus the workspace sccache; they are not
-copied into the Nix store on every edit.
+```sh
+devenv --profile modelica tasks run rumoca:compiler
+devenv --profile modelica tasks run modelica-models:test
+devenv --profile modelica tasks run modelica-models:cubs2:qualify
+devenv --profile modelica tasks run modelica-models:rdd2:qualify
+```
 
-`release:all` runs the workspace integration checks, hardware firmware builds,
-and host package dry runs without publishing. Its compliance gate rejects Rust
-consumers that do not use the workspace Synapse version. Cross-platform
-archives, wheels, VSIX packages, and publication remain authoritative in each
-project's tag workflow. Projects have independent versions, so after this
-preflight create each project's own release tag rather than inventing one
-workspace-wide version for project packages.
+This is the aerospace-engineering home: reusable vehicle templates, named
+CUBS2/RDD2 parameters, controllers, contact physics, missions, and FMI/eFMI
+exports all live in `src/modelica_models`. Execution-mode names begin only at
+the firmware and workspace integration boundary.
 
-A workspace `vX.Y.Z` tag has one separate purpose: CI builds the complete
-`workspace` profile as a Devenv OCI shell container and publishes both that
-version and `latest` to GitHub Container Registry:
+More goal-oriented command sequences are in
+[Development workflows](docs/workflows.md).
+
+## Run supervised processes
+
+Run the deployed CUBS2 ground-station stack in the foreground with the native
+Devenv process manager:
+
+```sh
+devenv --profile cubs2 up
+```
+
+This starts `electrode-ground-station`, waits for its health endpoint, and then
+starts `electrode-ppm-bridge` against its allocated Zenoh endpoint. It expects
+the configured PPM serial device.
+
+Run the operator UI with a no-serial fake vehicle instead of aircraft firmware:
+
+```sh
+PPM_NO_SERIAL=true devenv --profile cubs2 up \
+  electrode-ground-station electrode-ppm-bridge electrode-fake-vehicle
+```
+
+Select other focused process entry points when needed:
+
+```sh
+devenv --profile qualisys up synapse-qualisys-bridge
+devenv --profile ppm up synapse-ppm-bridge
+```
+
+Use detached mode when you want to inspect or control processes from the same
+terminal:
+
+```sh
+devenv --profile cubs2 up -d
+devenv --profile cubs2 processes wait --timeout 300
+devenv --profile cubs2 processes list
+devenv --profile cubs2 processes logs electrode-ground-station
+devenv --profile cubs2 processes restart electrode-ppm-bridge
+devenv --profile cubs2 processes down
+```
+
+The CUBS2 PPM bridge defaults to `/dev/ttyACM0`; override it with
+`PPM_SERIAL_DEVICE`. Its Zenoh connection follows the port allocated to the
+ground station.
+
+See [Supervised development processes](docs/processes.md) for the available
+process matrix, startup lifecycle, process-versus-task guidance, and proposed
+hardware-free development additions.
+
+## Source and build boundaries
+
+Every editable repository remains under `src/`. CUBS2 and RDD2 each own their
+checked-in `west.yml` and use an isolated workspace under
+`.devenv/state/west/`. The root never creates shared `.west/`, `zephyr/`,
+`modules/`, or `models/` trees.
+
+Cross-repository task edges generate local Synapse and Rumoca artifacts before
+passing their editable paths to downstream native tools. Mutable Cargo targets,
+node modules, West workspaces, and build directories remain outside the Nix
+store and retain native incremental behavior. Shared ccache and sccache state
+lives below `.devenv/cache/`.
+
+See [Project environments](docs/project-environments.md) for the detailed
+project-flake boundary.
+
+## Qualify and publish the workspace environment
+
+```sh
+devenv --profile release tasks run release:qualify
+devenv --profile release tasks run release:all
+```
+
+These commands qualify integrations, packages, and firmware without publishing
+project releases. Each project remains responsible for its own release tag and
+publication workflow.
+
+A workspace `vX.Y.Z` tag has a separate purpose: CI qualifies the workspace,
+builds the complete `workspace` profile as a Devenv OCI shell container, and
+publishes the version plus `latest` to GitHub Container Registry:
 
 ```sh
 docker pull ghcr.io/cognipilot/cognipilot-workspace:v0.1.0
@@ -149,95 +307,26 @@ docker run --rm -it -v "$PWD:/env" \
   ghcr.io/cognipilot/cognipilot-workspace:v0.1.0
 ```
 
-The container is generated by `devenv container`; there is no Dockerfile or
-second package graph. It contains the complete tool environment but never a
-snapshot of mutable source or build trees; mounting a checkout at `/env` keeps
-the projects editable. Tag CI fans the terminating project qualifications out
-across fresh runners, then builds the container on another clean runner. Every
-Nix path is uploaded to the `cognipilot` Cachix cache. GHCR authentication uses
-GitHub Actions' built-in `GITHUB_TOKEN`, so no registry secret is required. The
-organization must only provide the existing `CACHIX_AUTH_TOKEN` Actions secret
-for cache uploads. After the first publish, set the GHCR package visibility to
-public once if anonymous `docker pull` access is desired; repository visibility
-does not change package visibility automatically.
+The container contains the immutable tool environment, never a snapshot of
+editable sources or build trees. It is generated by `devenv container`; there
+is no Dockerfile or second package graph.
 
-Start supervised processes with Devenv itself:
+## Maintain the workspace
 
 ```sh
-devenv --profile cubs2 up
-devenv --profile cubs2 processes list
-devenv --profile cubs2 down
-```
-
-## Profiles
-
-A profile composes the packages, environment, and processes needed for one
-kind of work. It does not change repository revisions; the same editable
-sources and Devenv tasks are used by every profile.
-
-Every profile supports these forms:
-
-```sh
-devenv --profile <name> shell            # interactive tool environment
-devenv --profile <name> tasks list       # inspect the task DAG
-devenv --profile <name> tasks run <task> # build or test
-devenv --profile <name> up [process]     # supervise one or all profile processes
-devenv --profile <name> down             # stop detached processes
-```
-
-The example column below is the portion after `devenv --profile <profile>`.
-
-| Profile | Purpose | Common examples |
-| --- | --- | --- |
-| `rust` | Rust compiler, Cargo, rust-analyzer, Clippy, rustfmt, and sccache | `shell`, then use project-native `cargo build` or `cargo test` |
-| `web` | Node.js, wasm-pack, and browser-package development | `shell`, then use project-native `npm run build` or `npm test` |
-| `zephyr` | West, Zephyr host tools, ARM toolchain, flashing, and native simulation | `tasks run cerebri-modules:test` |
-| `synapse` | Rust + Web with Synapse generation and publishing tools | `tasks run synapse-fbs:build`; `tasks run synapse-fbs:test` |
-| `modelica` | Synapse plus Julia and scientific Python for Rumoca/Modelica work | `tasks run rumoca:compiler`; `tasks run modelica-models:test` |
-| `qualisys` | Synapse, Zenoh, Playwright, and the Qualisys bridge process | `tasks run qualisys-bridge:test`; `up qualisys-bridge` |
-| `ppm` | Rust plus the supervised `ppm-bridge` process | `tasks run ppm:test`; `up ppm-bridge` |
-| `zros` | Synapse plus the Zephyr environment for ZROS/module work | `tasks run zros:build`; `tasks run zros:test` |
-| `ros2` | Synapse environment for the project-owned ROS 2 flake workflow | `tasks run ros2:test` |
-| `cubs2` | Complete CUBS2 environment, ground station, simulation, and Qualisys bridge | `tasks run cubs2:test`; `up ground-station`; `up` for the full process set |
-| `rdd2` | Complete RDD2 Modelica and Zephyr environment | `tasks run rdd2:build`; `tasks run rdd2:build-hardware` |
-| `fastdyn` | FastDyn C/C++, Rust, Python, and build-system tooling | `tasks run fastdyn:build`; `tasks run fastdyn:test` |
-| `diagnostics` | Clang diagnostics and benchmarking tools | `tasks run workspace:validate`; `test` |
-| `release` | CUBS2 environment plus release and Cachix tooling | `tasks run release:qualify`; `tasks run release:all` |
-| `workspace` | Complete release and FastDyn toolchain; source of the published development container | `shell`; `container build shell` |
-| `ci` | Minimal diagnostics environment used by workspace CI | `test` |
-
-Set a personal default without changing the repository:
-
-```yaml
-# devenv.local.yaml (ignored)
-profile: cubs2
-```
-
-The supported hosts are x86_64 Linux, AArch64 Linux, and Apple-silicon macOS.
-Zephyr firmware execution and flashing remain Linux/hardware-specific.
-
-## Maintain
-
-```sh
-devenv tasks list
 devenv tasks run sources:status
-devenv --profile cubs2 tasks run cubs2:west-update
-devenv --profile rdd2 tasks run rdd2:west-update
 devenv test
+devenv changelogs
 devenv update
 devenv gc
 ```
 
-The `cognipilot` Cachix cache stores Nix-built environments and packages.
-Native editable build directories are intentionally not Cachix artifacts;
-all profiles share workspace-local ccache and sccache directories instead.
-`CACHIX_AUTH_TOKEN` is only a write credential for authorized CI, never the
-public signing key. Fast PR CI only evaluates the workspace. The separate
-`Warm project Nix cache` workflow realizes tool environments and bounded
-project flake outputs on main, weekly, or by manual dispatch, then Cachix
-uploads every new Nix path. Protect its `cachix-write` GitHub environment and
-restrict the organization secret to repositories allowed to populate the
-trusted cache.
+`devenv test` validates the configuration and runs the root hooks. CI also
+evaluates every supported profile on x86_64 Linux, AArch64 Linux, and
+Apple-silicon macOS. Zephyr firmware execution and flashing remain
+Linux/hardware-specific.
 
-See [Project environments](docs/project-environments.md) for the project-flake
-boundary and local cross-repository workflow.
+The `cognipilot` and `ros` Cachix caches provide Nix-built environments and
+packages. Native editable outputs are intentionally not Cachix artifacts.
+`CACHIX_AUTH_TOKEN` is a CI write credential only and is not required for public
+cache downloads.

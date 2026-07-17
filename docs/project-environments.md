@@ -23,14 +23,24 @@ vehicle-specific SDK dependencies instead of duplicating editable repositories.
 Cross-repository development does not require a registry release. Devenv task
 edges first generate local Synapse and Rumoca artifacts, then pass their exact
 editable paths to downstream Cargo, npm, Modelica, CUBS2, and RDD2 commands.
-Vehicle task edges also update the corresponding project-owned West workspace.
-The native build tools keep their normal incremental directories.
+Vehicle task edges initialize and reuse the corresponding project-owned West
+workspace; only the explicit `workspace:update` task advances manifest
+revisions. The native build tools keep their normal incremental directories.
 
-Profiles are product/persona composition, not a second package graph. They use
-single-parent chains plus reusable Nix modules so Devenv does not repeatedly
-expand diamond-shaped profile inheritance. The `cubs2` profile contains the
-vehicle's simulation, ground-station, and Qualisys processes. The base shell
-remains small.
+Profiles are work-area composition, not a second package graph. Reusable Rust,
+Web, Zephyr, diagnostics, and task-set modules remain internal; developers
+select profiles such as `cubs2`, `modelica`, or `electrode`. Each profile
+imports only the tasks supported by its tools, so the base shell exposes source
+and workspace maintenance rather than every project command. The `cubs2`
+profile contains the `electrode-ground-station` and `electrode-ppm-bridge`
+deployment processes plus the opt-in `electrode-fake-vehicle` and
+`synapse-qualisys-bridge` processes. The base shell remains small.
+
+The root tool modules provide common cross-repository tools. When a project
+owns a more specific environment, native repository work uses that environment.
+For example, Rumoca's `nix develop` consumes its pinned nightly Rust toolchain,
+WASM target, Node release, and native libraries; root Modelica tasks invoke the
+project flake for generated immutable artifacts.
 
 Use a project flake when the repository owns a reproducible immutable package
 or a complex project-specific command. Use a root Devenv task for the editable

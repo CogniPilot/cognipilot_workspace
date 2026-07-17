@@ -73,8 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           for profile in \
-            ci cubs2 diagnostics fastdyn modelica ppm qualisys rdd2 release \
-            ros2 rust synapse web workspace zephyr zros
+            ci cubs2 electrode fastdyn modelica ppm qualisys rdd2 release \
+            ros2 synapse workspace zros
           do
             devenv --profile "$profile" print-paths >/dev/null
             DEVENV_PROFILE="$profile" \

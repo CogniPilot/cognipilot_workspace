@@ -1,6 +1,5 @@
 .git
 .devenv
-.direnv
 .west
 dev
 devenv.local.nix

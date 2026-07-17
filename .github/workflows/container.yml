@@ -77,38 +77,41 @@ jobs:
       matrix:
         include:
           - name: Synapse release
-            profile: synapse
+            profile: release
             tasks: release:synapse-fbs release:compliance
           - name: Modelica release
-            profile: modelica
+            profile: release
             tasks: release:rumoca release:modelica-models
           - name: Electrode
-            profile: cubs2
+            profile: release
             tasks: release:electrode-web
           - name: Qualisys
-            profile: qualisys
+            profile: release
             tasks: release:qualisys-sdk release:qualisys-bridge
           - name: PPM bridge
-            profile: ppm
+            profile: release
             tasks: release:ppm
           - name: Zephyr libraries
-            profile: zros
+            profile: release
             tasks: cerebri-modules:test zros:test release:csyn
           - name: CUBS2 native 64-bit
             profile: cubs2
-            tasks: cubs2:test
+            tasks: cubs2:simulation:sil:test
+          - name: CUBS2 pure Modelica
+            profile: cubs2
+            tasks: cubs2:simulation:modelica:test
           - name: CUBS2 native 32-bit
             profile: cubs2
-            tasks: cubs2:build-native-32
+            tasks: cubs2:simulation:sil:build-32
           - name: CUBS2 hardware
             profile: cubs2
-            tasks: cubs2:build-hardware
+            tasks: cubs2:firmware:build
           - name: RDD2 native
             profile: rdd2
-            tasks: rdd2:build
+            tasks: rdd2:simulation:sil:build
           - name: RDD2 hardware
             profile: rdd2
-            tasks: rdd2:build-hardware
+            tasks: rdd2:firmware:build
           - name: ROS 2 bridge
             profile: ros2
             tasks: ros2:test

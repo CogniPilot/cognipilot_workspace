@@ -1,14 +1,20 @@
 {
   config,
+  lib,
   pkgs,
   ...
 }:
 
+let
+  taskModules = import ./devenv/tasks.nix { inherit config lib; };
+in
 {
   imports = [
-    ./devenv/tasks.nix
+    taskModules.common
     ./devenv/profiles.nix
   ];
+
+  _module.args = { inherit taskModules; };
 
   name = "cognipilot-workspace";
 
@@ -27,6 +33,7 @@
   ];
 
   env = {
+    COGNIPILOT_PROFILE = "base";
     # Compiler caches are deliberately shared by every profile. Profile state
     # remains isolated under DEVENV_STATE, while identical compiles are reused.
     CCACHE_DIR = config.git.root + "/.devenv/cache/ccache";
@@ -36,15 +43,18 @@
   git-hooks.hooks = {
     actionlint.enable = true;
     deadnix.enable = true;
-    nixfmt-rfc-style.enable = true;
+    nixfmt.enable = true;
     shellcheck.enable = true;
     statix.enable = true;
   };
 
   enterShell = ''
-    echo "CogniPilot workspace"
-    echo "  devenv tasks list"
-    echo "  devenv --profile cubs2 shell"
-    echo "  devenv --profile cubs2 up"
+    echo "CogniPilot workspace ($COGNIPILOT_PROFILE profile)"
+    if test "$COGNIPILOT_PROFILE" = base; then
+      echo "  devenv tasks list"
+    else
+      echo "  devenv --profile $COGNIPILOT_PROFILE tasks list"
+    fi
+    echo "  docs: README.md"
   '';
 }

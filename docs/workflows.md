@@ -86,8 +86,8 @@ devenv --profile rdd2 tasks run rdd2:workspace:update
 ```
 
 The RDD2 Modelica, native-firmware, and rehosted-binary regressions use the same
-Rumoca-generated plant. The precise SIL/BIL and Rumoca/FastDyn roles are documented in
-[Vehicle firmware and simulation](vehicle-development.md) and
+Rumoca-generated plant. The precise SIL/BIL and Rumoca/FastDyn roles are
+documented in [Vehicle firmware and simulation](vehicle-development.md) and
 [RDD2 developer workflow](rdd2.md).
 
 ## Electrode ground station

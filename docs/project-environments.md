@@ -24,8 +24,9 @@ Cross-repository development does not require a registry release. Devenv task
 edges first generate local Synapse and Rumoca artifacts, then pass their exact
 editable paths to downstream Cargo, npm, Modelica, CUBS2, and RDD2 commands.
 Vehicle task edges initialize and reuse the corresponding project-owned West
-workspace; only the explicit `workspace:update` task advances manifest
-revisions. The native build tools keep their normal incremental directories.
+workspace; only the explicit `cubs2:workspace:update` or
+`rdd2:workspace:update` task advances that vehicle's manifest revisions. The
+native build tools keep their normal incremental directories.
 
 Profiles are work-area composition, not a second package graph. Reusable Rust,
 Web, Zephyr, diagnostics, and task-set modules remain internal; developers

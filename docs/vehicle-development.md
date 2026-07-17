@@ -88,10 +88,10 @@ vehicle's Nix flake applications. Devenv supplies editable cross-repository
 paths and task ordering; it does not create a root manifest or a shared Zephyr
 module tree.
 
-`workspace:ready` is an internal dependency that initializes a missing West
-workspace and then becomes a no-op. It never updates an existing manifest.
-Run the explicit update only when you want the revisions selected by the
-vehicle's current `west.yml`:
+`cubs2:workspace:ready` and `rdd2:workspace:ready` are internal dependencies
+that initialize a missing West workspace and then become no-ops. They never
+update an existing manifest. Run the explicit update only when you want the
+revisions selected by the vehicle's current `west.yml`:
 
 ```sh
 devenv --profile cubs2 tasks run cubs2:workspace:update

@@ -8,17 +8,20 @@ colcon, Meson, and Nix behavior.
 
 ## Five-minute start
 
-Install Git and curl, clone this repository, and run:
+Install Git and curl, clone this repository, and run `setup`. From the base
+shell that it opens, sync the editable repositories:
 
 ```sh
 ./setup
+# Inside the Devenv shell opened by setup:
 devenv tasks run sources:sync
 ```
 
 `setup` installs Nix when necessary, installs the workspace's pinned Devenv
-release, and enters the small base shell. `sources:sync` clones the editable
-repositories into `src/` or fetches each repository's configured branch for an
-existing checkout. It never changes an existing checkout's active branch.
+release, and enters the small base shell. From that shell, `sources:sync` clones
+the editable repositories into `src/` or fetches each repository's configured
+branch for an existing checkout. It never changes an existing checkout's active
+branch.
 Most repositories use `main`; FastDyn temporarily starts at a verified revision
 of its external-configuration branch while the generic installation-root
 support is being upstreamed. Source sync fetches newer branch work without

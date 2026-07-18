@@ -3,11 +3,15 @@
 - This repository is a canonical Devenv project. Use `devenv.nix`, ordinary
   imported Devenv modules, profiles, tasks, processes, outputs, tests, and
   Cachix integration directly.
+- `cognipilot.repos` is the sole source-revision map for editable top-level
+  repositories below `src/`. Keep every entry on an exact commit and do not
+  duplicate its URLs or revisions in Devenv configuration.
 - Do not add a workspace client, alternate command wrapper, generated workspace
   index, package schema, custom task runner, launch/session protocol, or second
-  dependency graph.
-- Devenv owns development task dependencies and process supervision. West owns
-  repository and Zephyr workspace operations. Cargo, npm, CMake, Meson, colcon,
+  dependency graph. Use `vcs2l` directly for top-level repository operations.
+- Git and `vcs2l` own top-level source checkout and revision selection. Devenv
+  owns development task dependencies and process supervision. West owns each
+  application's Zephyr workspace operations. Cargo, npm, CMake, Meson, colcon,
   Nix project flakes, and native package managers own project behavior.
 - Project repositories remain editable below `src/`. Do not copy editable
   workspaces or mutable `target`, build, or node-module directories into Nix

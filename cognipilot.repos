@@ -1,0 +1,63 @@
+---
+repositories:
+  FastDyn:
+    type: git
+    url: https://github.com/jgoppert/FastDyn.git
+    version: c235932a60a7bb839e59cac111920fb3b5cbf1aa
+  cerebri_cubs2:
+    type: git
+    url: https://github.com/CogniPilot/cerebri_cubs2.git
+    version: 1c23a44305d24821fe648154c5ee9790629fb761
+  cerebri_modules:
+    type: git
+    url: https://github.com/CogniPilot/cerebri_modules.git
+    version: ef73a4f8adeb4385c34af4344c9af27e43e02033
+  cerebri_rdd2:
+    type: git
+    url: https://github.com/CogniPilot/cerebri_rdd2.git
+    version: 1ffbe2d64ded00e2de1a69bcb88cd79bd83ec696
+  csyn:
+    type: git
+    url: https://github.com/CogniPilot/csyn.git
+    version: a013673b3ae187b71d78809f5b501619517ed43a
+  csyn_ros2_bridge:
+    type: git
+    url: https://github.com/CogniPilot/csyn_ros2_bridge.git
+    version: 10501d71a19571d8f4442a85994b433a4abaf090
+  electrode_web:
+    type: git
+    url: https://github.com/CogniPilot/electrode_web.git
+    version: d6e6717448cfdf06f8b56cbbd3eb15b48445854a
+  modelica_models:
+    type: git
+    url: https://github.com/CogniPilot/modelica_models.git
+    version: d319854bcbe5758f8beace3c99c6068796585d3f
+  qualisys_rust_sdk:
+    type: git
+    url: https://github.com/CogniPilot/qualisys_rust_sdk.git
+    version: a8ed1ac40bfb3007828cb581c8631fd6f79b2f9d
+  rumoca:
+    type: git
+    url: https://github.com/CogniPilot/rumoca.git
+    version: 33749ccd50ff04e83492281bf5c1f60f2f85f0c8
+  synapse_fbs:
+    type: git
+    url: https://github.com/CogniPilot/synapse_fbs.git
+    version: 4ab03138a84f1b23961348d2653e7495cb264fbb
+  synapse_ppm_bridge:
+    type: git
+    url: https://github.com/CogniPilot/synapse_ppm_bridge.git
+    version: 810fabd1f409d7e802674137aa4fdb8895f33e95
+  synapse_qualisys_bridge:
+    type: git
+    url: https://github.com/CogniPilot/synapse_qualisys_bridge.git
+    version: 692902bb688d11958aad0e450b04da7167bf0f90
+  zros:
+    type: git
+    url: https://github.com/CogniPilot/zros.git
+    version: c6fd249f00409432ee8b23ef095a2f51c81cb390
+  zros_drivers:
+    type: git
+    url: https://github.com/CogniPilot/zros_drivers.git
+    version: e0b37b4ae5f03f9bc985bf6f00fce2aee16b8e84
+...

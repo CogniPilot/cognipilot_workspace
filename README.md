@@ -9,23 +9,21 @@ colcon, Meson, and Nix behavior.
 ## Five-minute start
 
 Install Git and curl, clone this repository, and run `setup`. From the base
-shell that it opens, sync the editable repositories:
+shell that it opens, check out the recorded integration snapshot:
 
 ```sh
 ./setup
 # Inside the Devenv shell opened by setup:
-devenv tasks run sources:sync
+devenv tasks run sources:checkout
 ```
 
 `setup` installs Nix when necessary, installs the workspace's pinned Devenv
-release, and enters the small base shell. From that shell, `sources:sync` clones
-the editable repositories into `src/` or fetches each repository's configured
-branch for an existing checkout. It never changes an existing checkout's active
-branch.
-Most repositories use `main`; FastDyn temporarily starts at a verified revision
-of its external-configuration branch while the generic installation-root
-support is being upstreamed. Source sync fetches newer branch work without
-moving an existing checkout.
+release, and enters the small base shell. Devenv provides `vcs2l`; the checked-in
+`cognipilot.repos` manifest records the exact reachable commit of every editable
+repository. `sources:checkout` clones missing repositories into `src/` and
+fetches existing repositories without changing their custom branches or local
+work. `sources:verify` checks that every current `HEAD` still matches the
+recorded integration snapshot.
 
 Choose the work area you use most often in the ignored local configuration:
 
@@ -318,11 +316,31 @@ is no Dockerfile or second package graph.
 
 ```sh
 devenv tasks run sources:status
+devenv tasks run sources:diff
+devenv tasks run sources:verify
 devenv test
 devenv changelogs
 devenv update
 devenv gc
 ```
+
+Develop inside each repository with ordinary Git. Candidate commits only need
+to be pushed to their canonical remote; they do not need a package release.
+After selecting the commits that should be tested together, refresh and review
+the exact integration snapshot:
+
+```sh
+git -C src/modelica_models switch -c improve-vehicle-model
+# Edit, test, commit with -s, and push in src/modelica_models.
+devenv tasks run sources:lock
+git diff -- cognipilot.repos
+git add cognipilot.repos
+git commit -s -m "Test updated vehicle models"
+```
+
+`sources:lock` records all current repository heads, so review the manifest diff
+for unintended advances before committing it. The workspace `main` manifest is
+the last cross-project snapshot that passed integration CI.
 
 `devenv test` validates the configuration and runs the root hooks. CI also
 evaluates every supported profile on x86_64 Linux, AArch64 Linux, and

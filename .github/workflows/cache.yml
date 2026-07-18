@@ -66,8 +66,8 @@ jobs:
           DEVENV_PROFILE=release nix eval --impure --file devenv/host-eval.nix --json >/dev/null
           DEVENV_PROFILE=fastdyn nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
-      - name: Synchronize pinned projects
-        run: devenv --profile release tasks run sources:sync
+      - name: Check out the exact source snapshot
+        run: devenv --profile release tasks run sources:checkout
 
       - name: Realize complete tool environments
         run: |

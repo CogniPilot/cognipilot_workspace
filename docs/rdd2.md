@@ -149,17 +149,18 @@ Other useful settings are `RDD2_FASTDYN_MIN_SPEEDUP`,
 false by default because lockstep uses shared memory; enabling it adds the
 privileged TAP/Zenoh communications side channel.
 
-Fresh source syncs start FastDyn's coordinated branch at verified revision
-`c235932a60a7bb839e59cac111920fb3b5cbf1aa` until the generic external-
-configuration support reaches `main`. Existing source checkouts are fetched
-but never switched. If an existing checkout is on `main`, create a work branch
-at that revision:
+`cognipilot.repos` records FastDyn revision
+`c235932a60a7bb839e59cac111920fb3b5cbf1aa`, which contains the generic external
+vehicle-configuration support used by RDD2. To modify FastDyn, create a branch
+from the recorded commit before editing:
 
 ```sh
-devenv tasks run sources:sync:FastDyn
-git -C src/FastDyn switch -c workspace/cerebri-bil \
+git -C src/FastDyn switch -c improve/cerebri-bil \
   c235932a60a7bb839e59cac111920fb3b5cbf1aa
 ```
+
+After pushing the candidate commit, run `devenv tasks run sources:lock` at the
+root and review the `cognipilot.repos` diff before integration testing.
 
 ## Cross-fidelity mission comparison
 

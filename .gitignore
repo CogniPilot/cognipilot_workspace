@@ -8,7 +8,7 @@ result-*
 # Local planning notes and transient development evidence.
 /dev/
 
-# Editable top-level project repositories.
+# Editable vcs2l working copies; cognipilot.repos is the canonical snapshot.
 /src/
 
 # Native project build state.

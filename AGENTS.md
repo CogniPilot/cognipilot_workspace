@@ -3,11 +3,15 @@
 - This repository is a canonical Devenv project. Use `devenv.nix`, ordinary
   imported Devenv modules, profiles, tasks, processes, outputs, tests, and
   Cachix integration directly.
+- Git submodules and the gitlinks recorded by the root repository are the sole
+  source-revision map for editable top-level repositories below `src/`. Do not
+  duplicate their URLs, branches, or revisions in Devenv configuration.
 - Do not add a workspace client, alternate command wrapper, generated workspace
   index, package schema, custom task runner, launch/session protocol, or second
   dependency graph.
-- Devenv owns development task dependencies and process supervision. West owns
-  repository and Zephyr workspace operations. Cargo, npm, CMake, Meson, colcon,
+- Git owns top-level source checkout and revision selection. Devenv owns
+  development task dependencies and process supervision. West owns each
+  application's Zephyr workspace operations. Cargo, npm, CMake, Meson, colcon,
   Nix project flakes, and native package managers own project behavior.
 - Project repositories remain editable below `src/`. Do not copy editable
   workspaces or mutable `target`, build, or node-module directories into Nix

@@ -37,6 +37,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          submodules: true
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
@@ -131,6 +132,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          submodules: true
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1
@@ -158,9 +160,6 @@ jobs:
           DEVENV_PROFILE: ${{ matrix.profile }}
         run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
-      - name: Synchronize current project main branches
-        run: devenv --profile ${{ matrix.profile }} tasks run sources:sync
-
       - name: Run Devenv qualification tasks
         run: devenv --profile ${{ matrix.profile }} tasks run ${{ matrix.tasks }}
 
@@ -184,6 +183,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+          submodules: true
 
       - name: Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # Nix 2.35.1

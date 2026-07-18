@@ -1,0 +1,45 @@
+[submodule "src/synapse_fbs"]
+	path = src/synapse_fbs
+	url = https://github.com/CogniPilot/synapse_fbs.git
+[submodule "src/cerebri_cubs2"]
+	path = src/cerebri_cubs2
+	url = https://github.com/CogniPilot/cerebri_cubs2.git
+[submodule "src/electrode_web"]
+	path = src/electrode_web
+	url = https://github.com/CogniPilot/electrode_web.git
+[submodule "src/rumoca"]
+	path = src/rumoca
+	url = https://github.com/CogniPilot/rumoca.git
+[submodule "src/modelica_models"]
+	path = src/modelica_models
+	url = https://github.com/CogniPilot/modelica_models.git
+[submodule "src/csyn"]
+	path = src/csyn
+	url = https://github.com/CogniPilot/csyn.git
+[submodule "src/cerebri_modules"]
+	path = src/cerebri_modules
+	url = https://github.com/CogniPilot/cerebri_modules.git
+[submodule "src/zros"]
+	path = src/zros
+	url = https://github.com/CogniPilot/zros.git
+[submodule "src/zros_drivers"]
+	path = src/zros_drivers
+	url = https://github.com/CogniPilot/zros_drivers.git
+[submodule "src/qualisys_rust_sdk"]
+	path = src/qualisys_rust_sdk
+	url = https://github.com/CogniPilot/qualisys_rust_sdk.git
+[submodule "src/synapse_qualisys_bridge"]
+	path = src/synapse_qualisys_bridge
+	url = https://github.com/CogniPilot/synapse_qualisys_bridge.git
+[submodule "src/synapse_ppm_bridge"]
+	path = src/synapse_ppm_bridge
+	url = https://github.com/CogniPilot/synapse_ppm_bridge.git
+[submodule "src/cerebri_rdd2"]
+	path = src/cerebri_rdd2
+	url = https://github.com/CogniPilot/cerebri_rdd2.git
+[submodule "src/csyn_ros2_bridge"]
+	path = src/csyn_ros2_bridge
+	url = https://github.com/CogniPilot/csyn_ros2_bridge.git
+[submodule "src/FastDyn"]
+	path = src/FastDyn
+	url = https://github.com/jgoppert/FastDyn.git

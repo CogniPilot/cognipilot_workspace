@@ -8,24 +8,24 @@ colcon, Meson, and Nix behavior.
 
 ## Five-minute start
 
-Install Git and curl, clone this repository, and run `setup`. From the base
-shell that it opens, sync the editable repositories:
+Install Git and curl, clone this repository, check out the recorded top-level
+submodules, and run `setup`:
 
 ```sh
+git clone https://github.com/CogniPilot/cognipilot_workspace.git
+cd cognipilot_workspace
+git submodule update --init --jobs 8
 ./setup
-# Inside the Devenv shell opened by setup:
-devenv tasks run sources:sync
 ```
 
 `setup` installs Nix when necessary, installs the workspace's pinned Devenv
-release, and enters the small base shell. From that shell, `sources:sync` clones
-the editable repositories into `src/` or fetches each repository's configured
-branch for an existing checkout. It never changes an existing checkout's active
-branch.
-Most repositories use `main`; FastDyn temporarily starts at a verified revision
-of its external-configuration branch while the generic installation-root
-support is being upstreamed. Source sync fetches newer branch work without
-moving an existing checkout.
+release, and enters the small base shell. The root gitlinks record the exact
+commit of every editable repository in `src/`; `devenv tasks run
+sources:checkout` is the Devenv equivalent of the explicit submodule command
+above. Both commands may detach an existing clean submodule at the recorded
+commit, so use them to bootstrap or intentionally restore the workspace rather
+than to fetch development branches. Project-owned nested submodules remain the
+responsibility of their native project workflows.
 
 Choose the work area you use most often in the ignored local configuration:
 
@@ -318,11 +318,26 @@ is no Dockerfile or second package graph.
 
 ```sh
 devenv tasks run sources:status
+devenv tasks run sources:verify
 devenv test
 devenv changelogs
 devenv update
 devenv gc
 ```
+
+Work inside a submodule with ordinary Git. After pushing its commit, stage the
+new gitlink in the root to update the integration snapshot:
+
+```sh
+git -C src/modelica_models switch -c improve-vehicle-model
+# Edit, test, commit with -s, and push in src/modelica_models.
+git diff --submodule=log
+git add src/modelica_models
+git commit -s -m "Update Modelica integration revision"
+```
+
+Do not use `git submodule update --remote`: workspace revisions advance only
+when a reviewed gitlink change is committed in the root.
 
 `devenv test` validates the configuration and runs the root hooks. CI also
 evaluates every supported profile on x86_64 Linux, AArch64 Linux, and

@@ -8,7 +8,8 @@ result-*
 # Local planning notes and transient development evidence.
 /dev/
 
-# Editable top-level project repositories.
+# Editable submodule worktrees and source-adjacent local state. The canonical
+# top-level gitlinks remain tracked by the root repository.
 /src/
 
 # Native project build state.

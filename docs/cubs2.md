@@ -182,17 +182,17 @@ Useful settings also include `CUBS2_FASTDYN_MIN_SPEEDUP`,
 network. `FASTDYN_CUBS2_NETWORK_SETUP=true` opts into FastDyn's privileged TAP
 setup for the separate communications profile.
 
-Fresh `sources:sync` checkouts start FastDyn's coordinated branch at verified
-revision `c235932a60a7bb839e59cac111920fb3b5cbf1aa`. Source sync fetches existing
-checkouts without moving their working branches. If an existing checkout lacks
-the generic external-configuration support, create a work branch at the
-verified revision:
+The workspace gitlink records FastDyn revision
+`c235932a60a7bb839e59cac111920fb3b5cbf1aa`, which contains the generic external
+vehicle-configuration support used by CUBS2. To modify FastDyn, create a branch
+from the recorded commit before editing:
 
 ```sh
-devenv tasks run sources:sync:FastDyn
-git -C src/FastDyn switch -c workspace/cerebri-bil \
-  c235932a60a7bb839e59cac111920fb3b5cbf1aa
+git -C src/FastDyn switch -c improve/cerebri-bil
 ```
+
+After the FastDyn commit is pushed, stage `src/FastDyn` in the root to advance
+the coordinated workspace snapshot.
 
 ## Cross-fidelity mission comparison
 

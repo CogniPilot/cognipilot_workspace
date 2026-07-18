@@ -5,8 +5,10 @@ or client: Devenv evaluates the environment, schedules tasks, and supervises
 processes directly.
 
 Each editable repository lives at `src/<repository>` and retains its native
-build authority. Generated Devenv tasks clone or fetch those repositories with
-ordinary Git; the root has no West manifest or West workspace.
+build authority. `cognipilot.repos` is the sole top-level source manifest and
+pins exact commits that `vcs2l` checks out with ordinary Git. The root has no
+West manifest or West workspace.
+
 Project `flake.nix` files remain useful for project-owned toolchains, immutable
 packages, and release applications; repositories without a flake use packages
 from the selected root Devenv profile.
@@ -19,6 +21,10 @@ initialize and update these workspaces. Root tasks pass editable ZROS, CSyn,
 Cerebri modules, Modelica, and generated Synapse paths explicitly at the native
 CMake/process boundaries, so the isolated West checkouts only need the
 vehicle-specific SDK dependencies instead of duplicating editable repositories.
+The exact top-level manifest defines the coordinated integration snapshot,
+while each vehicle's `west.yml` defines its independently reproducible firmware
+snapshot. Those are separate integration contexts rather than competing source
+managers.
 
 Cross-repository development does not require a registry release. Devenv task
 edges first generate local Synapse and Rumoca artifacts, then pass their exact

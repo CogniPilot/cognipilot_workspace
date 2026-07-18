@@ -65,6 +65,9 @@ jobs:
           DEVENV_PROFILE: ci
         run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
+      - name: Check out the exact source snapshot
+        run: devenv --profile ci tasks run sources:checkout
+
       - name: Test the canonical workspace
         run: devenv --profile ci test
 

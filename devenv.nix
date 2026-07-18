@@ -30,6 +30,7 @@ in
   packages = with pkgs; [
     git
     jq
+    vcs2l
   ];
 
   env = {

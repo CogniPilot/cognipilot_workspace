@@ -211,10 +211,16 @@ profile never publishes packages.
 
 ```sh
 devenv tasks run sources:status
+devenv tasks run sources:diff
+devenv tasks run sources:verify
 devenv test
 devenv --profile cubs2 info
 devenv changelogs
 ```
+
+After committing and pushing candidate changes in one or more repositories,
+run `devenv tasks run sources:lock` and review `cognipilot.repos`. Integration
+CI tests that exact source snapshot without requiring package publication.
 
 If a selected task is not listed, select the profile that owns that work area.
 If a process command says no manager is running, either use foreground `up` or

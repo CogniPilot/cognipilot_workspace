@@ -64,6 +64,9 @@ jobs:
           DEVENV_PROFILE: ci
         run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
+      - name: Check out the exact source snapshot
+        run: devenv --profile ci tasks run sources:checkout
+
       - name: Test workspace configuration
         run: devenv --profile ci test
 
@@ -158,8 +161,8 @@ jobs:
           DEVENV_PROFILE: ${{ matrix.profile }}
         run: nix eval --impure --file devenv/host-eval.nix --json >/dev/null
 
-      - name: Synchronize current project main branches
-        run: devenv --profile ${{ matrix.profile }} tasks run sources:sync
+      - name: Check out the exact source snapshot
+        run: devenv --profile ${{ matrix.profile }} tasks run sources:checkout
 
       - name: Run Devenv qualification tasks
         run: devenv --profile ${{ matrix.profile }} tasks run ${{ matrix.tasks }}

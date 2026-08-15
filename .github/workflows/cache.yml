@@ -53,7 +53,7 @@ jobs:
       - name: Install Devenv
         run: >-
           nix profile add
-          github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c#packages.x86_64-linux.default
+          github:cachix/devenv/8f297eae651cb47fb1e8f7c19b942462aa879636#packages.x86_64-linux.default
 
       - name: Prepare release profile evaluators
         run: |

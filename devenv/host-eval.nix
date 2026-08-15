@@ -10,7 +10,7 @@ let
     in
     if value == "" then "/tmp" else value;
   evaluated = import (dotfile + "/bootstrap/default.nix") {
-    version = "2.1.3";
+    version = "2.2.1";
     system = builtins.currentSystem;
     devenv_root = root;
     git_root = root;

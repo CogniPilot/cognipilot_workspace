@@ -7,26 +7,30 @@ A CUBS2 developer uses one profile for firmware, simulation, and deployment:
 profile: cubs2
 ```
 
-Enter it with `devenv shell`, or prefix a one-off command with
-`devenv --profile cubs2`. The profile contains the host and ARM Zephyr
-toolchains, the isolated CUBS2 West workspace, local Synapse and Rumoca
-generation, CSyn and ZROS integration, and the Electrode ground-station
-runtime. Changing activities should not require changing profiles.
+On first setup, run `./setup cubs2`. It selects `cubs2` in the ignored
+`devenv.local.yaml` and enters it with `devenv shell`, so later unqualified
+`devenv` commands use CUBS2 too. Without a local selection, use
+`devenv -P cubs2 shell` and prefix one-off commands with `devenv -P cubs2`. The
+profile contains the host and ARM Zephyr toolchains, the isolated CUBS2 West
+workspace, local Synapse and Rumoca generation, CSyn and ZROS integration, and
+the Electrode ground-station runtime. Changing activities should not require
+changing profiles. See the root README for Devenv's current profile-task
+completion limitation.
 
 ## Choose the workflow
 
 | Goal | Entry point | What it operates |
 | --- | --- | --- |
-| Build aircraft firmware | `devenv tasks run cubs2:firmware:build` | `mr_vmu_tropic` Zephyr image |
-| Configure firmware | `devenv tasks run cubs2:firmware:configure` | Existing hardware build through project-owned `menuconfig` |
-| Test control and physics in Modelica | `devenv tasks run cubs2:simulation:modelica:test` | Pure Modelica scenarios executed by Rumoca; no Zephyr binary |
-| Test the host firmware in SIL | `devenv tasks run cubs2:simulation:sil:test` | 64-bit `native_sim`, Rumoca-generated FMI3 plant, and checks |
-| Test the hardware binary in BIL | `devenv tasks run cubs2:simulation:bil:test` | Cortex-M7 image rehosted by FastDyn/QEMU against the Rumoca-generated plant |
-| Compare every simulation fidelity | `devenv tasks run cubs2:simulation:compare` | Gold log, error gates, HTML report, and overlaid plots |
-| Check 32-bit compatibility | `devenv tasks run cubs2:simulation:sil:build-32` | 32-bit `native_sim` SIL image |
+| Build aircraft firmware | `devenv -P cubs2 tasks run cubs2:firmware:build` | `mr_vmu_tropic` Zephyr image |
+| Configure firmware | `devenv -P cubs2 tasks run cubs2:firmware:configure` | Existing hardware build through project-owned `menuconfig` |
+| Test control and physics in Modelica | `devenv -P cubs2 tasks run cubs2:simulation:modelica:test` | Pure Modelica scenarios executed by Rumoca; no Zephyr binary |
+| Test the host firmware in SIL | `devenv -P cubs2 tasks run cubs2:simulation:sil:test` | 64-bit `native_sim`, Rumoca-generated FMI3 plant, and checks |
+| Test the hardware binary in BIL | `devenv -P cubs2 tasks run cubs2:simulation:bil:test` | Cortex-M7 image rehosted by FastDyn/QEMU against the Rumoca-generated plant |
+| Compare every simulation fidelity | `devenv -P cubs2 tasks run cubs2:simulation:compare` | Gold log, error gates, HTML report, and overlaid plots |
+| Check 32-bit compatibility | `devenv -P cubs2 tasks run cubs2:simulation:sil:build-32` | 32-bit `native_sim` SIL image |
 | Exercise only the ground-station UI without hardware | See [UI simulation](#ground-station-ui-simulation) | Electrode ground station, no-serial PPM, and fake vehicle |
-| Flash an aircraft controller | `devenv tasks run cubs2:firmware:flash --input confirm=true` | Previously selected hardware through the project flake |
-| Run the deployed ground station | `devenv up` | Electrode ground station and PPM bridge |
+| Flash an aircraft controller | `devenv -P cubs2 tasks run cubs2:firmware:flash --input confirm=true` | Previously selected hardware through the project flake |
+| Run the deployed ground station | `devenv -P cubs2 up` | Electrode ground station and PPM bridge |
 
 Tasks are finite operations that succeed and exit. Processes are the
 long-running operator-side programs used during a session. The CUBS2 project
@@ -38,7 +42,7 @@ Devenv supplies their editable cross-repository dependencies and ordering.
 Build the default aircraft firmware:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:firmware:build
+devenv -P cubs2 tasks run cubs2:firmware:build
 ```
 
 The first build initializes the isolated workspace under
@@ -59,8 +63,8 @@ configuration does not emit a HEX file.
 Open the hardware build's Kconfig editor and then rebuild:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:firmware:configure
-devenv --profile cubs2 tasks run cubs2:firmware:build
+devenv -P cubs2 tasks run cubs2:firmware:configure
+devenv -P cubs2 tasks run cubs2:firmware:build
 ```
 
 The project selects `mr_vmu_tropic` by default. Project-supported environment
@@ -71,7 +75,7 @@ The build initializes a missing West workspace but does not update an existing
 one. Pull revisions from the CUBS2-owned `west.yml` only when intended:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:workspace:update
+devenv -P cubs2 tasks run cubs2:workspace:update
 ```
 
 ## Pure Modelica simulation
@@ -80,7 +84,7 @@ Run the staged flight scenarios with both the controller and physics expressed
 in Modelica and executed by Rumoca:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:modelica:test
+devenv -P cubs2 tasks run cubs2:simulation:modelica:test
 ```
 
 This delegates directly to the common package's `cubs2-qualification` flake
@@ -98,7 +102,7 @@ The SIL workflow builds and executes the actual 64-bit CUBS2 Zephyr
 `native_sim` controller against Rumoca physics:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:sil:test
+devenv -P cubs2 tasks run cubs2:simulation:sil:test
 ```
 
 The bounded test uses isolated UDP port 7448 so a ground station on 7447 cannot
@@ -106,7 +110,7 @@ inject pilot traffic. If an external test router already owns port 7448, reuse
 it instead of starting a second router:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:sil:test \
+devenv -P cubs2 tasks run cubs2:simulation:sil:test \
   --input reuse_router=true
 ```
 
@@ -118,8 +122,8 @@ an Electrode mock.
 Build without running the scenario, or build the compatibility target:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:sil:build
-devenv --profile cubs2 tasks run cubs2:simulation:sil:build-32
+devenv -P cubs2 tasks run cubs2:simulation:sil:build
+devenv -P cubs2 tasks run cubs2:simulation:sil:build-32
 ```
 
 The default build directories are:
@@ -135,7 +139,7 @@ its flake. Use those directly from the selected shell for unusual one-off
 experiments rather than adding arbitrary argument forwarding to the workspace:
 
 ```sh
-devenv --profile cubs2 shell
+devenv -P cubs2 shell
 cd src/cerebri_cubs2
 nix run .#native-sim-64-sil-run -- --help
 ```
@@ -146,7 +150,7 @@ Run the Cortex-M7 hardware image under FastDyn/QEMU instead of rebuilding the
 application for the host:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:bil:test
+devenv -P cubs2 tasks run cubs2:simulation:bil:test
 ```
 
 The dependency graph builds the FastDyn runtime and patched QEMU, builds the
@@ -173,7 +177,7 @@ mission without changing its Devenv dependency graph:
 ```sh
 CUBS2_FASTDYN_T_END=20 \
 CUBS2_FASTDYN_SIM_SPEED=100 \
-devenv --profile cubs2 tasks run cubs2:simulation:bil:test
+devenv -P cubs2 tasks run cubs2:simulation:bil:test
 ```
 
 Useful settings also include `CUBS2_FASTDYN_MIN_SPEEDUP`,
@@ -200,7 +204,7 @@ Run the same 40-second route in pure Modelica, SIL, and BIL, then compare all
 three canonical logs:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:compare
+devenv -P cubs2 tasks run cubs2:simulation:compare
 ```
 
 This is a leaf qualification task with all three mission tasks as dependencies;
@@ -241,7 +245,7 @@ Zenoh wiring, and PPM arbitration without running CUBS2 firmware or opening a
 serial device:
 
 ```sh
-PPM_NO_SERIAL=true devenv --profile cubs2 up \
+PPM_NO_SERIAL=true devenv -P cubs2 up \
   electrode-ground-station \
   electrode-ppm-bridge \
   electrode-fake-vehicle
@@ -261,7 +265,7 @@ preferred ports exactly.
 Build and flash with an explicit hardware confirmation:
 
 ```sh
-devenv --profile cubs2 tasks run \
+devenv -P cubs2 tasks run \
   cubs2:firmware:flash --input confirm=true
 ```
 
@@ -270,7 +274,7 @@ unless `confirm` is true. pyOCD is the project default; select another
 board-supported runner explicitly:
 
 ```sh
-CUBS2_FLASH_RUNNER=jlink devenv --profile cubs2 tasks run \
+CUBS2_FLASH_RUNNER=jlink devenv -P cubs2 tasks run \
   cubs2:firmware:flash --input confirm=true
 ```
 
@@ -281,7 +285,7 @@ startup.
 Start the deployed ground-station stack:
 
 ```sh
-PPM_SERIAL_DEVICE=/dev/ttyACM0 devenv --profile cubs2 up
+PPM_SERIAL_DEVICE=/dev/ttyACM0 devenv -P cubs2 up
 ```
 
 Bare `up` starts these enabled processes:
@@ -295,7 +299,7 @@ The bridge uses the CUBS2 AETRM channel map `1,2,0,3,4`. Override a deployment
 setting with the executable's environment variables or a typed Devenv option:
 
 ```sh
-devenv --profile cubs2 \
+devenv -P cubs2 \
   --option processes.electrode-ppm-bridge.env.PPM_CHANNEL_MAP:string 0,1,2,3,4 \
   up
 ```
@@ -307,7 +311,7 @@ copy through the ground-station UI.
 Add motion capture when the deployment uses Qualisys:
 
 ```sh
-QUALISYS_HOST=192.168.1.10 devenv --profile cubs2 up \
+QUALISYS_HOST=192.168.1.10 devenv -P cubs2 up \
   electrode-ground-station \
   electrode-ppm-bridge \
   synapse-qualisys-bridge
@@ -322,12 +326,12 @@ Foreground `up` provides a combined status and log TUI and stops the process
 group on exit. For a detached deployment session:
 
 ```sh
-devenv --profile cubs2 up -d
-devenv --profile cubs2 processes wait --timeout 300
-devenv --profile cubs2 processes list
-devenv --profile cubs2 processes logs electrode-ground-station
-devenv --profile cubs2 processes logs electrode-ppm-bridge
-devenv --profile cubs2 processes down
+devenv -P cubs2 up -d
+devenv -P cubs2 processes wait --timeout 300
+devenv -P cubs2 processes list
+devenv -P cubs2 processes logs electrode-ground-station
+devenv -P cubs2 processes logs electrode-ppm-bridge
+devenv -P cubs2 processes down
 ```
 
 Use the same profile for every management command. Rust and Cargo manifest
@@ -336,7 +340,7 @@ Cargo retains its incremental target directory.
 
 ## Task-name safety
 
-Always run an exact task name from `devenv --profile cubs2 tasks list`. A bare
+Always run an exact task name from `devenv -P cubs2 tasks list`. A bare
 namespace runs every matching descendant. For example,
 `devenv tasks run cubs2:firmware` selects configure, build, and flash tasks; the
 flash confirmation still prevents a hardware write, but the namespace is not a

@@ -3,10 +3,66 @@
 let
   root = config.git.root;
   source = repository: "${root}/src/${repository}";
-  task = repository: description: exec: {
-    inherit description exec;
-    cwd = source repository;
+  withRepositoryLock =
+    repository: command:
+    let
+      lock = root + "/.devenv/state/task-locks/${repository}.lock";
+    in
+    ''
+      mkdir -p ${lib.escapeShellArg (root + "/.devenv/state/task-locks")}
+      lock_path=${lib.escapeShellArg lock}
+      task_runner_pid="$PPID"
+      exec 9>"$lock_path"
+      if ! flock --nonblock 9; then
+        printf '\n%s\n%s\n%s\n\n' \
+          ${lib.escapeShellArg "========== WAITING FOR REPOSITORY LOCK: ${repository} =========="} \
+          ${lib.escapeShellArg "Another task is using src/${repository}; this task will resume automatically."} \
+          ${lib.escapeShellArg "Lock: ${lock}"} >&2
+        lslocks --noheadings --notruncate --raw --output PID,COMMAND,MODE,PATH |
+          awk -v lock="$lock_path" \
+            '$3 !~ /[*]/ && substr($0, length($0) - length(lock) + 1) == lock {
+              printf "Lock holder: PID %s (%s)\n\n", $1, $2
+              exit
+            }' >&2
+        while ! flock --timeout 1 9; do
+          if ! kill -0 "$task_runner_pid" 2>/dev/null; then
+            printf '%s\n' \
+              ${lib.escapeShellArg "========== CANCELLED REPOSITORY LOCK WAIT: ${repository} =========="} >&2
+            exit 130
+          fi
+        done
+        printf '%s\n\n' \
+          ${lib.escapeShellArg "========== ACQUIRED REPOSITORY LOCK: ${repository} =========="} >&2
+      fi
+      ${command}
+    '';
+  task = repository: description: command: {
+    _sourceRepository = repository;
+    inherit description;
+    cwd = root;
+    exec = withRepositoryLock repository ''
+      if ! test -d ${lib.escapeShellArg (source repository)}; then
+        printf '%s\n' \
+          ${lib.escapeShellArg "missing editable source repository: src/${repository}"} \
+          'run: devenv tasks run sources:sync' >&2
+        exit 1
+      fi
+      cd ${lib.escapeShellArg (source repository)}
+      ${command}
+    '';
   };
+  addSourceDependency =
+    _name: definition:
+    if definition ? _sourceRepository then
+      let
+        repository = definition._sourceRepository;
+      in
+      (builtins.removeAttrs definition [ "_sourceRepository" ])
+      // {
+        after = (definition.after or [ ]) ++ [ "sources:ensure:${repository}" ];
+      }
+    else
+      definition;
   synapseRust = "${source "synapse_fbs"}/target/xtask/packages/rust";
   synapseC = "${source "synapse_fbs"}/target/xtask/artifacts-work/synapse_fbs-c";
   synapseJavascript = "${source "synapse_fbs"}/target/xtask/packages/js";
@@ -29,25 +85,64 @@ let
     CUBS2_WEST_WORKSPACE = cubs2West;
     CUBS2_ZROS_ROOT = source "zros";
   };
+  cubs2WestProjects = [
+    "zephyr"
+    "cmsis"
+    "cmsis_6"
+    "hal_nxp"
+    "zenoh-pico"
+    "zephyr_boards"
+  ];
   cubs2WestUpdate = ''
     nix run .#west-update -- --name-cache ${root}/src \
-      zephyr cmsis cmsis_6 hal_nxp zenoh-pico zephyr_boards
+      ${lib.concatStringsSep " " cubs2WestProjects}
   '';
   rdd2WestEnv = {
     RDD2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
     RDD2_CSYN_ROOT = source "csyn";
     RDD2_MODELICA_MODELS_ROOT = source "modelica_models";
+    RDD2_WEST_GROUP_FILTER = "-workspace-overridable";
     RDD2_WEST_WORKSPACE = rdd2West;
     RDD2_ZROS_ROOT = source "zros";
   };
-  rdd2WestUpdate = ''
-    nix run .#west-update -- --name-cache ${root}/src \
-      zephyr cmsis cmsis-dsp cmsis_6 fatfs hal_nxp zenoh-pico zephyr_boards
+  rdd2ProviderEnv = rdd2WestEnv // {
+    FETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C = synapseC;
+    RDD2_RUMOCA_EXECUTABLE = "${resultRoot}/rumoca/bin/rumoca";
+  };
+  rdd2WestUpdate = "nix run .#west-update -- --name-cache ${root}/src";
+  westWorkspaceReady = workspace: projects: ''
+    test -d ${lib.escapeShellArg (workspace + "/.west")} &&
+    (
+      cd ${lib.escapeShellArg workspace}
+      for project in ${lib.concatStringsSep " " projects}; do
+        path="$(west list "$project" -f '{abspath}')" || exit 1
+        test -d "$path/.git" || exit 1
+      done
+    )
+  '';
+  managedWestWorkspaceReady = workspace: manifest: groupFilter: ''
+    test -d ${lib.escapeShellArg (workspace + "/.west")} &&
+    test -f ${lib.escapeShellArg (workspace + "/manifest/west.yml")} &&
+    cmp -s ${lib.escapeShellArg manifest} ${lib.escapeShellArg (workspace + "/manifest/west.yml")} &&
+    (
+      cd ${lib.escapeShellArg workspace}
+      test "$(west config manifest.group-filter 2>/dev/null)" = ${lib.escapeShellArg groupFilter} &&
+      west list -f '{abspath}' |
+        while IFS= read -r path; do
+          test -d "$path/.git" || exit 1
+        done
+    )
   '';
   editableZephyrModules = lib.concatStringsSep ";" [
     (source "cerebri_modules")
     (source "zros")
     (source "csyn")
+  ];
+  editableZephyrSourceDependencies = map (repository: "sources:ensure:${repository}") [
+    "cerebri_modules"
+    "csyn"
+    "modelica_models"
+    "zros"
   ];
   sourceRepositories = [
     {
@@ -65,14 +160,17 @@ let
     {
       name = "rumoca";
       url = "https://github.com/CogniPilot/rumoca.git";
+      branch = "workspace/rdd2-integration";
     }
     {
       name = "modelica_models";
       url = "https://github.com/CogniPilot/modelica_models.git";
+      branch = "rumoca-efmu-update";
     }
     {
       name = "csyn";
       url = "https://github.com/CogniPilot/csyn.git";
+      branch = "workspace/sysbuild-synapse-source";
     }
     {
       name = "cerebri_modules";
@@ -81,6 +179,7 @@ let
     {
       name = "zros";
       url = "https://github.com/CogniPilot/zros.git";
+      branch = "cerebri2";
     }
     {
       name = "zros_drivers";
@@ -101,6 +200,7 @@ let
     {
       name = "cerebri_rdd2";
       url = "https://github.com/CogniPilot/cerebri_rdd2.git";
+      branch = "workspace/rdd2-integration";
     }
     {
       name = "csyn_ros2_bridge";
@@ -114,41 +214,56 @@ let
       revision = "c235932a60a7bb839e59cac111920fb3b5cbf1aa";
     }
   ];
-  sourceSyncTasks = builtins.listToAttrs (
+  sourceEnsureTasks = builtins.listToAttrs (
     map (
       repository:
       let
         branch = repository.branch or "main";
         revision = repository.revision or null;
       in
-      lib.nameValuePair "sources:sync:${repository.name}" {
+      lib.nameValuePair "sources:ensure:${repository.name}" {
         description =
           if revision == null then
-            "Clone ${repository.name}, or fetch its latest origin/${branch}."
+            "Clone ${repository.name} when its editable checkout is missing."
           else
-            "Clone ${repository.name} at verified revision ${revision}, or fetch origin/${branch}.";
+            "Clone ${repository.name} at verified revision ${revision} when missing.";
         cwd = root;
         after = [ "sources:prepare" ];
-        exec = ''
-          if test -d src/${repository.name}/.git; then
-            git -C src/${repository.name} fetch origin \
-              +refs/heads/${branch}:refs/remotes/origin/${branch}
-          else
-            ${
-              if revision == null then
-                "git clone --branch ${branch} --single-branch ${repository.url} src/${repository.name}"
-              else
-                ''
-                  mkdir -p src/${repository.name}
-                  git -C src/${repository.name} init
-                  git -C src/${repository.name} remote add origin ${repository.url}
-                  git -C src/${repository.name} fetch origin \
-                    +refs/heads/${branch}:refs/remotes/origin/${branch}
-                  git -C src/${repository.name} switch -c ${branch} ${revision}
-                  git -C src/${repository.name} branch --set-upstream-to=origin/${branch}
-                ''
-            }
+        status = "test -d src/${repository.name}/.git";
+        exec = withRepositoryLock repository.name ''
+          if ! test -d src/${repository.name}/.git; then
+            if test -e src/${repository.name}; then
+              printf '%s\n' \
+                'cannot clone src/${repository.name}: path exists but is not a Git checkout' >&2
+              exit 1
+            fi
+            git clone --branch ${branch} --single-branch \
+              ${repository.url} src/${repository.name}
+            ${lib.optionalString (revision != null) ''
+              git -C src/${repository.name} switch --detach ${revision}
+            ''}
+            ${lib.optionalString (repository.submodules or false) ''
+              git -C src/${repository.name} submodule sync --recursive
+              git -C src/${repository.name} submodule update --init --recursive
+            ''}
           fi
+        '';
+      }
+    ) sourceRepositories
+  );
+  sourceSyncTasks = builtins.listToAttrs (
+    map (
+      repository:
+      let
+        branch = repository.branch or "main";
+      in
+      lib.nameValuePair "sources:sync:${repository.name}" {
+        description = "Ensure ${repository.name} exists and fetch its latest origin/${branch}.";
+        cwd = root;
+        after = [ "sources:ensure:${repository.name}" ];
+        exec = withRepositoryLock repository.name ''
+          git -C src/${repository.name} fetch origin \
+            +refs/heads/${branch}:refs/remotes/origin/${branch}
           ${lib.optionalString (repository.submodules or false) ''
             git -C src/${repository.name} submodule sync --recursive
             git -C src/${repository.name} submodule update --init --recursive
@@ -162,8 +277,14 @@ let
       repository:
       lib.nameValuePair "sources:status:${repository.name}" {
         description = "Show ${repository.name} Git status.";
-        cwd = source repository.name;
-        exec = "git status --short --branch";
+        cwd = root;
+        exec = ''
+          if test -d src/${repository.name}/.git; then
+            git -C src/${repository.name} status --short --branch
+          else
+            printf '%s\n' 'not cloned: src/${repository.name}'
+          fi
+        '';
       }
     ) sourceRepositories
   );
@@ -207,8 +328,9 @@ let
       )
     ) cacheFlakeOutputs
   );
-  allTasks =
-    sourceSyncTasks
+  rawTasks =
+    sourceEnsureTasks
+    // sourceSyncTasks
     // sourceStatusTasks
     // cacheFlakeTasks
     // {
@@ -487,22 +609,16 @@ let
       "cubs2:workspace:update" =
         (task "cerebri_cubs2" "Update the isolated CUBS2 West workspace." cubs2WestUpdate)
         // {
+          after = editableZephyrSourceDependencies;
           env = cubs2WestEnv;
         };
 
       "cubs2:workspace:ready" =
         (task "cerebri_cubs2" "Initialize the isolated CUBS2 West workspace when missing." cubs2WestUpdate)
         // {
+          after = editableZephyrSourceDependencies;
           env = cubs2WestEnv;
-          status = ''
-            test -d ${cubs2West}/.west &&
-            test -d ${cubs2West}/zephyr &&
-            test -d ${cubs2West}/modules/hal/cmsis &&
-            test -d ${cubs2West}/modules/hal/cmsis_6 &&
-            test -d ${cubs2West}/modules/hal/nxp &&
-            test -d ${cubs2West}/modules/lib/zenoh-pico &&
-            test -d ${cubs2West}/modules/lib/zephyr_boards
-          '';
+          status = westWorkspaceReady cubs2West cubs2WestProjects;
         };
 
       "cubs2:simulation:sil:build" =
@@ -616,7 +732,6 @@ let
             "-DCUBS2_CSYN_ROOT=${source "csyn"}" \
             "-DCUBS2_MODELICA_MODELS_ROOT=${source "modelica_models"}" \
             "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
-            -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
           cargo build --release --locked \
             --manifest-path tools/fastdyn_bridge/Cargo.toml
@@ -635,7 +750,6 @@ let
             CUBS2_WORKSPACE_ROOT = cubs2West;
             CEREBRI_CUBS2_ROOT = source "cerebri_cubs2";
             FASTDYN_QEMU_PATH = "${fastdynQemu}/build/qemu-system-arm";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -681,7 +795,6 @@ let
             "-DCUBS2_CSYN_ROOT=${source "csyn"}" \
             "-DCUBS2_MODELICA_MODELS_ROOT=${source "modelica_models"}" \
             "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
-            -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
             "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
         '')
         // {
@@ -697,7 +810,6 @@ let
             CUBS2_RUMOCA_PYTHON = "${resultRoot}/rumoca-python/bin/python";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -712,7 +824,6 @@ let
             CUBS2_CSYN_ROOT = source "csyn";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -733,31 +844,24 @@ let
             CUBS2_CSYN_ROOT = source "csyn";
             CUBS2_WEST_WORKSPACE = cubs2West;
             CUBS2_ZROS_ROOT = source "zros";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
       "rdd2:workspace:update" =
         (task "cerebri_rdd2" "Update the isolated RDD2 West workspace." rdd2WestUpdate)
         // {
+          after = editableZephyrSourceDependencies;
           env = rdd2WestEnv;
         };
 
       "rdd2:workspace:ready" =
         (task "cerebri_rdd2" "Initialize the isolated RDD2 West workspace when missing." rdd2WestUpdate)
         // {
+          after = editableZephyrSourceDependencies;
           env = rdd2WestEnv;
-          status = ''
-            test -d ${rdd2West}/.west &&
-            test -d ${rdd2West}/zephyr &&
-            test -d ${rdd2West}/modules/fs/fatfs &&
-            test -d ${rdd2West}/modules/hal/cmsis &&
-            test -d ${rdd2West}/modules/hal/cmsis_6 &&
-            test -d ${rdd2West}/modules/hal/nxp &&
-            test -d ${rdd2West}/modules/lib/cmsis-dsp &&
-            test -d ${rdd2West}/modules/lib/zenoh-pico &&
-            test -d ${rdd2West}/modules/lib/zephyr_boards
-          '';
+          status = managedWestWorkspaceReady rdd2West (
+            source "cerebri_rdd2" + "/west.yml"
+          ) "-workspace-overridable";
         };
 
       "rdd2:simulation:sil:build" =
@@ -872,7 +976,6 @@ let
               "-DRDD2_CSYN_ROOT=${source "csyn"}" \
               "-DRDD2_MODELICA_MODELS_ROOT=${source "modelica_models"}" \
               "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
-              -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
               "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
             cargo build --release --locked \
               --manifest-path tools/fastdyn_mission/Cargo.toml
@@ -893,7 +996,6 @@ let
             RDD2_RUMOCA_PLANT_DESCRIPTION = "${source "modelica_models"}/artifacts/vehicles/rdd2/plant/modelDescription.xml";
             RDD2_RUMOCA_PLANT_LIBRARY = "${source "modelica_models"}/artifacts/vehicles/rdd2/plant/binaries/x86_64-linux/Vehicles_Rdd2_AvionicsPlant.so";
             RDD2_WORKSPACE_ROOT = rdd2West;
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
@@ -932,16 +1034,12 @@ let
 
       "rdd2:firmware:build" =
         (task "cerebri_rdd2" "Build RDD2 firmware for the default hardware target." ''
-          nix run .#build -- -p auto -- \
-            -DRDD2_RUMOCA_VERSION=workspace \
-            "-DRDD2_RUMOCA_EXECUTABLE=${resultRoot}/rumoca/bin/rumoca" \
-            "-DRDD2_CEREBRI_MODULES_ROOT=${source "cerebri_modules"}" \
-            "-DRDD2_ZROS_ROOT=${source "zros"}" \
-            "-DRDD2_CSYN_ROOT=${source "csyn"}" \
-            "-DRDD2_MODELICA_MODELS_ROOT=${source "modelica_models"}" \
-            "-DZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
-            -DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb \
-            "-DFETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}"
+          RDD2_RUMOCA_EXECUTABLE_SHA256="$(sha256sum "$RDD2_RUMOCA_EXECUTABLE" | cut -d ' ' -f 1)" \
+            nix run .#build -- -p auto
+          printf '\n%s\n%s\n%s\n\n' \
+            '========== RDD2 FIRMWARE BUILD COMPLETE ==========' \
+            "ELF:          $PWD/build-mr_vmu_tropic/cerebri_rdd2/zephyr/zephyr.elf" \
+            "Signed image: $PWD/build-mr_vmu_tropic/cerebri_rdd2/zephyr/zephyr.signed.bin"
         '')
         // {
           after = [
@@ -949,14 +1047,7 @@ let
             "rumoca:compiler"
             "synapse-fbs:build"
           ];
-          env = {
-            RDD2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
-            RDD2_CSYN_ROOT = source "csyn";
-            RDD2_MODELICA_MODELS_ROOT = source "modelica_models";
-            RDD2_WEST_WORKSPACE = rdd2West;
-            RDD2_ZROS_ROOT = source "zros";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
-          };
+          env = rdd2ProviderEnv;
         };
 
       "rdd2:firmware:configure" =
@@ -965,105 +1056,97 @@ let
         '')
         // {
           after = [ "rdd2:firmware:build" ];
-          env = rdd2WestEnv // {
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
-          };
+          env = rdd2WestEnv;
         };
 
       "rdd2:firmware:flash" =
         (task "cerebri_rdd2" "Flash the previously built RDD2 firmware." ''
-          if ! printf '%s' "$DEVENV_TASK_INPUT" | jq -e '.confirm == true' >/dev/null; then
-            echo 'refusing to flash without --input confirm=true' >&2
-            exit 2
-          fi
           nix run .#flash
         '')
         // {
           after = [ "rdd2:firmware:build" ];
-          input.confirm = false;
           env = {
             RDD2_CEREBRI_MODULES_ROOT = source "cerebri_modules";
             RDD2_CSYN_ROOT = source "csyn";
             RDD2_MODELICA_MODELS_ROOT = source "modelica_models";
             RDD2_WEST_WORKSPACE = rdd2West;
             RDD2_ZROS_ROOT = source "zros";
-            ZEPHYR_TOOLCHAIN_VARIANT = "gnuarmemb";
           };
         };
 
-      "cerebri-modules:build" = {
-        description = "Build the editable Cerebri module tests in the CUBS2 West workspace.";
-        cwd = cubs2West;
-        after = [ "cubs2:workspace:ready" ];
-        exec = ''
+      "cerebri-modules:build" =
+        (task "cerebri_modules" "Build the editable Cerebri module tests in the CUBS2 West workspace." ''
+          cd ${lib.escapeShellArg cubs2West}
           west twister -T ${source "cerebri_modules"}/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "cerebri_modules"}/build/twister/build \
             --no-clean --build-only
-        '';
-        env = cubs2NativeTwisterEnv;
-      };
+        '')
+        // {
+          after = [ "cubs2:workspace:ready" ];
+          env = cubs2NativeTwisterEnv;
+        };
 
-      "cerebri-modules:test" = {
-        description = "Run the editable Cerebri module tests in the CUBS2 West workspace.";
-        cwd = cubs2West;
-        after = [ "cerebri-modules:build" ];
-        exec = ''
+      "cerebri-modules:test" =
+        (task "cerebri_modules" "Run the editable Cerebri module tests in the CUBS2 West workspace." ''
+          cd ${lib.escapeShellArg cubs2West}
           west twister -T ${source "cerebri_modules"}/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "cerebri_modules"}/build/twister/test \
             --no-clean
-        '';
-        env = cubs2NativeTwisterEnv;
-      };
+        '')
+        // {
+          after = [ "cerebri-modules:build" ];
+          env = cubs2NativeTwisterEnv;
+        };
 
-      "zros:build" = {
-        description = "Build the editable ZROS tests in the CUBS2 West workspace.";
-        cwd = cubs2West;
-        after = [ "cubs2:workspace:ready" ];
-        exec = ''
+      "zros:build" =
+        (task "zros" "Build the editable ZROS tests in the CUBS2 West workspace." ''
+          cd ${lib.escapeShellArg cubs2West}
           west twister -T ${source "zros"}/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "zros"}/build/twister/build \
             --no-clean --build-only
-        '';
-        env = cubs2NativeTwisterEnv;
-      };
+        '')
+        // {
+          after = [ "cubs2:workspace:ready" ];
+          env = cubs2NativeTwisterEnv;
+        };
 
-      "zros:test" = {
-        description = "Run the editable ZROS tests in the CUBS2 West workspace.";
-        cwd = cubs2West;
-        after = [ "zros:build" ];
-        exec = ''
+      "zros:test" =
+        (task "zros" "Run the editable ZROS tests in the CUBS2 West workspace." ''
+          cd ${lib.escapeShellArg cubs2West}
           west twister -T ${source "zros"}/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --outdir ${source "zros"}/build/twister/test \
             --no-clean
-        '';
-        env = cubs2NativeTwisterEnv;
-      };
+        '')
+        // {
+          after = [ "zros:build" ];
+          env = cubs2NativeTwisterEnv;
+        };
 
-      "csyn:qualification" = {
-        description = "Run editable CSyn Zephyr tests in the CUBS2 West workspace.";
-        cwd = cubs2West;
-        after = [
-          "cubs2:workspace:ready"
-          "csyn:test"
-        ];
-        exec = ''
+      "csyn:qualification" =
+        (task "csyn" "Run editable CSyn Zephyr tests in the CUBS2 West workspace." ''
+          cd ${lib.escapeShellArg cubs2West}
           west twister -T ${source "csyn"}/zephyr/tests \
             -p native_sim/native/64 --force-platform \
             --extra-args "ZEPHYR_EXTRA_MODULES=${editableZephyrModules}" \
             --extra-args "FETCHCONTENT_SOURCE_DIR_SYNAPSE_FBS_C=${synapseC}" \
             --outdir ${source "csyn"}/build/twister/qualification \
             --no-clean
-        '';
-        env = cubs2NativeTwisterEnv;
-      };
+        '')
+        // {
+          after = [
+            "cubs2:workspace:ready"
+            "csyn:test"
+          ];
+          env = cubs2NativeTwisterEnv;
+        };
 
       "qualisys-sdk:build" = task "qualisys_rust_sdk" "Build the Qualisys Rust SDK and simulator." ''
         cargo build --locked --all-targets
@@ -1377,6 +1460,8 @@ let
         ];
       };
     };
+
+  allTasks = lib.mapAttrs addSourceDependency rawTasks;
 
   selectTasks = prefixes: {
     tasks = lib.filterAttrs (

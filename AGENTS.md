@@ -9,11 +9,19 @@
 - Devenv owns development task dependencies and process supervision. West owns
   repository and Zephyr workspace operations. Cargo, npm, CMake, Meson, colcon,
   Nix project flakes, and native package managers own project behavior.
+- Every project-native workflow must remain usable without Nix or Devenv. A
+  Rust project uses Cargo, a ROS workspace uses ROS tooling and colcon, and a
+  Zephyr application uses West as its standalone interface.
+- Project `flake.nix` files are opt-in reproducibility layers around native
+  project behavior. The root Devenv is the separate opt-in coordination layer
+  for editable cross-project dependencies, tasks, and processes.
 - Project repositories remain editable below `src/`. Do not copy editable
   workspaces or mutable `target`, build, or node-module directories into Nix
   derivations.
-- Project flakes may provide immutable packages and project-owned applications.
-  The root workspace may invoke them, but must not duplicate their build logic.
+- Project flakes may provide reproducible shells, immutable packages, and
+  project-owned applications. The root workspace may invoke them, but must not
+  duplicate their build logic or make them mandatory for standalone project
+  development.
 - Each Zephyr application owns its West manifest and an isolated West
   workspace. Do not create shared root `zephyr/`, `modules/`, or `models/`
   trees, or add a root West manifest or `.west/` workspace.

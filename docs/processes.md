@@ -31,7 +31,7 @@ compatible simulator.
 Start the enabled CUBS2 deployment processes in the foreground:
 
 ```sh
-devenv --profile cubs2 up
+devenv -P cubs2 up
 ```
 
 This starts `electrode-ground-station` and `electrode-ppm-bridge`. The
@@ -39,12 +39,12 @@ foreground TUI combines status and logs; exiting it stops the session. Name
 processes explicitly to select an optional stack:
 
 ```sh
-PPM_NO_SERIAL=true devenv --profile cubs2 up \
+PPM_NO_SERIAL=true devenv -P cubs2 up \
   electrode-ground-station electrode-ppm-bridge electrode-fake-vehicle
-QUALISYS_HOST=192.168.1.10 devenv --profile cubs2 up \
+QUALISYS_HOST=192.168.1.10 devenv -P cubs2 up \
   electrode-ground-station electrode-ppm-bridge synapse-qualisys-bridge
-devenv --profile qualisys up synapse-qualisys-bridge
-devenv --profile ppm up synapse-ppm-bridge
+devenv -P qualisys up synapse-qualisys-bridge
+devenv -P ppm up synapse-ppm-bridge
 ```
 
 Dependencies still apply when processes are selected explicitly. The fake
@@ -55,15 +55,15 @@ Use detached mode when the processes should remain running after the start
 command returns. Every management command must use the same profile:
 
 ```sh
-devenv --profile cubs2 up -d
-devenv --profile cubs2 processes wait --timeout 300
-devenv --profile cubs2 processes list
-devenv --profile cubs2 processes logs electrode-ground-station
-devenv --profile cubs2 processes restart electrode-ppm-bridge
-devenv --profile cubs2 processes restart electrode-fake-vehicle
-devenv --profile cubs2 processes stop synapse-qualisys-bridge
-devenv --profile cubs2 processes start synapse-qualisys-bridge
-devenv --profile cubs2 processes down
+devenv -P cubs2 up -d
+devenv -P cubs2 processes wait --timeout 300
+devenv -P cubs2 processes list
+devenv -P cubs2 processes logs electrode-ground-station
+devenv -P cubs2 processes restart electrode-ppm-bridge
+devenv -P cubs2 processes restart electrode-fake-vehicle
+devenv -P cubs2 processes stop synapse-qualisys-bridge
+devenv -P cubs2 processes start synapse-qualisys-bridge
+devenv -P cubs2 processes down
 ```
 
 Named ports are stable when their preferred port is free. By default Devenv
@@ -71,7 +71,7 @@ selects the next available port after a conflict. Add `--strict-ports` to `up`
 when a conflict should fail instead:
 
 ```sh
-devenv --profile cubs2 up --strict-ports
+devenv -P cubs2 up --strict-ports
 ```
 
 ## Configure a session
@@ -85,17 +85,17 @@ project executable:
 
 ```sh
 PPM_SERIAL_DEVICE=/dev/ttyUSB0 \
-  devenv --profile cubs2 up
+  devenv -P cubs2 up
 
-PPM_NO_SERIAL=true devenv --profile cubs2 up \
+PPM_NO_SERIAL=true devenv -P cubs2 up \
   electrode-ground-station electrode-ppm-bridge electrode-fake-vehicle
 
 QUALISYS_HOST=127.0.0.1 QUALISYS_PORT=22223 \
-  devenv --profile qualisys up synapse-qualisys-bridge
+  devenv -P qualisys up synapse-qualisys-bridge
 
 PPM_SERIAL_DEVICE=/dev/ttyUSB0 PPM_BAUD_RATE=115200 \
 ZENOH_CONNECT=udp/127.0.0.1:7447 \
-  devenv --profile ppm up synapse-ppm-bridge
+  devenv -P ppm up synapse-ppm-bridge
 ```
 
 The same environment can be expressed as typed Devenv configuration overrides,
@@ -103,7 +103,7 @@ which is useful in scripts because the type and configuration path are
 explicit:
 
 ```sh
-devenv --profile qualisys \
+devenv -P qualisys \
   --option env.QUALISYS_HOST:string 127.0.0.1 \
   --option env.QUALISYS_PORT:string 22223 \
   up synapse-qualisys-bridge
@@ -114,7 +114,7 @@ option. All Nix expressions that reference the resolved port receive the same
 value:
 
 ```sh
-devenv --profile qualisys \
+devenv -P qualisys \
   --option processes.synapse-qualisys-bridge.ports.dashboard.allocate:int 8899 \
   up --strict-ports synapse-qualisys-bridge
 ```
@@ -131,7 +131,7 @@ If an application exposes only command-line flags and the invocation is truly
 one-off, enter its profile shell and invoke the project command directly:
 
 ```sh
-devenv --profile qualisys shell
+devenv -P qualisys shell
 cd src/synapse_qualisys_bridge
 cargo run --locked --bin synapse-qualisys-bridge -- --help
 ```

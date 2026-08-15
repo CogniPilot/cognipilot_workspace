@@ -6,22 +6,34 @@ DAG, supervises processes, installs workspace hooks, and integrates the public
 Cachix caches. Each repository continues to own its Cargo, npm, CMake, West,
 colcon, Meson, and Nix behavior.
 
+Using this workspace is optional. A developer working in one repository can
+install that project's native prerequisites and use `west`, Cargo, npm, CMake,
+or its other native tools directly. Project flakes are an opt-in reproducible
+way to obtain those tools and run project-owned applications. The root Devenv
+is the additional opt-in layer for composing editable repositories and running
+their cross-project dependency graph.
+
 ## Five-minute start
 
-Install Git and curl, clone this repository, and run `setup`. From the base
-shell that it opens, sync the editable repositories:
+Install Git and curl, clone this repository, and pass the desired development
+profile to `setup`. For RDD2 development:
 
 ```sh
-./setup
-# Inside the Devenv shell opened by setup:
-devenv tasks run sources:sync
+./setup rdd2
+# Inside the RDD2 shell opened by setup:
+devenv tasks run rdd2:firmware:build
 ```
 
 `setup` installs Nix when necessary, installs the workspace's pinned Devenv
-release, and enters the small base shell. From that shell, `sources:sync` clones
-the editable repositories into `src/` or fetches each repository's configured
-branch for an existing checkout. It never changes an existing checkout's active
-branch.
+release, saves the requested profile in the ignored `devenv.local.yaml`, and
+enters it with `devenv shell`. The local selection makes later unqualified
+`devenv` commands use the same profile. If a local file already exists with
+another configuration, `setup` leaves it untouched and asks you to update it
+explicitly. Run plain `./setup` to list the available profiles without entering
+a shell. Project tasks automatically clone any missing editable repositories
+into `src/`, then reuse those checkouts on later runs. Run `sources:sync`
+explicitly to fetch each repository's configured branch; it never changes an
+existing checkout's active branch.
 Most repositories use `main`; FastDyn temporarily starts at a verified revision
 of its external-configuration branch while the generic installation-root
 support is being upstreamed. Source sync fetches newer branch work without
@@ -85,8 +97,8 @@ choices.
 | `workspace` | Every tool and the published OCI shell | `container build shell` |
 | `ci` | Minimal workspace configuration validation | `test` |
 
-The example column is the portion after `devenv --profile <profile>`. With a
-default in `devenv.local.yaml`, omit `--profile <profile>`:
+The example column is the portion after `devenv -P <profile>`. With a
+default in `devenv.local.yaml`, omit `-P <profile>`:
 
 ```sh
 devenv tasks list
@@ -97,8 +109,8 @@ devenv up
 For a one-off different environment, override the local default:
 
 ```sh
-devenv --profile modelica shell
-devenv --profile rdd2 tasks run rdd2:simulation:bil:test
+devenv -P modelica shell
+devenv -P rdd2 tasks run rdd2:simulation:bil:test
 ```
 
 Task discovery is profile-scoped. The base environment shows only source and
@@ -106,18 +118,50 @@ workspace maintenance; each work profile adds the development tasks supported
 by its tools. Publication and cross-project qualification tasks appear only in
 the `release` and `workspace` profiles.
 
+Devenv 2.2.1 has a profile-completion limitation: task completion always reads
+the base `.devenv/task-names.txt`, even when `-P` or `devenv.local.yaml` selects
+another profile. `devenv tasks list` and task execution honor the selection,
+but tab completion can still show the base tasks. Use the selected profile's
+task list as the authoritative task inventory.
+
+Tasks that operate on an editable repository take a cross-process repository
+lock. Two agents can build different repositories concurrently, but tasks for
+the same repository wait rather than writing its build tree at the same time.
+An actual wait is announced with prominent `WAITING FOR REPOSITORY LOCK` and
+`ACQUIRED REPOSITORY LOCK` banners, including the holder PID when available.
+Cancelling a waiter does not leave a stale lock; the operating system releases
+the advisory lock with its process. These locks coordinate Devenv invocations
+from this workspace. Direct Cargo, West, CMake, npm, and other native commands
+remain independent and responsible for their project-owned build directories.
+
+### Terminal accessibility
+
+This workspace defaults to Devenv's plain renderer because the interactive
+display retains only a short tail of failed task output and fixes its failure
+color to ANSI color 160. Plain output preserves complete chronological errors
+and uses the terminal's configurable standard colors. To opt back into the
+interactive display for the current session:
+
+```sh
+export DEVENV_TUI=true
+```
+
+Configure the terminal's normal ANSI red to a brighter or color-blind-friendly
+color. With the interactive display, configure indexed color 160 instead; the
+exact setting depends on the terminal emulator.
+
 ### Exact tasks and namespaces
 
 Always use the complete task name shown by `devenv tasks list`. In Devenv, a
 bare namespace such as `devenv tasks run cubs2` means "run every task whose
 name begins with `cubs2:`"; it is not an alias for the usual build.
 
-Flashing additionally requires explicit confirmation, so namespace execution
-cannot write to connected hardware:
+Use the exact flash task rather than a namespace. CUBS2 requires an explicit
+confirmation input; RDD2 starts its project-owned flash command immediately:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:firmware:flash --input confirm=true
-devenv --profile rdd2 tasks run rdd2:firmware:flash --input confirm=true
+devenv -P cubs2 tasks run cubs2:firmware:flash --input confirm=true
+devenv -P rdd2 tasks run rdd2:firmware:flash
 ```
 
 ## Common work
@@ -125,14 +169,14 @@ devenv --profile rdd2 tasks run rdd2:firmware:flash --input confirm=true
 Use one `cubs2` profile for the complete vehicle workflow:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:modelica:test
-devenv --profile cubs2 tasks run cubs2:simulation:sil:test
-devenv --profile cubs2 tasks run cubs2:simulation:bil:test
-devenv --profile cubs2 tasks run cubs2:simulation:compare
-devenv --profile cubs2 tasks run cubs2:firmware:build
-devenv --profile cubs2 tasks run \
+devenv -P cubs2 tasks run cubs2:simulation:modelica:test
+devenv -P cubs2 tasks run cubs2:simulation:sil:test
+devenv -P cubs2 tasks run cubs2:simulation:bil:test
+devenv -P cubs2 tasks run cubs2:simulation:compare
+devenv -P cubs2 tasks run cubs2:firmware:build
+devenv -P cubs2 tasks run \
   cubs2:firmware:flash --input confirm=true
-devenv --profile cubs2 up
+devenv -P cubs2 up
 ```
 
 The first command runs the pure Modelica controller and physics with Rumoca.
@@ -149,11 +193,11 @@ deployment operations.
 Use the same workflow shape for RDD2:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:modelica:test
-devenv --profile rdd2 tasks run rdd2:simulation:sil:test
-devenv --profile rdd2 tasks run rdd2:simulation:bil:test
-devenv --profile rdd2 tasks run rdd2:simulation:compare
-devenv --profile rdd2 tasks run rdd2:firmware:build
+devenv -P rdd2 tasks run rdd2:simulation:modelica:test
+devenv -P rdd2 tasks run rdd2:simulation:sil:test
+devenv -P rdd2 tasks run rdd2:simulation:bil:test
+devenv -P rdd2 tasks run rdd2:simulation:compare
+devenv -P rdd2 tasks run rdd2:firmware:build
 ```
 
 SIL runs a host-built Zephyr binary with Rumoca physics; BIL rehosts the
@@ -164,12 +208,13 @@ Modelica runs both control and physics in Rumoca without Zephyr. See
 boundary.
 
 The first vehicle build initializes only that vehicle's isolated West
-workspace. Later builds reuse it. Fetch the current revisions from the
-project-owned manifest explicitly when desired:
+workspace and clones its missing editable source dependencies. Later builds
+reuse both. Fetch the current revisions from the project-owned manifest
+explicitly when desired:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:workspace:update
-devenv --profile rdd2 tasks run rdd2:workspace:update
+devenv -P cubs2 tasks run cubs2:workspace:update
+devenv -P rdd2 tasks run rdd2:workspace:update
 ```
 
 After `cubs2:firmware:build`, the principal firmware files are:
@@ -187,35 +232,43 @@ runner with `CUBS2_FLASH_RUNNER`, or set it to an empty string to let Zephyr
 choose:
 
 ```sh
-CUBS2_FLASH_RUNNER=jlink devenv --profile cubs2 tasks run \
+CUBS2_FLASH_RUNNER=jlink devenv -P cubs2 tasks run \
   cubs2:firmware:flash --input confirm=true
 ```
 
 Build or test the ground station without the full CUBS2 tool environment:
 
 ```sh
-devenv --profile electrode tasks run electrode-web:build
-devenv --profile electrode tasks run electrode-web:test
+devenv -P electrode tasks run electrode-web:build
+devenv -P electrode tasks run electrode-web:test
 ```
 
-For native Rumoca development, use Rumoca's project-owned flake so Cargo sees
-the exact nightly toolchain, components, WASM target, Node release, and native
-libraries selected by `rust-toolchain.toml` and `flake.nix`:
+For native Rumoca development, install the prerequisites documented by Rumoca
+and use its Cargo interface directly:
+
+```sh
+cd src/rumoca
+cargo build --workspace
+cargo xtask --help
+cargo xtask vscode edit
+```
+
+Opt into Rumoca's project-owned flake when you want the exact reproducible
+nightly toolchain, components, WASM target, Node release, and native libraries:
 
 ```sh
 cd src/rumoca
 nix develop
-cargo xtask --help
-cargo xtask vscode edit
+cargo xtask verify quick
 ```
 
 The root `modelica` profile is the cross-repository integration environment:
 
 ```sh
-devenv --profile modelica tasks run rumoca:compiler
-devenv --profile modelica tasks run modelica-models:test
-devenv --profile modelica tasks run modelica-models:cubs2:qualify
-devenv --profile modelica tasks run modelica-models:rdd2:qualify
+devenv -P modelica tasks run rumoca:compiler
+devenv -P modelica tasks run modelica-models:test
+devenv -P modelica tasks run modelica-models:cubs2:qualify
+devenv -P modelica tasks run modelica-models:rdd2:qualify
 ```
 
 This is the aerospace-engineering home: reusable vehicle templates, named
@@ -232,7 +285,7 @@ Run the deployed CUBS2 ground-station stack in the foreground with the native
 Devenv process manager:
 
 ```sh
-devenv --profile cubs2 up
+devenv -P cubs2 up
 ```
 
 This starts `electrode-ground-station`, waits for its health endpoint, and then
@@ -242,27 +295,27 @@ the configured PPM serial device.
 Run the operator UI with a no-serial fake vehicle instead of aircraft firmware:
 
 ```sh
-PPM_NO_SERIAL=true devenv --profile cubs2 up \
+PPM_NO_SERIAL=true devenv -P cubs2 up \
   electrode-ground-station electrode-ppm-bridge electrode-fake-vehicle
 ```
 
 Select other focused process entry points when needed:
 
 ```sh
-devenv --profile qualisys up synapse-qualisys-bridge
-devenv --profile ppm up synapse-ppm-bridge
+devenv -P qualisys up synapse-qualisys-bridge
+devenv -P ppm up synapse-ppm-bridge
 ```
 
 Use detached mode when you want to inspect or control processes from the same
 terminal:
 
 ```sh
-devenv --profile cubs2 up -d
-devenv --profile cubs2 processes wait --timeout 300
-devenv --profile cubs2 processes list
-devenv --profile cubs2 processes logs electrode-ground-station
-devenv --profile cubs2 processes restart electrode-ppm-bridge
-devenv --profile cubs2 processes down
+devenv -P cubs2 up -d
+devenv -P cubs2 processes wait --timeout 300
+devenv -P cubs2 processes list
+devenv -P cubs2 processes logs electrode-ground-station
+devenv -P cubs2 processes restart electrode-ppm-bridge
+devenv -P cubs2 processes down
 ```
 
 The CUBS2 PPM bridge defaults to `/dev/ttyACM0`; override it with
@@ -286,14 +339,18 @@ node modules, West workspaces, and build directories remain outside the Nix
 store and retain native incremental behavior. Shared ccache and sccache state
 lives below `.devenv/cache/`.
 
+These task edges apply only when invoking Devenv. They do not replace a
+vehicle's standalone West workflow or make Nix a prerequisite for building its
+Zephyr application outside this workspace.
+
 See [Project environments](docs/project-environments.md) for the detailed
 project-flake boundary.
 
 ## Qualify and publish the workspace environment
 
 ```sh
-devenv --profile release tasks run release:qualify
-devenv --profile release tasks run release:all
+devenv -P release tasks run release:qualify
+devenv -P release tasks run release:all
 ```
 
 These commands qualify integrations, packages, and firmware without publishing

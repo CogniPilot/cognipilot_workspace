@@ -353,11 +353,11 @@ in
           env.COGNIPILOT_PROFILE = "cubs2";
 
           enterShell = ''
-            echo "CUBS2 firmware:   devenv tasks run cubs2:firmware:build"
-            echo "CUBS2 Modelica:   devenv tasks run cubs2:simulation:modelica:test"
-            echo "CUBS2 SIL test:   devenv tasks run cubs2:simulation:sil:test"
-            echo "CUBS2 BIL test:   devenv tasks run cubs2:simulation:bil:test"
-            echo "CUBS2 deployment: devenv up"
+            echo "CUBS2 firmware:   devenv -P cubs2 tasks run cubs2:firmware:build"
+            echo "CUBS2 Modelica:   devenv -P cubs2 tasks run cubs2:simulation:modelica:test"
+            echo "CUBS2 SIL test:   devenv -P cubs2 tasks run cubs2:simulation:sil:test"
+            echo "CUBS2 BIL test:   devenv -P cubs2 tasks run cubs2:simulation:bil:test"
+            echo "CUBS2 deployment: devenv -P cubs2 up"
             echo "CUBS2 guide:      docs/cubs2.md"
           '';
 
@@ -513,10 +513,10 @@ in
         ];
         env.COGNIPILOT_PROFILE = "rdd2";
         enterShell = ''
-          echo "RDD2 firmware: devenv tasks run rdd2:firmware:build"
-          echo "RDD2 Modelica: devenv tasks run rdd2:simulation:modelica:test"
-          echo "RDD2 SIL test: devenv tasks run rdd2:simulation:sil:test"
-          echo "RDD2 BIL test: devenv tasks run rdd2:simulation:bil:test"
+          echo "RDD2 firmware: devenv -P rdd2 tasks run rdd2:firmware:build"
+          echo "RDD2 Modelica: devenv -P rdd2 tasks run rdd2:simulation:modelica:test"
+          echo "RDD2 SIL test: devenv -P rdd2 tasks run rdd2:simulation:sil:test"
+          echo "RDD2 BIL test: devenv -P rdd2 tasks run rdd2:simulation:bil:test"
           echo "RDD2 guide:    docs/rdd2.md"
         '';
       };

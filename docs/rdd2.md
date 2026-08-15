@@ -1,5 +1,12 @@
 # RDD2 developer workflow
 
+This page describes the optional cross-repository Devenv workflow. RDD2 itself
+remains a standalone Zephyr application: follow `src/cerebri_rdd2/README.md` to
+initialize its `west.yml` and use `west update`, `west build`, and `west flash`
+without Nix. The project's `flake.nix` is a separate opt-in reproducible tool
+environment, while the root Devenv adds editable workspace dependencies and
+task ordering.
+
 Use one `rdd2` profile for West development, firmware, SIL builds, BIL mission
 tests, and deployment:
 
@@ -8,36 +15,41 @@ tests, and deployment:
 profile: rdd2
 ```
 
-Enter it with `devenv shell`, or prefix a one-off command with
-`devenv --profile rdd2`. The profile includes both Zephyr toolchains, RDD2's
-isolated West workspace, editable Synapse/CSyn/ZROS dependencies, the local
-Rumoca compiler, and the FastDyn/QEMU BIL toolchain.
+On first setup, run `./setup rdd2`. It selects `rdd2` in the ignored
+`devenv.local.yaml` and enters it with `devenv shell`, so later unqualified
+`devenv` commands use RDD2 too. Without a local selection, use
+`devenv -P rdd2 shell` and prefix one-off commands with `devenv -P rdd2`. The
+profile includes both Zephyr toolchains, RDD2's isolated West workspace,
+editable Synapse/CSyn/ZROS dependencies, the local Rumoca compiler, and the
+FastDyn/QEMU BIL toolchain. See the root README for Devenv's current
+profile-task completion limitation.
 
 ## Choose the workflow
 
 | Goal | Entry point | Result |
 | --- | --- | --- |
-| Build flight firmware | `devenv tasks run rdd2:firmware:build` | Cortex-M7 `mr_vmu_tropic` image |
-| Configure flight firmware | `devenv tasks run rdd2:firmware:configure` | Project-owned menuconfig for the hardware build |
-| Run pure Modelica | `devenv tasks run rdd2:simulation:modelica:test` | Modelica controller and Modelica physics executed by Rumoca |
-| Run host SIL | `devenv tasks run rdd2:simulation:sil:test` | 64-bit Zephyr `native_sim`, FMI 3 plant, and mission report |
-| Check 32-bit host compatibility | `devenv tasks run rdd2:simulation:sil:build-32` | 32-bit `native_sim` executable |
-| Run closed-loop BIL | `devenv tasks run rdd2:simulation:bil:test` | FastDyn/QEMU mission report for the Cortex-M7 binary |
-| Compare every simulation fidelity | `devenv tasks run rdd2:simulation:compare` | Gold log, error gates, HTML report, and overlaid plots |
-| Flash a controller | `devenv tasks run rdd2:firmware:flash --input confirm=true` | Previously built hardware image |
+| Build flight firmware | `devenv -P rdd2 tasks run rdd2:firmware:build` | Cortex-M7 `mr_vmu_tropic` image |
+| Configure flight firmware | `devenv -P rdd2 tasks run rdd2:firmware:configure` | Project-owned menuconfig for the hardware build |
+| Run pure Modelica | `devenv -P rdd2 tasks run rdd2:simulation:modelica:test` | Modelica controller and Modelica physics executed by Rumoca |
+| Run host SIL | `devenv -P rdd2 tasks run rdd2:simulation:sil:test` | 64-bit Zephyr `native_sim`, FMI 3 plant, and mission report |
+| Check 32-bit host compatibility | `devenv -P rdd2 tasks run rdd2:simulation:sil:build-32` | 32-bit `native_sim` executable |
+| Run closed-loop BIL | `devenv -P rdd2 tasks run rdd2:simulation:bil:test` | FastDyn/QEMU mission report for the Cortex-M7 binary |
+| Compare every simulation fidelity | `devenv -P rdd2 tasks run rdd2:simulation:compare` | Gold log, error gates, HTML report, and overlaid plots |
+| Flash a controller | `devenv -P rdd2 tasks run rdd2:firmware:flash` | Previously built hardware image |
 
 ## West and firmware development
 
 Build the default hardware target:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:firmware:build
+devenv -P rdd2 tasks run rdd2:firmware:build
 ```
 
-The first build initializes `.devenv/state/west/rdd2/` from RDD2's own
-`west.yml`. The task passes editable Cerebri modules, CSyn, ZROS, generated
-Synapse C, and the local Rumoca compiler into the project flake. Normal rebuilds
-reuse the isolated West checkout and the project build directory.
+The first build clones missing editable source dependencies and initializes
+`.devenv/state/west/rdd2/` from RDD2's own `west.yml`. The task passes editable
+Cerebri modules, CSyn, ZROS, generated Synapse C, and the local Rumoca compiler
+into the project flake. Normal rebuilds reuse the source checkouts, isolated
+West checkout, and project build directory.
 
 Expected firmware artifacts are:
 
@@ -49,14 +61,14 @@ src/cerebri_rdd2/build-mr_vmu_tropic/zephyr/zephyr.bin
 Open Kconfig and rebuild without changing profiles:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:firmware:configure
-devenv --profile rdd2 tasks run rdd2:firmware:build
+devenv -P rdd2 tasks run rdd2:firmware:configure
+devenv -P rdd2 tasks run rdd2:firmware:build
 ```
 
 Update West revisions only when intended:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:workspace:update
+devenv -P rdd2 tasks run rdd2:workspace:update
 ```
 
 RDD2 and CUBS2 never share `.west`, Zephyr, module, or model directories.
@@ -66,7 +78,7 @@ RDD2 and CUBS2 never share `.west`, Zephyr, module, or model directories.
 Build the actual RDD2 application for Zephyr's 64-bit host simulator:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:sil:build
+devenv -P rdd2 tasks run rdd2:simulation:sil:build
 ```
 
 The output is:
@@ -79,7 +91,7 @@ Run that firmware against the event-aware FMI 3 plant generated from the same
 Modelica package used by the other phases:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:sil:test
+devenv -P rdd2 tasks run rdd2:simulation:sil:test
 ```
 
 The task applies RDD2's `tests/zephyr/native_sil.conf`; the resulting binary
@@ -90,7 +102,7 @@ and writes `src/cerebri_rdd2/artifacts/sil/mission.json`. Build the 32-bit
 compatibility target separately:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:sil:build-32
+devenv -P rdd2 tasks run rdd2:simulation:sil:build-32
 ```
 
 Its output is under `src/cerebri_rdd2/build-native_sim32/`.
@@ -103,7 +115,7 @@ runner creates and sequences `RDD2_LOCKSTEP_SHM` and advances the FMI plant.
 Run RDD2's complete closed-loop regression with the hardware-target binary:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:bil:test
+devenv -P rdd2 tasks run rdd2:simulation:bil:test
 ```
 
 The task graph:
@@ -133,7 +145,7 @@ equations.
 Build all BIL components without running the mission:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:bil:build
+devenv -P rdd2 tasks run rdd2:simulation:bil:build
 ```
 
 Adjust the project-owned mission settings with environment variables:
@@ -141,7 +153,7 @@ Adjust the project-owned mission settings with environment variables:
 ```sh
 RDD2_FASTDYN_MISSION_DURATION_S=30 \
 RDD2_FASTDYN_PLANT_DT_S=0.01 \
-devenv --profile rdd2 tasks run rdd2:simulation:bil:test
+devenv -P rdd2 tasks run rdd2:simulation:bil:test
 ```
 
 Other useful settings are `RDD2_FASTDYN_MIN_SPEEDUP`,
@@ -167,7 +179,7 @@ Run the same takeoff, roll command, pitch command, descent, contact, and disarm
 mission through the pure Modelica, SIL, and BIL paths:
 
 ```sh
-devenv --profile rdd2 tasks run rdd2:simulation:compare
+devenv -P rdd2 tasks run rdd2:simulation:compare
 ```
 
 The common model includes the reusable complementary attitude estimator; RDD2
@@ -197,18 +209,18 @@ gold standard by converting it to
 
 ## Flash and deploy
 
-Flash only with explicit confirmation:
+Flash the previously built image:
 
 ```sh
-devenv --profile rdd2 tasks run \
-  rdd2:firmware:flash --input confirm=true
+devenv -P rdd2 tasks run \
+  rdd2:firmware:flash
 ```
 
 Select another project-supported runner with `RDD2_FLASH_RUNNER`, for example:
 
 ```sh
-RDD2_FLASH_RUNNER=jlink devenv --profile rdd2 tasks run \
-  rdd2:firmware:flash --input confirm=true
+RDD2_FLASH_RUNNER=jlink devenv -P rdd2 tasks run \
+  rdd2:firmware:flash
 ```
 
 Flashing is never a dependency of build, configure, simulation, shell entry,
@@ -216,7 +228,7 @@ or process startup.
 
 ## Exact task names
 
-Use an exact leaf task from `devenv --profile rdd2 tasks list`. A namespace
+Use an exact leaf task from `devenv -P rdd2 tasks list`. A namespace
 such as `rdd2:simulation` selects all descendants, including both expensive
 BIL work and SIL builds. It is not a launch preset or alias.
 

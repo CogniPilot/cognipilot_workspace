@@ -2,15 +2,37 @@
 set -eu
 
 check=false
+profile=
 case "${1:-}" in
   "") ;;
   --check) check=true ;;
   -h|--help)
-    printf '%s\n' 'Usage: ./setup [--check]'
+    printf '%s\n' \
+      'Usage: ./setup [PROFILE]' \
+      '       ./setup --check' \
+      '' \
+      'Install Nix and the pinned Devenv release. With PROFILE, enter that' \
+      'development shell and save it in devenv.local.yaml. Without PROFILE,' \
+      'list the available profiles.' \
+      '' \
+      'Example: ./setup rdd2'
     exit 0
     ;;
-  *)
+  -*)
     printf 'setup: unknown option: %s\n' "$1" >&2
+    exit 2
+    ;;
+  *) profile=$1 ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+  printf '%s\n' 'setup: expected at most one profile' >&2
+  exit 2
+fi
+
+case "$profile" in
+  *[!A-Za-z0-9_-]*)
+    printf 'setup: invalid profile name: %s\n' "$profile" >&2
     exit 2
     ;;
 esac
@@ -39,16 +61,51 @@ if ! command -v nix >/dev/null 2>&1; then
   load_nix
 fi
 
-devenv_ref='github:cachix/devenv/407080febcc800abfd0fd688a0d513884aad620c'
-if ! command -v devenv >/dev/null 2>&1 ||
-  ! devenv version 2>/dev/null | grep -q '^devenv 2\.1\.3+407080f '
+devenv_ref='github:cachix/devenv/8f297eae651cb47fb1e8f7c19b942462aa879636'
+profile_devenv="$HOME/.nix-profile/bin/devenv"
+if [ -x "$profile_devenv" ] &&
+  "$profile_devenv" version 2>/dev/null | grep -q '^devenv 2\.2\.1+8f297ea '
 then
+  devenv_bin=$profile_devenv
+elif command -v devenv >/dev/null 2>&1 &&
+  devenv version 2>/dev/null | grep -q '^devenv 2\.2\.1+8f297ea '
+then
+  devenv_bin=$(command -v devenv)
+else
   nix profile remove devenv >/dev/null 2>&1 || true
   nix profile add "$devenv_ref"
+  devenv_bin=$profile_devenv
 fi
 
 if [ "$check" = true ]; then
-  exec devenv test
+  exec "$devenv_bin" test
 fi
 
-exec devenv shell
+if [ -n "$profile" ]; then
+  if [ -e devenv.local.yaml ]; then
+    if ! grep -Eq \
+      "^[[:space:]]*profile:[[:space:]]*${profile}[[:space:]]*(#.*)?$" \
+      devenv.local.yaml
+    then
+      printf '%s\n' \
+        'setup: devenv.local.yaml already exists and selects another configuration.' \
+        "Set 'profile: $profile' there, then run 'devenv shell'." >&2
+      exit 1
+    fi
+  else
+    if ! "$devenv_bin" -P "$profile" eval env.COGNIPILOT_PROFILE >/dev/null 2>&1; then
+      printf 'setup: unknown Devenv profile: %s\n' "$profile" >&2
+      printf '%s\n' 'Run plain ./setup to list the available profiles.' >&2
+      exit 1
+    fi
+    printf 'profile: %s\n' "$profile" >devenv.local.yaml
+    printf 'setup: selected %s in devenv.local.yaml\n' "$profile"
+  fi
+  exec "$devenv_bin" shell
+fi
+
+# Evaluate the configured shell non-interactively so its entry message can
+# derive the profiles declared by devenv.nix without maintaining another list.
+COGNIPILOT_LIST_PROFILES=true
+export COGNIPILOT_LIST_PROFILES
+exec "$devenv_bin" shell -- true

@@ -51,14 +51,14 @@ and qualification. The vehicle profile exposes the library's explicit export
 steps when an interface artifact is needed:
 
 ```sh
-devenv --profile cubs2 tasks run modelica-models:cubs2:qualify
-devenv --profile cubs2 tasks run modelica-models:cubs2:export-controller
-devenv --profile cubs2 tasks run modelica-models:cubs2:export-plant
+devenv -P cubs2 tasks run modelica-models:cubs2:qualify
+devenv -P cubs2 tasks run modelica-models:cubs2:export-controller
+devenv -P cubs2 tasks run modelica-models:cubs2:export-plant
 
-devenv --profile rdd2 tasks run modelica-models:rdd2:qualify
-devenv --profile rdd2 tasks run modelica-models:rdd2:export-controller
-devenv --profile rdd2 tasks run modelica-models:rdd2:export-estimator
-devenv --profile rdd2 tasks run modelica-models:rdd2:export-plant
+devenv -P rdd2 tasks run modelica-models:rdd2:qualify
+devenv -P rdd2 tasks run modelica-models:rdd2:export-controller
+devenv -P rdd2 tasks run modelica-models:rdd2:export-estimator
+devenv -P rdd2 tasks run modelica-models:rdd2:export-plant
 ```
 
 Controller and estimator exports are eFMI Production Code. Plant exports are
@@ -94,8 +94,8 @@ update an existing manifest. Run the explicit update only when you want the
 revisions selected by the vehicle's current `west.yml`:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:workspace:update
-devenv --profile rdd2 tasks run rdd2:workspace:update
+devenv -P cubs2 tasks run cubs2:workspace:update
+devenv -P rdd2 tasks run rdd2:workspace:update
 ```
 
 This separation lets a developer update or temporarily modify one vehicle's
@@ -106,26 +106,26 @@ Zephyr dependencies without changing the other vehicle.
 Build the normal hardware image without touching a device:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:firmware:build
-devenv --profile rdd2 tasks run rdd2:firmware:build
+devenv -P cubs2 tasks run cubs2:firmware:build
+devenv -P rdd2 tasks run rdd2:firmware:build
 ```
 
 Build the host-native SIL image:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:sil:build
-devenv --profile rdd2 tasks run rdd2:simulation:sil:build
+devenv -P cubs2 tasks run cubs2:simulation:sil:build
+devenv -P rdd2 tasks run rdd2:simulation:sil:build
 ```
 
 Run the available finite regression for each vehicle:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:modelica:test
-devenv --profile cubs2 tasks run cubs2:simulation:sil:test
-devenv --profile cubs2 tasks run cubs2:simulation:bil:test
-devenv --profile rdd2 tasks run rdd2:simulation:modelica:test
-devenv --profile rdd2 tasks run rdd2:simulation:sil:test
-devenv --profile rdd2 tasks run rdd2:simulation:bil:test
+devenv -P cubs2 tasks run cubs2:simulation:modelica:test
+devenv -P cubs2 tasks run cubs2:simulation:sil:test
+devenv -P cubs2 tasks run cubs2:simulation:bil:test
+devenv -P rdd2 tasks run rdd2:simulation:modelica:test
+devenv -P rdd2 tasks run rdd2:simulation:sil:test
+devenv -P rdd2 tasks run rdd2:simulation:bil:test
 ```
 
 The BIL tasks share FastDyn build artifacts but build different vehicle
@@ -138,8 +138,8 @@ stale, runs a bounded scenario, evaluates it, and exits.
 Run the complete fidelity comparison for either vehicle with one leaf task:
 
 ```sh
-devenv --profile cubs2 tasks run cubs2:simulation:compare
-devenv --profile rdd2 tasks run rdd2:simulation:compare
+devenv -P cubs2 tasks run cubs2:simulation:compare
+devenv -P rdd2 tasks run rdd2:simulation:compare
 ```
 
 The task depends on that vehicle's pure Modelica, SIL, and BIL missions. Each
@@ -175,7 +175,7 @@ log to the seven canonical fields, then select it explicitly:
 ```sh
 CUBS2_TRAJECTORY_REFERENCE_LABEL=flight-2026-07-16 \
 CUBS2_TRAJECTORY_REFERENCE=/absolute/path/to/flight.csv \
-  devenv --profile cubs2 tasks run cubs2:simulation:compare
+  devenv -P cubs2 tasks run cubs2:simulation:compare
 ```
 
 RDD2 uses the corresponding `RDD2_TRAJECTORY_REFERENCE_LABEL` and
@@ -209,7 +209,7 @@ For options that are not part of the stable workspace workflow, enter the
 vehicle profile and invoke the project-owned app directly:
 
 ```sh
-devenv --profile cubs2 shell
+devenv -P cubs2 shell
 cd src/cerebri_cubs2
 nix run .#native-sim-64-sil-run -- --help
 ```

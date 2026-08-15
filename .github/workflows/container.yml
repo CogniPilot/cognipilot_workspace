@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEVENV_REF: 407080febcc800abfd0fd688a0d513884aad620c
+  DEVENV_REF: 8f297eae651cb47fb1e8f7c19b942462aa879636
 
 jobs:
   validate:
